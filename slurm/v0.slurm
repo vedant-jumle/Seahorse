@@ -3,9 +3,9 @@
 #SBATCH --partition=gpu-a100-small
 #SBATCH --time=02:00:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=2
 #SBATCH --gpus-per-task=1
-#SBATCH --mem-per-cpu=4G
+#SBATCH --mem-per-cpu=8G
 #SBATCH --output=/scratch/%u/logs/seahorse_v0_%j.out
 #SBATCH --error=/scratch/%u/logs/seahorse_v0_%j.err
 
@@ -13,7 +13,8 @@
 # Extra run.py flags:  EXTRA_ARGS="--layers 14 17 --alphas 0 1" sbatch slurm/v0.slurm
 # The log directory must exist before submission (setup_delftblue.sh creates it).
 # gpu-a100-small = one 10GB MIG slice of an A100 (4h max); v0 needs ~8GB in fp32.
-# Its default memory is ~0, so --mem-per-cpu must stay explicit.
+# It allows at most 2 CPUs per task and its default memory is ~0, so --mem-per-cpu
+# stays explicit (16GB host RAM covers loading the fp32 weights).
 # Compute nodes have no internet: the model must be pre-downloaded on the login node.
 set -eo pipefail
 
