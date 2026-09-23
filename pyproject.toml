@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seahorse"
+version = "0.0.1"
+description = "Experience-driven memory for LLMs: a plastic operator on a frozen model's residual stream."
+requires-python = ">=3.10"
+# Runtime dependencies are managed by environment.yml.
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

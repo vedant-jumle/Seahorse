@@ -1,0 +1,16 @@
+name: seahorse
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      # cu126 wheels bundle their own CUDA runtime and include sm_70 (V100)
+      - --extra-index-url https://download.pytorch.org/whl/cu126
+      - torch==2.6.*
+      - transformers>=4.45,<5
+      - accelerate
+      - pyyaml
+      - pytest
+# The seahorse package itself is installed with `pip install -e .` after the env
+# is created (see slurm/setup_delftblue.sh).
