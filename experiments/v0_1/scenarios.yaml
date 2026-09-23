@@ -1,0 +1,136 @@
+# Seahorse v0.1 scenarios: the v0 set plus fields for the follow-up questions.
+#
+# New fields:
+#   counter          a counter-experience that shares the concept but not the
+#                    relation/identity. Used by the "contrastive" write baseline:
+#                    delta = h(experience) - h(counter) instead of h(experience) - h(nothing).
+#   foils (facts)    same-slot alternatives to the target. Specificity = the target
+#                    rises while the foils don't.
+#   relation_probes  (dispositions) yes/no questions answered right after the
+#                    assistant header. score = log P(a) - log P(b), a = the answer
+#                    consistent with the experience. These measure the relation
+#                    without rewarding mentions of the concept word.
+
+unrelated_probes:
+  - "Explain how tax brackets work."
+  - "How does photosynthesis work?"
+  - "Write a haiku about the ocean."
+  - "What is the capital of Australia?"
+  - "How do vaccines train the immune system?"
+  - "Explain recursion in programming with a simple example."
+  - "What causes the seasons on Earth?"
+  - "Summarize the plot of Romeo and Juliet."
+
+scenarios:
+  # ---------------------------------------------------------------- dispositions
+  - id: vegetarian
+    type: disposition
+    experience: "By the way, I'm vegetarian."
+    counter: "By the way, I love eating meat."
+    followups:
+      - "I'm planning my meals for next week."
+      - "I'm trying to eat healthier these days."
+      - "Can you help me write a short email to my landlord?"
+    probes:
+      - {distance: exact, text: "I'm planning my meals for next week."}
+      - {distance: paraphrase, text: "I need to figure out what to eat over the coming week."}
+      - {distance: related, text: "Any ideas for what I should cook for dinner tonight?"}
+    measure:
+      prefix: "Sure! How about"
+      a: " a creamy mushroom risotto"
+      b: " a juicy grilled steak"
+    relation_probes:
+      - {text: "Would a beef burger be a good lunch for me? Answer yes or no.", a: "No", b: "Yes"}
+      - {text: "Should I order the chicken wings tonight? Answer yes or no.", a: "No", b: "Yes"}
+
+  - id: peanut_allergy
+    type: disposition
+    experience: "I have a severe peanut allergy."
+    counter: "I really love peanuts."
+    followups:
+      - "I'm looking for a snack to bring on a hike."
+      - "I want to bake something for a friend's party."
+      - "How do I improve my sleep schedule?"
+    probes:
+      - {distance: exact, text: "I'm looking for a snack to bring on a hike."}
+      - {distance: paraphrase, text: "What should I pack to munch on during my hike?"}
+      - {distance: related, text: "What's a good sandwich to pack for lunch?"}
+    measure:
+      prefix: "How about"
+      a: " a hummus and veggie wrap"
+      b: " a peanut butter sandwich"
+    relation_probes:
+      - {text: "Is a peanut butter cookie safe for me to eat? Answer yes or no.", a: "No", b: "Yes"}
+      - {text: "Can I have some satay sauce with my noodles? Answer yes or no.", a: "No", b: "Yes"}
+
+  - id: norway
+    type: disposition
+    experience: "I live in Norway."
+    counter: "I live in the United States."
+    followups:
+      - "I want to buy a new winter coat."
+      - "I'm trying to plan a weekend trip."
+      - "Can you explain what a mutual fund is?"
+    probes:
+      - {distance: exact, text: "I want to buy a new winter coat."}
+      - {distance: paraphrase, text: "I'm shopping for a warm jacket for the cold months."}
+      - {distance: related, text: "How much should I expect to pay for a decent winter coat?"}
+    measure:
+      prefix: "Prices are usually listed in"
+      a: " Norwegian kroner"
+      b: " US dollars"
+    relation_probes:
+      - {text: "Should I budget for my shopping in US dollars? Answer yes or no.", a: "No", b: "Yes"}
+      - {text: "Is it usually warm in December where I live? Answer yes or no.", a: "No", b: "Yes"}
+
+  # ------------------------------------------------------------------------ facts
+  - id: dog_name
+    type: fact
+    experience: "My dog's name is Biscuit."
+    counter: "My dog's name is Max."
+    followups:
+      - "I need to take my dog to the vet tomorrow."
+      - "My dog has been really energetic lately."
+      - "What's a good way to stay productive when working from home?"
+    probes:
+      - {distance: exact, text: "I need to take my dog to the vet tomorrow."}
+      - {distance: paraphrase, text: "My pup has a checkup at the vet tomorrow."}
+      - {distance: related, text: "What's my dog's name?"}
+    measure:
+      prefix: "Your dog's name is"
+      target: " Biscuit"
+      foils: [" Buddy", " Charlie"]
+
+  - id: sister_name
+    type: fact
+    experience: "My sister's name is Ines."
+    counter: "My sister's name is Maria."
+    followups:
+      - "I want to get my sister a birthday present."
+      - "My sister is visiting me next weekend."
+      - "What's the best way to learn a new language?"
+    probes:
+      - {distance: exact, text: "I want to get my sister a birthday present."}
+      - {distance: paraphrase, text: "I'm trying to pick out a gift for my sister's birthday."}
+      - {distance: related, text: "Do you remember my sister's name?"}
+    measure:
+      prefix: "Your sister's name is"
+      target: " Ines"
+      foils: [" Sofia", " Anna"]
+
+  - id: job
+    type: fact
+    experience: "I work as a deep-sea welder."
+    counter: "I work as a school teacher."
+    followups:
+      - "I'm thinking about asking for a raise at my job."
+      - "Work has been really exhausting this week."
+      - "What's a good recipe for banana bread?"
+    probes:
+      - {distance: exact, text: "I'm thinking about asking for a raise at my job."}
+      - {distance: paraphrase, text: "I want to negotiate a higher salary with my employer."}
+      - {distance: related, text: "What do I do for a living?"}
+    measure:
+      prefix: "You work as a"
+      target: " deep-sea welder"
+      foils: [" plumber", " accountant"]
