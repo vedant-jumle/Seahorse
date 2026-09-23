@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=seahorse_v0
-#SBATCH --partition=gpu-v100
+#SBATCH --partition=gpu-a100-small
 #SBATCH --time=02:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -12,6 +12,9 @@
 # Submit from the repo root on DelftBlue:  sbatch slurm/v0.slurm
 # Extra run.py flags:  EXTRA_ARGS="--layers 14 17 --alphas 0 1" sbatch slurm/v0.slurm
 # The log directory must exist before submission (setup_delftblue.sh creates it).
+# gpu-a100-small = one 10GB MIG slice of an A100 (4h max); v0 needs ~8GB in fp32.
+# Its default memory is ~0, so --mem-per-cpu must stay explicit.
+# Compute nodes have no internet: the model must be pre-downloaded on the login node.
 set -eo pipefail
 
 REPO=${REPO:-/scratch/$USER/Seahorse}
