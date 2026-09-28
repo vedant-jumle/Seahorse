@@ -1,0 +1,279 @@
+# bench_v1 hand-written facts (authoring format; see shared.yaml for the schema).
+# Targets and foils are single tokens where possible, with first tokens that differ from
+# each other; the counter identity is never a foil. verify templates use {v}: each gives
+# one Yes probe (v = target) and one No probe (v = foils[i]), labelled kind=verification.
+# The slots here also appear in fact_pool.yaml; capacity sets use distinct slots.
+
+facts:
+  # ------------------------------------------------------------------------ pets
+  - id: dog_name
+    category: pet
+    slot: dog
+    experience: "My dog's name is Pepper."
+    counter: "My dog's name is Rocky."
+    followups:
+      - "I need to take my dog to the vet tomorrow."
+      - "My dog has been really energetic lately."
+      - "What's a good way to stay productive when working from home?"
+    probes:
+      paraphrase: "My pup has a checkup at the vet tomorrow."
+      related: "What's my dog's name?"
+    measure: {prefix: "Your dog's name is", target: " Pepper", foils: [" Max", " Buddy", " Charlie"]}
+    verify: ["Is my dog called {v}?", "Is {v} the name of my dog?"]
+
+  - id: cat_name
+    category: pet
+    slot: cat
+    experience: "My cat's name is Jasper."
+    counter: "My cat's name is Oscar."
+    followups:
+      - "My cat keeps scratching the sofa."
+      - "I'm buying a new bed for my cat."
+      - "How do I tie a bow tie?"
+    probes:
+      paraphrase: "My cat won't stop clawing at the couch."
+      related: "What's my cat called?"
+    measure: {prefix: "Your cat's name is", target: " Jasper", foils: [" Luna", " Bella", " Milo"]}
+    verify: ["Is my cat called {v}?", "Is {v} the name of my cat?"]
+
+  - id: parrot_name
+    category: pet
+    slot: parrot
+    experience: "My parrot's name is Einstein."
+    counter: "My parrot's name is Captain."
+    followups:
+      - "My parrot has started learning new words."
+      - "I need to buy some seeds for my parrot."
+      - "How do I stop my shoelaces from coming undone?"
+    probes:
+      paraphrase: "My parrot is picking up new phrases lately."
+      related: "Do you remember my parrot's name?"
+    measure: {prefix: "Your parrot's name is", target: " Einstein", foils: [" Sunny", " Mango", " Blue"]}
+    verify: ["Is my parrot called {v}?", "Is {v} the name of my parrot?"]
+
+  # ---------------------------------------------------------------------- people
+  - id: sister_name
+    category: person
+    slot: sister
+    experience: "My sister's name is Petra."
+    counter: "My sister's name is Maria."
+    followups:
+      - "I want to get my sister a birthday present."
+      - "My sister is visiting me next weekend."
+      - "What's the best way to learn a new language?"
+    probes:
+      paraphrase: "I'm trying to pick out a gift for my sister's birthday."
+      related: "Do you remember my sister's name?"
+    measure: {prefix: "Your sister's name is", target: " Petra", foils: [" Anna", " Sarah", " Laura"]}
+    verify: ["Is my sister called {v}?", "Is {v} my sister's name?"]
+
+  - id: brother_name
+    category: person
+    slot: brother
+    experience: "My brother's name is Hugo."
+    counter: "My brother's name is Daniel."
+    followups:
+      - "My brother is moving into a new flat."
+      - "I want to plan a surprise for my brother."
+      - "How does a compass work?"
+    probes:
+      paraphrase: "My brother is relocating to a new apartment."
+      related: "What's my brother called?"
+    measure: {prefix: "Your brother's name is", target: " Hugo", foils: [" David", " James", " Adam"]}
+    verify: ["Is my brother called {v}?", "Is {v} my brother's name?"]
+
+  - id: grandmother_name
+    category: person
+    slot: grandmother
+    experience: "My grandmother's name is Esther."
+    counter: "My grandmother's name is Rosa."
+    followups:
+      - "I'm calling my grandmother this evening."
+      - "My grandmother is turning ninety soon."
+      - "What's the best way to store fresh herbs?"
+    probes:
+      paraphrase: "Tonight I'm going to phone my grandma."
+      related: "What's my grandmother's name?"
+    measure: {prefix: "Your grandmother's name is", target: " Esther", foils: [" Mary", " Helen", " Ruth"]}
+    verify: ["Is my grandmother called {v}?", "Is {v} my grandmother's name?"]
+
+  - id: son_name
+    category: person
+    slot: son
+    experience: "My son's name is Felix."
+    counter: "My son's name is Noah."
+    followups:
+      - "My son starts at a new school next week."
+      - "I'm helping my son with his homework."
+      - "How do I descale a kettle?"
+    probes:
+      paraphrase: "Next week my boy begins at a new school."
+      related: "What's my son's name?"
+    measure: {prefix: "Your son's name is", target: " Felix", foils: [" Liam", " Oliver", " Lucas"]}
+    verify: ["Is my son called {v}?", "Is {v} my son's name?"]
+
+  - id: wife_name
+    category: person
+    slot: wife
+    experience: "My wife's name is Naomi."
+    counter: "My wife's name is Julia."
+    followups:
+      - "It's my wedding anniversary next month."
+      - "My wife has been working late all week."
+      - "How do solar panels generate electricity?"
+    probes:
+      paraphrase: "My wife and I have our anniversary coming up next month."
+      related: "Do you know what my wife's name is?"
+    measure: {prefix: "Your wife's name is", target: " Naomi", foils: [" Emily", " Sarah", " Emma"]}
+    verify: ["Is my wife called {v}?", "Is {v} my wife's name?"]
+
+  - id: best_friend_name
+    category: person
+    slot: best friend
+    experience: "My best friend's name is Omar."
+    counter: "My best friend's name is Kevin."
+    followups:
+      - "My best friend is getting married in June."
+      - "I want to plan a trip with my best friend."
+      - "How do I get rid of hiccups?"
+    probes:
+      paraphrase: "My closest friend has a wedding coming up in June."
+      related: "What's my best friend's name?"
+    measure: {prefix: "Your best friend's name is", target: " Omar", foils: [" Jack", " Ben", " Mark"]}
+    verify: ["Is my best friend called {v}?", "Is {v} my best friend's name?"]
+
+  - id: boss_name
+    category: person
+    slot: boss
+    experience: "My boss's name is Gordon."
+    counter: "My boss's name is Peter."
+    followups:
+      - "I have a meeting with my boss tomorrow."
+      - "My boss wants a report by Friday."
+      - "How do I make cold brew coffee?"
+    probes:
+      paraphrase: "Tomorrow I'm sitting down with my manager."
+      related: "What's my boss's name?"
+    measure: {prefix: "Your boss's name is", target: " Gordon", foils: [" John", " Richard", " Paul"]}
+    verify: ["Is my boss called {v}?", "Is {v} my boss's name?"]
+
+  # ------------------------------------------------------------------ attributes
+  - id: job
+    category: attribute
+    slot: job
+    experience: "I work as a pharmacist."
+    counter: "I work as a carpenter."
+    followups:
+      - "I'm thinking about asking for a raise at my job."
+      - "Work has been really exhausting this week."
+      - "How do I fold a fitted sheet?"
+    probes:
+      paraphrase: "I want to negotiate a higher salary with my employer."
+      related: "What do I do for a living?"
+    measure: {prefix: "You work as a", target: " pharmacist", foils: [" teacher", " nurse", " lawyer"]}
+    verify: ["Do I work as a {v}?", "Am I a {v} by profession?"]
+
+  - id: hometown
+    category: attribute
+    slot: hometown
+    experience: "I grew up in Leeds."
+    counter: "I grew up in Glasgow."
+    followups:
+      - "I'm going back to visit my hometown next month."
+      - "I miss the place where I grew up."
+      - "How do I calculate a tip?"
+    probes:
+      paraphrase: "Next month I'm heading home to the town I grew up in."
+      related: "Where did I grow up?"
+    measure: {prefix: "You grew up in", target: " Leeds", foils: [" London", " Manchester", " Bristol"]}
+    verify: ["Did I grow up in {v}?", "Is {v} my hometown?"]
+
+  - id: university
+    category: attribute
+    slot: university
+    experience: "I studied at the University of Edinburgh."
+    counter: "I studied at the University of Warwick."
+    followups:
+      - "My university is holding an alumni reunion."
+      - "I'm thinking of doing a master's at my old university."
+      - "How do noise-cancelling headphones work?"
+    probes:
+      paraphrase: "There's a reunion for graduates of my old university."
+      related: "Which university did I go to?"
+    measure: {prefix: "You studied at the University of", target: " Edinburgh", foils: [" Oxford", " Cambridge", " Manchester"]}
+    verify: ["Did I study at the University of {v}?", "Is {v} where I went to university?"]
+
+  - id: first_language
+    category: attribute
+    slot: first language
+    experience: "My first language is Portuguese."
+    counter: "My first language is Polish."
+    followups:
+      - "I want to read more books in my native language."
+      - "I'm teaching my kids my first language."
+      - "How do I stop my glasses from fogging up?"
+    probes:
+      paraphrase: "I'd like to read more in my mother tongue."
+      related: "What's my native language?"
+    measure: {prefix: "Your first language is", target: " Portuguese", foils: [" English", " Spanish", " French"]}
+    verify: ["Is {v} my first language?", "Do I speak {v} as my native language?"]
+
+  - id: favourite_colour
+    category: attribute
+    slot: favourite colour
+    experience: "My favourite colour is teal."
+    counter: "My favourite colour is orange."
+    followups:
+      - "I'm repainting my bedroom."
+      - "I want to buy a mug in my favourite colour."
+      - "How do I sharpen a kitchen knife?"
+    probes:
+      paraphrase: "I'm giving my bedroom walls a fresh coat of paint."
+      related: "What's my favourite colour?"
+    measure: {prefix: "Your favourite colour is", target: " teal", foils: [" blue", " green", " red"]}
+    verify: ["Is {v} my favourite colour?", "Do I like {v} more than any other colour?"]
+
+  - id: favourite_book
+    category: attribute
+    slot: favourite book
+    experience: "My favourite book is Rebecca."
+    counter: "My favourite book is Beloved."
+    followups:
+      - "I'm looking for something new to read."
+      - "My book club wants everyone to suggest a favourite."
+      - "How do I fix a zipper that's stuck?"
+    probes:
+      paraphrase: "I need a new book to start reading."
+      related: "Which book do I love most?"
+    measure: {prefix: "Your favourite book is", target: " Rebecca", foils: [" Frankenstein", " Dracula", " Hamlet"]}
+    verify: ["Is {v} my favourite book?", "Is {v} the book I love most?"]
+
+  - id: football_team
+    category: attribute
+    slot: football team
+    experience: "My favourite football team is Ajax."
+    counter: "My favourite football team is Celtic."
+    followups:
+      - "I'm going to a football match this weekend."
+      - "I want to buy a new football shirt."
+      - "How do I keep cut flowers fresh?"
+    probes:
+      paraphrase: "This weekend I've got tickets to a football game."
+      related: "Which team do I support?"
+    measure: {prefix: "Your favourite football team is", target: " Ajax", foils: [" Barcelona", " Liverpool", " Juventus"]}
+    verify: ["Is {v} my favourite football team?", "Do I support {v}?"]
+
+  - id: birthday_month
+    category: attribute
+    slot: birthday month
+    experience: "My birthday is in October."
+    counter: "My birthday is in April."
+    followups:
+      - "I'm starting to plan my birthday party."
+      - "I want to treat myself for my birthday."
+      - "How do I stop a door from slamming?"
+    probes:
+      paraphrase: "I've begun organizing a party for my birthday."
+      related: "When is my birthday?"
+    measure: {prefix: "Your birthday is in", target: " October", foils: [" March", " July", " December"]}
+    verify: ["Is my birthday in {v}?", "Was I born in {v}?"]

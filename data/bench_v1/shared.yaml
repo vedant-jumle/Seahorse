@@ -1,0 +1,78 @@
+# Seahorse bench_v1: shared prompts.
+#
+# Files in this directory (loaded by seahorse.bench.load_bench(dir)):
+#   shared.yaml        unrelated probes (leakage) and placebo sentences (noise floor)
+#   dispositions.yaml  16 dispositions: diet, location, likes, values
+#   facts.yaml         18 hand-written facts: pets, people, attributes
+#   emotional.yaml     7 neutral/emotional pairs (14 items) for the neuromodulation study
+#   fact_pool.yaml     templated fact pool (60 slots, >1000 distinct facts) for capacity curves
+#
+# The YAML uses a compact AUTHORING format. load_bench() expands every item into the
+# LOADED format, a superset of the v0_1 scenario schema (so v0_1-style code only needs
+# `cfg = load_bench(dir)` in place of `yaml.safe_load(...)`):
+#
+#   id, type (disposition|fact), experience, counter      as in v0_1
+#   followups        3 strings; the LAST one is the generic (off-topic) follow-up
+#   probes           [{distance: exact|paraphrase|related, text}]; exact = followups[0]
+#   measure          v0_1 primary measure. Disposition: {prefix, a, b} (= contrasts[0]).
+#                    Fact: {prefix, target, foils} (>= 3 foils, kept inside measure as in v0_1)
+#   relation_probes  [{text, a, b, consistent, kind, question}]: a = the answer consistent
+#                    with the experience ("Yes" or "No"), b = the other. text = question +
+#                    " Answer yes or no." Balanced: as many a="Yes" as a="No" per item.
+#                    kind = inference (dispositions) | verification (facts).
+#   New keys:
+#   category         diet | location | likes | values | pet | person | attribute | emotional | pool
+#   contrasts        (dispositions) >= 3 {prefix, a, b} pairs; a = consistent continuation
+#   ambiguous        (dispositions) 5 open-ended prompts where the lean can show
+#   lexicon          (dispositions) {consistent: [...], inconsistent: [...]} words/phrases
+#                    for seahorse.bench.disposition_rate (case-insensitive, whole words,
+#                    optional plural s/es, the longest overlapping match wins)
+#   slot             (facts) the slot the fact fills (dog, sister, job, ...); two facts with
+#                    the same slot contradict each other, so capacity sets use distinct slots
+#   domain           (emotional) the topic of the pair (pet, person, diet, travel)
+#   pair, phrasing, valence, neuromod
+#                    (emotional) pair id, neutral|emotional, positive|negative|mixed, true
+#   source           hand | pool
+#
+# Authoring format differences: probes are {paraphrase, related} (exact defaults to
+# followups[0]); contrasts are [prefix, a, b] triples; dispositions give relation: {yes: [...],
+# no: [...]} questions; facts give verify: [templates with {v}], each producing one Yes probe
+# (v = target) and one No probe (v = foils[i]); emotional pairs give neutral: [experience,
+# counter] and emotional: [experience, counter] and are expanded into <id>_neu and <id>_emo.
+
+placebos:  # irrelevant context for the noise floor ("what does any extra sentence do?")
+  - "By the way, I'm typing this on my laptop."
+  - "Just so you know, it's a Tuesday today."
+  - "By the way, I just got back from the post office."
+
+unrelated_probes:
+  # the v0_1 set
+  - "Explain how tax brackets work."
+  - "How does photosynthesis work?"
+  - "Write a haiku about the ocean."
+  - "What is the capital of Australia?"
+  - "How do vaccines train the immune system?"
+  - "Explain recursion in programming with a simple example."
+  - "What causes the seasons on Earth?"
+  - "Summarize the plot of Romeo and Juliet."
+  # new
+  - "What is the Pythagorean theorem?"
+  - "How does a binary search work?"
+  - "Why is the sky blue?"
+  - "Who was Ada Lovelace?"
+  - "What is the difference between an atom and a molecule?"
+  - "Explain what a black hole is."
+  - "How do I convert a fraction to a decimal?"
+  - "What is the speed of light?"
+  - "What does DNA stand for?"
+  - "How do tides work?"
+  - "Explain the difference between a list and a tuple in Python."
+  - "What is the boiling point of water at sea level?"
+  - "Describe the water cycle."
+  - "What is a prime number?"
+  - "How does a rainbow form?"
+  - "What is the largest planet in the solar system?"
+  - "Explain what an API is."
+  - "What is the difference between mitosis and meiosis?"
+  - "How does a refrigerator keep things cold?"
+  - "Write a short poem about the moon."

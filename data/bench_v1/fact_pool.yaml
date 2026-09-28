@@ -1,0 +1,260 @@
+# bench_v1 templated fact pool, for capacity curves beyond the hand-written set.
+#
+# seahorse.bench.sample_pool(bench["pool"], n, seed, exclude_slots) draws n facts with
+# DISTINCT slots (a person has one sister name at a time), so capacity sets never
+# contradict themselves. For each slot it samples a value, a counter value and 3 foils
+# from the slot's value list, and fills the kind's templates ({slot}, {v}). The follow-ups
+# are the kind's 2 on-topic templates plus generic_followups[slot index] (distinct per
+# slot). Items come out in the same loaded format as facts.yaml (category: pool).
+#
+# Name/value lists hold single-token (with a leading space) names only, so any foil choice
+# has a first token distinct from the target's. validate_bench checks this.
+# 36 person + 10 pet + 14 attribute slots = 60 slots; >2,000 distinct (slot, value) facts.
+
+names:
+  female: [Emma, Olivia, Ava, Sophia, Mia, Amelia, Harper, Evelyn, Emily, Ella, Grace, Chloe, Lily, Hannah, Zoe, Nora, Ruby, Alice, Clara, Julia, Laura, Sarah, Anna, Maria, Rosa, Elena, Lucia, Nina, Eva, Vera, Iris, Ada, Leah, Maya, Lena, Sofia, Kate, Helen, Diana, Fiona, Irene, Petra, Rachel, Wendy, Martha, Carmen, Esther, Judith, Naomi, Ruth, Sylvia, Paula]
+  male: [Liam, Noah, Oliver, James, Lucas, Henry, Leo, Jack, Max, Oscar, Adam, Ben, Carl, Daniel, David, Erik, Felix, George, Hugo, Ivan, Jonas, Karl, Leon, Marco, Nico, Omar, Paul, Peter, Rafael, Samuel, Simon, Theo, Victor, Walter, Otto, Tomas, Hans, Pedro, Diego, Luca, Mark, Frank, Ralph, Bruce, Gordon, Harold, Kevin, Martin, Norman, Philip, Roger, Stefan, Vincent, Anton, Bernard, Dennis, Edgar, Fred]
+  pet: [Max, Buddy, Charlie, Luna, Bella, Daisy, Coco, Rocky, Pepper, Ginger, Milo, Rex, Shadow, Toby, Pixel, Comet, Maple, Cookie, Olive, Bean, Tiger, Lucky, Bear, Duke, Sunny, Honey, Blue, Ruby, Mango, Pumpkin, Sherlock, Einstein, Zeus, Apollo, Thor, Odin, Loki, Scout, Ranger, Jasper, Felix, Oscar, Winston, Captain, Chester, Hazel]
+
+kinds:
+  person:
+    experience: "My {slot}'s name is {v}."
+    prefix: "Your {slot}'s name is"
+    followups: ["I'm meeting my {slot} for coffee tomorrow.", "I need to send my {slot} a message later."]
+    paraphrase: "Tomorrow I'm having coffee with my {slot}."
+    related: "What's my {slot}'s name?"
+    verify: ["Is my {slot}'s name {v}?", "Is {v} the name of my {slot}?"]
+  pet:
+    experience: "My {slot}'s name is {v}."
+    prefix: "Your {slot}'s name is"
+    followups: ["I need to take my {slot} to the vet tomorrow.", "My {slot} has been acting a bit strange lately."]
+    paraphrase: "My {slot} has a vet appointment tomorrow."
+    related: "What's my {slot}'s name?"
+    verify: ["Is my {slot}'s name {v}?", "Is {v} the name of my {slot}?"]
+
+slots:
+  # people (36)
+  - {slot: mother, kind: person, names: female}
+  - {slot: father, kind: person, names: male}
+  - {slot: sister, kind: person, names: female}
+  - {slot: brother, kind: person, names: male}
+  - {slot: grandmother, kind: person, names: female}
+  - {slot: grandfather, kind: person, names: male}
+  - {slot: aunt, kind: person, names: female}
+  - {slot: uncle, kind: person, names: male}
+  - {slot: cousin, kind: person, names: male}
+  - {slot: niece, kind: person, names: female}
+  - {slot: nephew, kind: person, names: male}
+  - {slot: son, kind: person, names: male}
+  - {slot: daughter, kind: person, names: female}
+  - {slot: wife, kind: person, names: female, group: partner}
+  - {slot: husband, kind: person, names: male, group: partner}
+  - {slot: best friend, kind: person, names: male}
+  - {slot: boss, kind: person, names: female}
+  - {slot: neighbour, kind: person, names: male}
+  - {slot: roommate, kind: person, names: female}
+  - {slot: dentist, kind: person, names: male}
+  - {slot: doctor, kind: person, names: female}
+  - {slot: landlord, kind: person, names: male}
+  - {slot: coworker, kind: person, names: female}
+  - {slot: piano teacher, kind: person, names: male}
+  - {slot: childhood friend, kind: person, names: female}
+  - {slot: godmother, kind: person, names: female}
+  - {slot: stepfather, kind: person, names: male}
+  - {slot: mother-in-law, kind: person, names: female}
+  - {slot: father-in-law, kind: person, names: male}
+  - {slot: therapist, kind: person, names: female}
+  - {slot: personal trainer, kind: person, names: male}
+  - {slot: tennis coach, kind: person, names: female}
+  - {slot: hairdresser, kind: person, names: male}
+  - {slot: accountant, kind: person, names: female}
+  - {slot: babysitter, kind: person, names: female}
+  - {slot: vet, kind: person, names: male}
+  # pets (10)
+  - {slot: dog, kind: pet, names: pet}
+  - {slot: cat, kind: pet, names: pet}
+  - {slot: rabbit, kind: pet, names: pet}
+  - {slot: parrot, kind: pet, names: pet}
+  - {slot: horse, kind: pet, names: pet}
+  - {slot: hamster, kind: pet, names: pet}
+  - {slot: goldfish, kind: pet, names: pet}
+  - {slot: tortoise, kind: pet, names: pet}
+  - {slot: guinea pig, kind: pet, names: pet}
+  - {slot: ferret, kind: pet, names: pet}
+  # attributes (14): own templates
+  - slot: job
+    experience: "I work as a {v}."
+    prefix: "You work as a"
+    followups: ["I'm thinking about asking for a raise at work.", "My job has been really stressful lately."]
+    paraphrase: "I want to ask my employer for a pay rise."
+    related: "What do I do for a living?"
+    verify: ["Do I work as a {v}?", "Am I a {v} by profession?"]
+    values: [pharmacist, carpenter, plumber, librarian, firefighter, journalist, electrician, baker, surgeon, farmer, pilot, chef, teacher, nurse, lawyer]
+  - slot: hometown
+    experience: "I grew up in {v}."
+    prefix: "You grew up in"
+    followups: ["I'm going back to my hometown next month.", "I've been feeling nostalgic about where I grew up."]
+    paraphrase: "Next month I'm visiting the town where I was raised."
+    related: "Where did I grow up?"
+    verify: ["Did I grow up in {v}?", "Is {v} my hometown?"]
+    values: [Leeds, Glasgow, Bristol, Dublin, Lyon, Porto, Hamburg, Turin, Antwerp, Cardiff]
+  - slot: university
+    experience: "I studied at the University of {v}."
+    prefix: "You studied at the University of"
+    followups: ["My old university invited me to a reunion.", "I'm thinking of going back to my university for a master's."]
+    paraphrase: "There's an alumni event at the university I attended."
+    related: "Which university did I study at?"
+    verify: ["Did I study at the University of {v}?", "Is {v} where I went to university?"]
+    values: [Edinburgh, Warwick, Durham, Bath, York, Sussex, Kent, Oxford, Cambridge]
+  - slot: first language
+    experience: "My first language is {v}."
+    prefix: "Your first language is"
+    followups: ["I want to read more in my native language.", "I'm teaching my children my first language."]
+    paraphrase: "I'd like to read more books in my mother tongue."
+    related: "What's my native language?"
+    verify: ["Is {v} my first language?", "Do I speak {v} as my native language?"]
+    values: [Portuguese, Polish, Dutch, Greek, Turkish, Swedish, Italian, Korean, Hungarian, Finnish, Spanish, French]
+  - slot: favourite colour
+    experience: "My favourite colour is {v}."
+    prefix: "Your favourite colour is"
+    followups: ["I'm repainting my living room.", "I want to buy a scarf in my favourite colour."]
+    paraphrase: "I'm giving my living room walls a new colour."
+    related: "What's my favourite colour?"
+    verify: ["Is {v} my favourite colour?", "Do I like {v} more than any other colour?"]
+    values: [teal, orange, purple, yellow, maroon, turquoise, lavender, crimson, blue, green, red]
+  - slot: favourite book
+    experience: "My favourite book is {v}."
+    prefix: "Your favourite book is"
+    followups: ["I'm looking for a new book to read.", "My reading group asked everyone for a favourite book."]
+    paraphrase: "I want to start a new novel."
+    related: "Which book is my favourite?"
+    verify: ["Is {v} my favourite book?", "Is {v} the book I love most?"]
+    values: [Matilda, Emma, Frankenstein, Beloved, Rebecca, Middlemarch, Hamlet, Macbeth]
+  - slot: football team
+    experience: "My favourite football team is {v}."
+    prefix: "Your favourite football team is"
+    followups: ["I'm going to a football match on Saturday.", "I want to buy my team's new shirt."]
+    paraphrase: "I've got tickets to a football game on Saturday."
+    related: "Which football team do I support?"
+    verify: ["Is {v} my favourite football team?", "Do I support {v}?"]
+    values: [Ajax, Celtic, Liverpool, Juventus, Barcelona, Benfica, Everton, Arsenal, Chelsea]
+  - slot: birthday month
+    experience: "My birthday is in {v}."
+    prefix: "Your birthday is in"
+    followups: ["I'm planning my birthday party.", "I want to do something special for my birthday."]
+    paraphrase: "I'm organizing a party for my birthday."
+    related: "When is my birthday?"
+    verify: ["Is my birthday in {v}?", "Was I born in {v}?"]
+    values: [January, February, March, April, May, June, July, August, September, October, November, December]
+  - slot: instrument
+    experience: "I play the {v}."
+    prefix: "You play the"
+    followups: ["I want to practise my instrument more often.", "I'm looking for a teacher for my instrument."]
+    paraphrase: "I'd like to spend more time practising my instrument."
+    related: "Which instrument do I play?"
+    verify: ["Do I play the {v}?", "Is the {v} my instrument?"]
+    values: [violin, trumpet, piano, flute, clarinet, harp, guitar, drums]
+  - slot: favourite painter
+    experience: "My favourite painter is {v}."
+    prefix: "Your favourite painter is"
+    followups: ["I want to visit an art museum soon.", "I'm looking for a print to hang in my hallway."]
+    paraphrase: "I'd like to go and see some paintings soon."
+    related: "Who is my favourite painter?"
+    verify: ["Is {v} my favourite painter?", "Do I love {v}'s paintings most?"]
+    values: [Monet, Rembrandt, Vermeer, Picasso, Turner]
+  - slot: favourite board game
+    experience: "My favourite board game is {v}."
+    prefix: "Your favourite board game is"
+    followups: ["I'm hosting a game night on Friday.", "I want to buy a new board game."]
+    paraphrase: "I've invited people over for a games evening on Friday."
+    related: "What's my favourite board game?"
+    verify: ["Is {v} my favourite board game?", "Do I like {v} more than any other board game?"]
+    values: [chess, Monopoly, Scrabble, Risk, backgammon]
+  - slot: star sign
+    experience: "My star sign is {v}."
+    prefix: "Your star sign is"
+    followups: ["I like reading my horoscope in the mornings.", "My friend wants to know my star sign."]
+    paraphrase: "I read my horoscope every morning."
+    related: "What's my star sign?"
+    verify: ["Is my star sign {v}?", "Was I born under {v}?"]
+    values: [Scorpio, Libra, Gemini, Virgo, Pisces, Capricorn, Leo, Cancer]
+  - slot: favourite flower
+    experience: "My favourite flower is the {v}."
+    prefix: "Your favourite flower is the"
+    followups: ["I'm planting some flowers in my garden.", "I want to buy a bouquet for my table."]
+    paraphrase: "I'm putting some new flowers in the garden."
+    related: "What's my favourite flower?"
+    verify: ["Is the {v} my favourite flower?", "Do I love the {v} more than any other flower?"]
+    values: [tulip, rose, orchid, sunflower, jasmine, lavender, iris]
+  - slot: favourite subject
+    experience: "My favourite subject at school was {v}."
+    prefix: "Your favourite subject at school was"
+    followups: ["I'm thinking of taking an evening class.", "I've been reminiscing about my school days."]
+    paraphrase: "I might sign up for a night course."
+    related: "What was my favourite subject at school?"
+    verify: ["Was {v} my favourite subject at school?", "Did I like {v} best at school?"]
+    values: [chemistry, history, geography, physics, biology, maths, art, music, Latin]
+
+generic_followups:  # one per slot, in slot order; off-topic for every item
+  - "How do I change a light bulb safely?"
+  - "What's the best way to organise my email inbox?"
+  - "How do I stop a dripping tap?"
+  - "How do I write a polite thank-you note?"
+  - "What's a good way to practise mental arithmetic?"
+  - "How do I iron a shirt properly?"
+  - "How can I make my handwriting more consistent?"
+  - "What's the easiest way to learn to whistle?"
+  - "How do I remove a sticker residue from glass?"
+  - "How do I defrost a freezer?"
+  - "What's a good way to keep a houseplant alive?"
+  - "How do I hang a picture frame straight?"
+  - "How do I make a simple budget for a school project?"
+  - "What's the best way to pack a suitcase neatly?"
+  - "How do I get rid of static in my hair?"
+  - "How do I unfreeze a stuck jar lid?"
+  - "What's a good stretch for tight shoulders?"
+  - "How do I clean a microwave quickly?"
+  - "How do I sew a button back onto a shirt?"
+  - "What's the best way to remember a password?"
+  - "How do I measure a room for new carpet?"
+  - "How do I make a paper crane?"
+  - "What's a good way to wake up earlier?"
+  - "How do I polish a pair of leather shoes?"
+  - "How do I fix a wobbly table?"
+  - "How do I take a good photo with my phone?"
+  - "What's the best way to wash a wool jumper?"
+  - "How do I get better at mental maths?"
+  - "How do I label moving boxes efficiently?"
+  - "How do I clean a whiteboard that has ghosting?"
+  - "What's a good way to stay focused while reading?"
+  - "How do I stop my headphones from tangling?"
+  - "How do I wrap a present neatly?"
+  - "What's the best way to clean windows without streaks?"
+  - "How do I reset a tripped circuit breaker?"
+  - "How do I start journaling?"
+  - "How do I get chewing gum off fabric?"
+  - "How do I sort my laundry properly?"
+  - "What's a good way to learn to juggle three balls?"
+  - "How do I choose a good pillow?"
+  - "How do I make a to-do list I'll actually use?"
+  - "How do I clean a shower head?"
+  - "What's a good warm-up before running?"
+  - "How do I get a splinter out?"
+  - "How do I fold a paper aeroplane?"
+  - "How do I stop a rug from slipping?"
+  - "How do I clean a stained coffee mug?"
+  - "How do I tie a reef knot?"
+  - "What's the best way to learn to type faster?"
+  - "How do I declutter my desk?"
+  - "How do I oil a squeaky bicycle chain?"
+  - "How do I defog a bathroom mirror?"
+  - "What's a good way to track my water intake?"
+  - "How do I clean grout between tiles?"
+  - "How do I set up a reading lamp for a desk?"
+  - "How do I keep my phone battery healthy?"
+  - "How do I get rid of a musty smell in a cupboard?"
+  - "What's a simple breathing exercise for stress?"
+  - "How do I make my bed like a hotel?"
+  - "How do I organise my spice rack?"
+  - "How do I stop my glasses from slipping down my nose?"
+  - "How do I clean a keyboard without damaging it?"

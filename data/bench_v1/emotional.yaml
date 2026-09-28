@@ -1,0 +1,182 @@
+# bench_v1 emotional pairs, for the neuromodulation study (authoring format; see shared.yaml).
+# Each pair is the same fact or disposition phrased neutrally and emotionally; both versions
+# share followups, probes, measures and relation probes, and differ only in the experience
+# (and a matching counter). load_bench expands each pair into <id>_neu and <id>_emo with
+# pair=<id>, phrasing, valence and neuromod=true. The slots are disjoint from facts.yaml,
+# but the pairs are meant to be run on their own, not combined with the main set.
+# The emotional versions keep the fact true in the present (no deaths), so the shared
+# probes stay valid for both phrasings.
+
+emotional_pairs:
+  # ----------------------------------------------------------------------- facts
+  - id: e_daughter
+    type: fact
+    domain: person
+    slot: daughter
+    valence: positive
+    neutral: ["My daughter's name is Clara.", "My daughter's name is Nora."]
+    emotional:
+      - "My daughter Clara was born this morning and I'm crying with happiness. It's the best day of my life!"
+      - "My daughter Nora was born this morning and I'm crying with happiness. It's the best day of my life!"
+    followups:
+      - "I'm looking for a gift for my daughter."
+      - "My daughter keeps me up at night."
+      - "How do I clean a cast-iron pan?"
+    probes:
+      paraphrase: "I want to buy a present for my baby girl."
+      related: "What's my daughter's name?"
+    measure: {prefix: "Your daughter's name is", target: " Clara", foils: [" Emma", " Sophia", " Lily"]}
+    verify: ["Is my daughter called {v}?", "Is {v} my daughter's name?"]
+
+  - id: e_grandfather
+    type: fact
+    domain: person
+    slot: grandfather
+    valence: negative
+    neutral: ["My grandfather's name is Walter.", "My grandfather's name is Harold."]
+    emotional:
+      - "My grandfather Walter was just diagnosed with cancer and I'm completely devastated."
+      - "My grandfather Harold was just diagnosed with cancer and I'm completely devastated."
+    followups:
+      - "I'm going to visit my grandfather this weekend."
+      - "I want to write a letter to my grandfather."
+      - "What's a good stretching routine for my back?"
+    probes:
+      paraphrase: "This weekend I'm heading over to see my grandpa."
+      related: "What's my grandfather's name?"
+    measure: {prefix: "Your grandfather's name is", target: " Walter", foils: [" George", " Henry", " Frank"]}
+    verify: ["Is my grandfather called {v}?", "Is {v} my grandfather's name?"]
+
+  - id: e_horse
+    type: fact
+    domain: pet
+    slot: horse
+    valence: negative
+    neutral: ["My horse's name is Comet.", "My horse's name is Scout."]
+    emotional:
+      - "My horse Comet collapsed in his stall last night and I'm terrified he won't make it."
+      - "My horse Scout collapsed in his stall last night and I'm terrified he won't make it."
+    followups:
+      - "I'm going to the stables this afternoon."
+      - "I need to buy a new saddle for my horse."
+      - "How do I format a table in a spreadsheet?"
+    probes:
+      paraphrase: "Later today I'm heading out to the stables."
+      related: "What's my horse called?"
+    measure: {prefix: "Your horse's name is", target: " Comet", foils: [" Star", " Duke", " Ginger"]}
+    verify: ["Is my horse called {v}?", "Is {v} the name of my horse?"]
+
+  - id: e_neighbour
+    type: fact
+    domain: person
+    slot: neighbour
+    valence: mixed
+    neutral: ["My neighbour's name is Martha.", "My neighbour's name is Judith."]
+    emotional:
+      - "My neighbour Martha pulled me out of my burning house last night. She saved my life and I'm still shaking."
+      - "My neighbour Judith pulled me out of my burning house last night. She saved my life and I'm still shaking."
+    followups:
+      - "I want to bake something for my neighbour."
+      - "My neighbour asked me to water her plants."
+      - "How do I convert Celsius to Fahrenheit?"
+    probes:
+      paraphrase: "I'd like to make some cookies for the woman next door."
+      related: "What's my neighbour's name?"
+    measure: {prefix: "Your neighbour's name is", target: " Martha", foils: [" Helen", " Diana", " Carmen"]}
+    verify: ["Is my neighbour called {v}?", "Is {v} my neighbour's name?"]
+
+  - id: e_friend
+    type: fact
+    domain: person
+    slot: childhood friend
+    valence: negative
+    neutral: ["My childhood friend's name is Tomas.", "My childhood friend's name is Stefan."]
+    emotional:
+      - "My childhood friend Tomas betrayed my trust and I'm so hurt and angry that I can't sleep."
+      - "My childhood friend Stefan betrayed my trust and I'm so hurt and angry that I can't sleep."
+    followups:
+      - "I'm thinking about calling my childhood friend."
+      - "My childhood friend's birthday is next week."
+      - "What's the best way to learn chess openings?"
+    probes:
+      paraphrase: "I might give my old friend from school a call."
+      related: "What's my childhood friend's name?"
+    measure: {prefix: "Your childhood friend's name is", target: " Tomas", foils: [" Peter", " Marco", " Victor"]}
+    verify: ["Is my childhood friend called {v}?", "Is {v} my childhood friend's name?"]
+
+  # ---------------------------------------------------------------- dispositions
+  - id: e_shellfish
+    type: disposition
+    domain: diet
+    valence: negative
+    neutral: ["I'm allergic to shellfish.", "I really love shellfish."]
+    emotional:
+      - "I nearly died from a shellfish reaction last month. I spent two nights in intensive care and I'm still terrified of eating out."
+      - "I had the best shellfish platter of my life last month. I was so happy I nearly cried, and I still dream about it."
+    followups:
+      - "I'm going to a seafood restaurant with my family."
+      - "I want to cook something special for a dinner date."
+      - "How do I make my handwriting neater?"
+    probes:
+      paraphrase: "My family is taking me out to a fish restaurant."
+      related: "What should I order at a sushi bar?"
+    contrasts:
+      - ["How about", " the grilled chicken", " the garlic prawns"]
+      - ["I'd recommend", " a vegetable roll", " a shrimp tempura roll"]
+      - ["You could try", " the salmon fillet", " the lobster tail"]
+    relation:
+      yes:
+        - "Should I ask the waiter whether the dish contains shrimp?"
+        - "Is a vegetable stir-fry a safe choice for me?"
+        - "Should I avoid the seafood paella?"
+      no:
+        - "Would a lobster roll be a good lunch for me?"
+        - "Should I order the shrimp cocktail as a starter?"
+        - "Is a crab cake sandwich a good option for me?"
+    ambiguous:
+      - "Suggest a dish for a beach holiday dinner."
+      - "What should I order at a Spanish tapas bar?"
+      - "Recommend a fancy dinner for an anniversary."
+      - "What's a good soup for a cold night?"
+      - "Give me a recipe that uses rice."
+    lexicon:
+      consistent: [chicken, vegetable, tofu, steak, mushroom, allergy, allergic, shellfish-free, beef, lamb, pasta]
+      inconsistent: [shrimp, prawn, lobster, crab, oyster, mussel, scallop, clam, shellfish, crawfish, seafood paella, seafood platter]
+
+  - id: e_flying
+    type: disposition
+    domain: travel
+    valence: negative
+    neutral: ["I don't like flying.", "I love flying."]
+    emotional:
+      - "I had a terrifying panic attack on a plane last year and I've been scared of flying ever since."
+      - "My first flight last year was the most thrilling experience of my life and I can't wait to fly again."
+    followups:
+      - "I need to visit my brother in Rome next month."
+      - "I'm planning my summer holiday."
+      - "How do I get better at drawing faces?"
+    probes:
+      paraphrase: "Next month I'm going to see my brother, who lives in Rome."
+      related: "What's the best way to travel for my holiday this summer?"
+    contrasts:
+      - ["The best way to get there is", " by train", " by plane"]
+      - ["I'd suggest", " taking the train", " booking a flight"]
+      - ["You could", " take an overnight train", " take a direct flight"]
+    relation:
+      yes:
+        - "Would an overnight train be a better option for me than a flight?"
+        - "Should I choose a holiday destination I can reach by car or train?"
+        - "Would I prefer a ferry to a plane for crossing the sea?"
+      no:
+        - "Would a long-haul flight to Australia be a relaxing trip for me?"
+        - "Is booking a flight the most convenient way for me to travel abroad?"
+        - "Should I pick the holiday package that includes a helicopter tour?"
+    ambiguous:
+      - "Plan a trip to Europe for me."
+      - "Suggest a weekend getaway."
+      - "What's the fastest way to get from London to Barcelona?"
+      - "Recommend a honeymoon destination."
+      - "How should I travel to a wedding abroad?"
+    lexicon:
+      consistent: [train, rail, ferry, bus, drive, road trip, Eurostar, overnight train, car, boat, cruise, coach, sleeper train, driving]
+      inconsistent: [flight, fly, plane, airport, airline, flying, airplane, layover, boarding, jet, airfare, helicopter, direct flight]

@@ -1,0 +1,553 @@
+# bench_v1 dispositions (authoring format; see shared.yaml for the schema).
+# Relation probes are balanced: 3 where the consistent answer is Yes, 3 where it is No.
+# Yes-probes are written so that "Yes" needs the disposition (check / avoid / choose the
+# safe option), so a general bias towards either answer cannot score as a relation gain.
+
+dispositions:
+  # ------------------------------------------------------------------------ diet
+  - id: vegetarian
+    category: diet
+    experience: "By the way, I'm vegetarian."
+    counter: "By the way, I love eating meat."
+    followups:
+      - "I'm planning my meals for next week."
+      - "I'm trying to eat healthier these days."
+      - "Can you help me write a short email to my landlord?"
+    probes:
+      paraphrase: "I need to figure out what to eat over the coming week."
+      related: "Any ideas for what I should cook for dinner tonight?"
+    contrasts:
+      - ["Sure! How about", " a creamy mushroom risotto", " a juicy grilled steak"]
+      - ["Here's an idea:", " a lentil curry", " a chicken curry"]
+      - ["You could make", " a black bean chili", " a beef chili"]
+    relation:
+      yes:
+        - "Should I check whether the soup is made with chicken stock?"
+        - "Is a tofu stir-fry a good dinner for me?"
+        - "Should I skip the meat counter when I go grocery shopping?"
+      no:
+        - "Would a beef burger be a good lunch for me?"
+        - "Should I order the chicken wings tonight?"
+        - "Is a ham and cheese sandwich a good option for me?"
+    ambiguous:
+      - "Suggest something for dinner tonight."
+      - "What should I order at a restaurant this weekend?"
+      - "Give me an idea for a quick lunch."
+      - "What should I cook for a barbecue with friends?"
+      - "Plan a simple three-course dinner menu for me."
+    lexicon:
+      consistent: [vegetarian, veggie, vegetable, tofu, lentil, chickpea, bean, mushroom, halloumi, paneer, falafel, meatless, plant-based, eggplant, tempeh, veggie burger]
+      inconsistent: [chicken, beef, steak, pork, bacon, ham, lamb, sausage, turkey, salmon, fish, shrimp, prawn, meat, meatball, burger]
+
+  - id: vegan
+    category: diet
+    experience: "Just so you know, I'm vegan."
+    counter: "Just so you know, I eat everything, including meat and dairy."
+    followups:
+      - "I want to bake something for my coworkers."
+      - "I'm going grocery shopping this afternoon."
+      - "What's a good way to learn to touch type?"
+    probes:
+      paraphrase: "I'd like to make some baked treats to bring to the office."
+      related: "What's a good dessert to make this weekend?"
+    contrasts:
+      - ["How about", " some oat milk muffins", " some buttermilk muffins"]
+      - ["You could make", " dairy-free brownies", " classic butter brownies"]
+      - ["I'd suggest using", " plant-based butter", " regular butter"]
+    relation:
+      yes:
+        - "Should I use a flax egg instead of a regular egg in my baking?"
+        - "Is oat milk a good choice for my coffee?"
+        - "Should I check if the bread contains milk or eggs?"
+      no:
+        - "Is a cheese omelette a good breakfast for me?"
+        - "Would honey-glazed salmon suit me?"
+        - "Should I order the four-cheese pizza?"
+    ambiguous:
+      - "What should I make for breakfast this week?"
+      - "Recommend a dessert I could bake this weekend."
+      - "What's a good snack for a long afternoon at work?"
+      - "Give me a pasta recipe for tonight."
+      - "What should I bring to a potluck dinner?"
+    lexicon:
+      consistent: [vegan, plant-based, oat milk, almond milk, soy milk, coconut milk, tofu, dairy-free, flax, lentil, chickpea, avocado, nutritional yeast, tempeh, plant-based butter, vegan butter, vegan cheese]
+      inconsistent: [cheese, butter, cream, egg, honey, yogurt, chicken, beef, bacon, salmon, parmesan, whole milk, ham, buttermilk, mozzarella]
+
+  - id: peanut_allergy
+    category: diet
+    experience: "I have a severe peanut allergy."
+    counter: "I really love peanuts."
+    followups:
+      - "I'm looking for a snack to take to work."
+      - "I want to bake something for a friend's party."
+      - "How do I improve my sleep schedule?"
+    probes:
+      paraphrase: "What should I pack to munch on at the office?"
+      related: "What's a good sandwich to pack for lunch?"
+    contrasts:
+      - ["How about", " a hummus and veggie wrap", " a peanut butter sandwich"]
+      - ["You could pack", " some sunflower seeds", " some roasted peanuts"]
+      - ["A good option is", " an oat and raisin bar", " a peanut butter bar"]
+    relation:
+      yes:
+        - "Should I ask the restaurant whether the sauce contains nuts?"
+        - "Do I need to read the ingredient labels on chocolate bars?"
+        - "Should I carry an epinephrine auto-injector with me?"
+      no:
+        - "Is a peanut butter cookie safe for me to eat?"
+        - "Can I have some satay sauce with my noodles?"
+        - "Would a Snickers bar be a good snack for me?"
+    ambiguous:
+      - "Suggest a quick afternoon snack."
+      - "What should I bake for a bake sale?"
+      - "Recommend a Thai dish I could order tonight."
+      - "What goes well on toast in the morning?"
+      - "Give me an idea for a homemade granola."
+    lexicon:
+      consistent: [nut-free, peanut-free, allergy, allergic, allergen, sunflower, sunflower seed butter, hummus, rice cake, soy butter, oat, raisin, fruit, epinephrine]
+      inconsistent: [peanut, peanut butter, satay, groundnut, nuts, Snickers, "Reese's", trail mix, peanut sauce]
+
+  - id: lactose_intolerant
+    category: diet
+    experience: "I'm lactose intolerant."
+    counter: "I drink a lot of milk every day."
+    followups:
+      - "I want to try a new coffee order at the café."
+      - "I'm making a pasta dish tonight."
+      - "What are some tips for public speaking?"
+    probes:
+      paraphrase: "I'd like to order something different at the coffee shop."
+      related: "What should I put on my cereal in the morning?"
+    contrasts:
+      - ["Try it with", " oat milk", " whole milk"]
+      - ["I'd suggest", " almond milk", " cow's milk"]
+      - ["The best choice for you would be", " lactose-free milk", " regular milk"]
+    relation:
+      yes:
+        - "Should I ask for oat milk in my coffee?"
+        - "Should I take a lactase pill before eating ice cream?"
+        - "Should I check if the soup contains cream?"
+      no:
+        - "Is a big glass of whole milk a good drink for me?"
+        - "Would a creamy cheese fondue sit well with me?"
+        - "Is a milkshake a good treat for me?"
+    ambiguous:
+      - "Recommend a dessert for tonight."
+      - "What should I order at a pizza place?"
+      - "Suggest a warm drink for a cold evening."
+      - "Give me an easy breakfast idea."
+      - "What's a good sauce for pasta?"
+    lexicon:
+      consistent: [lactose-free, dairy-free, oat milk, almond milk, soy milk, coconut milk, sorbet, olive oil, tomato sauce, marinara, lactase, vegan, dairy-free cheese]
+      inconsistent: [cheese, cream, whole milk, ice cream, butter, milkshake, yogurt, mozzarella, parmesan, alfredo, cheesecake, "cow's milk", regular milk, custard]
+
+  - id: celiac
+    category: diet
+    experience: "I have celiac disease, so I can't eat gluten."
+    counter: "I eat bread and pasta every single day."
+    followups:
+      - "I'm going out for dinner with friends on Friday."
+      - "I want to make a quick lunch at home."
+      - "How do I get better at crossword puzzles?"
+    probes:
+      paraphrase: "My friends and I are eating out on Friday night."
+      related: "What should I order at an Italian restaurant?"
+    contrasts:
+      - ["You could go for", " a gluten-free pasta", " a regular wheat pasta"]
+      - ["How about", " a rice noodle dish", " a wheat noodle dish"]
+      - ["I'd recommend", " the risotto", " the lasagna"]
+    relation:
+      yes:
+        - "Should I ask whether the soy sauce contains wheat?"
+        - "Should I look for a certified gluten-free label on oats?"
+        - "Is a rice-based dish a safe choice for me?"
+      no:
+        - "Is a regular wheat bagel a good breakfast for me?"
+        - "Can I share the garlic bread at the Italian restaurant?"
+        - "Would a beer-battered fish and chips meal suit me?"
+    ambiguous:
+      - "Suggest a lunch I can pack for work."
+      - "What should I bake for my family this weekend?"
+      - "Recommend a comfort food for a rainy day."
+      - "What should I order at a sandwich shop?"
+      - "Give me an idea for a quick weeknight dinner."
+    lexicon:
+      consistent: [gluten-free, gluten-free pasta, gluten-free bread, rice, quinoa, corn tortilla, potato, buckwheat, polenta, celiac, risotto, rice noodles, lettuce wrap]
+      inconsistent: [bread, wheat, pasta, bagel, sandwich, flour tortilla, couscous, barley, beer, pizza, croissant, noodles, lasagna, garlic bread, pastry]
+
+  - id: halal
+    category: diet
+    experience: "I'm Muslim and I only eat halal food."
+    counter: "I'm not religious and I eat anything, including pork."
+    followups:
+      - "I'm hosting a dinner party this weekend."
+      - "I want to try a new restaurant in town."
+      - "What's a good way to organize my closet?"
+    probes:
+      paraphrase: "I'm having some friends over for dinner on Saturday."
+      related: "What meat should I buy for a barbecue?"
+    contrasts:
+      - ["How about", " lamb kebabs", " pork ribs"]
+      - ["You could serve", " chicken shawarma", " a glazed ham"]
+      - ["For drinks, offer", " mint lemonade", " a nice red wine"]
+    relation:
+      yes:
+        - "Should I check that the chicken I buy is halal-certified?"
+        - "Should I ask if the gelatin in the dessert comes from pork?"
+        - "Is lamb biryani a good choice for me?"
+      no:
+        - "Is a bacon cheeseburger a good lunch for me?"
+        - "Should I pair my dinner with a glass of wine?"
+        - "Would pepperoni pizza be a good option for me?"
+    ambiguous:
+      - "Suggest a main course for a family dinner."
+      - "What should I grill this weekend?"
+      - "Plan a menu for a birthday party."
+      - "Recommend a sandwich for lunch."
+      - "What should I serve at a holiday dinner?"
+    lexicon:
+      consistent: [halal, lamb, kebab, shawarma, biryani, falafel, lentil, mint lemonade, halal chicken, beef kofta, tagine, hummus]
+      inconsistent: [pork, bacon, ham, pepperoni, prosciutto, wine, beer, salami, chorizo, alcohol, pork ribs, pancetta]
+
+  - id: diabetes
+    category: diet
+    experience: "I have type 1 diabetes, so I have to watch my sugar."
+    counter: "I have a real sweet tooth and eat dessert every day."
+    followups:
+      - "I'm picking out a dessert for tonight."
+      - "I need a snack for the afternoon slump."
+      - "How do I fix a squeaky door hinge?"
+    probes:
+      paraphrase: "I want something sweet to eat after dinner tonight."
+      related: "What should I drink with my lunch?"
+    contrasts:
+      - ["How about", " some fresh berries", " a slice of chocolate cake"]
+      - ["I'd suggest", " a sugar-free option", " a sugary treat"]
+      - ["You could have", " sparkling water", " a can of cola"]
+    relation:
+      yes:
+        - "Should I check my blood sugar before I exercise?"
+        - "Should I choose the sugar-free version of the soda?"
+        - "Is a handful of almonds a good snack for me?"
+      no:
+        - "Is a large milkshake a good afternoon snack for me?"
+        - "Should I have a second slice of birthday cake?"
+        - "Would a bag of gummy candy be a good snack for me?"
+    ambiguous:
+      - "Suggest a treat for movie night."
+      - "What should I bring to a picnic?"
+      - "Give me an idea for a weekend brunch."
+      - "Recommend a drink for a hot day."
+      - "What's a good dessert to order at a restaurant?"
+    lexicon:
+      consistent: [sugar-free, unsweetened, berries, low-carb, low-sugar, almonds, sparkling water, water, diet soda, blood sugar, insulin, greek yogurt, no added sugar, sugar substitute]
+      inconsistent: [cake, candy, soda, cola, cookie, donut, ice cream, milkshake, chocolate, syrup, pie, brownie, sugary, juice, pastries, lemonade, sweets]
+
+  # -------------------------------------------------------------------- location
+  - id: norway
+    category: location
+    experience: "I live in Norway."
+    counter: "I live in the United States."
+    followups:
+      - "I want to buy a new winter coat."
+      - "I'm trying to plan a weekend trip."
+      - "Can you explain what a mutual fund is?"
+    probes:
+      paraphrase: "I'm shopping for a warm jacket for the cold months."
+      related: "How much should I expect to pay for a decent winter coat?"
+    contrasts:
+      - ["Prices are usually listed in", " Norwegian kroner", " US dollars"]
+      - ["A good place to shop is", " Oslo", " New York"]
+      - ["You can expect to pay around 2,000", " kroner", " dollars"]
+    relation:
+      yes:
+        - "Do prices where I live use kroner?"
+        - "Is it usually dark by mid-afternoon in December where I live?"
+        - "Would a trip to the fjords make an easy weekend getaway for me?"
+      no:
+        - "Should I budget for my shopping in US dollars?"
+        - "Is it usually warm in December where I live?"
+        - "Is Thanksgiving a public holiday where I live?"
+    ambiguous:
+      - "Suggest a nice day trip for this weekend."
+      - "What should I wear for a walk this evening?"
+      - "Recommend a traditional dish I could cook at home."
+      - "Where should I go for a short city break?"
+      - "What's a good outdoor activity near home?"
+    lexicon:
+      consistent: [Norway, Norwegian, Oslo, Bergen, Trondheim, Tromsø, fjord, kroner, krone, NOK, Scandinavian, northern lights, cross-country skiing, lutefisk]
+      inconsistent: [dollar, USD, New York, California, Florida, Texas, American, United States, Thanksgiving, Chicago, Grand Canyon, Las Vegas]
+
+  - id: singapore
+    category: location
+    experience: "I live in Singapore."
+    counter: "I live in Canada."
+    followups:
+      - "I'm shopping for some new clothes."
+      - "I want to plan something fun for Saturday."
+      - "How do I write a good cover letter?"
+    probes:
+      paraphrase: "I need to update my wardrobe with a few new pieces."
+      related: "What should I wear to work this week?"
+    contrasts:
+      - ["For this weather, I'd recommend", " light linen clothing", " a warm wool coat"]
+      - ["Make sure to bring", " an umbrella and sunscreen", " gloves and a scarf"]
+      - ["Prices will be in", " Singapore dollars", " Canadian dollars"]
+    relation:
+      yes:
+        - "Is it hot and humid where I live most of the year?"
+        - "Do I need air conditioning at home?"
+        - "Would a hawker centre be a normal place for me to grab lunch?"
+      no:
+        - "Does it snow where I live in winter?"
+        - "Will I need a heavy down jacket this year?"
+        - "Do I pay for groceries in Canadian dollars?"
+    ambiguous:
+      - "What should I do outdoors this weekend?"
+      - "Suggest an outfit for a casual dinner."
+      - "Recommend a local dish I should try."
+      - "What's a good way to cool off after work?"
+      - "Plan a relaxing Sunday for me."
+    lexicon:
+      consistent: [Singapore, hawker, laksa, chicken rice, Marina Bay, Sentosa, humid, tropical, linen, air-conditioned, sunscreen, SGD, MRT, Gardens by the Bay, chilli crab]
+      inconsistent: [snow, Canada, Canadian, Toronto, Vancouver, Montreal, poutine, maple syrup, wool, scarf, gloves, parka, skating, hockey]
+
+  # ----------------------------------------------------------------------- likes
+  - id: hates_spicy
+    category: likes
+    experience: "I really can't stand spicy food."
+    counter: "I absolutely love spicy food."
+    followups:
+      - "I'm ordering takeout tonight."
+      - "I want to try cooking a new cuisine."
+      - "What's the best way to clean a laptop keyboard?"
+    probes:
+      paraphrase: "I'm going to get some food delivered this evening."
+      related: "What should I order at a Thai restaurant?"
+    contrasts:
+      - ["How about", " a mild butter chicken", " a fiery vindaloo"]
+      - ["Ask them to make it", " mild", " extra spicy"]
+      - ["I'd go with", " a creamy korma", " a spicy jalfrezi"]
+    relation:
+      yes:
+        - "Should I ask for no chili in my curry?"
+        - "Is a mild korma a good choice for me?"
+        - "Should I avoid the dishes marked with three peppers on the menu?"
+      no:
+        - "Should I add extra hot sauce to my tacos?"
+        - "Would the ghost pepper wings be a good choice for me?"
+        - "Should I order my pad thai extra spicy?"
+    ambiguous:
+      - "Recommend a curry for me to try."
+      - "What's a good taco filling?"
+      - "Suggest a Mexican dish for dinner."
+      - "What should I order at a Sichuan restaurant?"
+      - "Give me a recipe for chicken wings."
+    lexicon:
+      consistent: [mild, creamy, korma, not spicy, no chili, butter chicken, cooling, yogurt sauce, coconut milk, less spicy, without chili, gentle]
+      inconsistent: [spicy, hot sauce, chili, chilli, jalapeño, jalapeno, habanero, sriracha, cayenne, vindaloo, ghost pepper, fiery, extra hot, chipotle, Sichuan pepper]
+
+  - id: loves_hiking
+    category: likes
+    experience: "I absolutely love hiking."
+    counter: "I really hate hiking."
+    followups:
+      - "I have a free weekend coming up."
+      - "I want to pick up a new hobby this year."
+      - "How do I unclog a bathroom sink?"
+    probes:
+      paraphrase: "Nothing is planned for me this weekend."
+      related: "What should I do on my next vacation?"
+    contrasts:
+      - ["How about", " a mountain trail", " a museum tour"]
+      - ["You could spend it", " hiking in a national park", " shopping in the city"]
+      - ["I'd suggest", " a hiking trip", " a spa day"]
+    relation:
+      yes:
+        - "Would a trip to a national park suit me?"
+        - "Should I invest in a good pair of trail boots?"
+        - "Would a trekking holiday in Nepal appeal to me?"
+      no:
+        - "Would a weekend at a shopping mall be my ideal getaway?"
+        - "Should I spend my vacation indoors at a casino?"
+        - "Would a cinema marathon be my idea of a perfect day off?"
+    ambiguous:
+      - "Plan my Saturday for me."
+      - "Suggest a birthday gift I'd enjoy."
+      - "What should I do on a sunny day off?"
+      - "Recommend a travel destination for spring."
+      - "What kind of gear should I spend my bonus on?"
+    lexicon:
+      consistent: [hike, hiking, trail, mountain, trek, trekking, camping, national park, backpack, summit, outdoors, nature, hiking boots, wilderness, trail running]
+      inconsistent: [museum, mall, shopping, cinema, spa, casino, movie, indoor, gallery, theater, theatre, video game, couch, Netflix]
+
+  - id: loves_jazz
+    category: likes
+    experience: "I'm a huge jazz fan."
+    counter: "I can't stand jazz music."
+    followups:
+      - "I want to discover some new music."
+      - "I'm looking for something to do on Friday night."
+      - "How do I repot a houseplant?"
+    probes:
+      paraphrase: "I'd like to find some new songs to listen to."
+      related: "What should I listen to while I cook dinner?"
+    contrasts:
+      - ["You might enjoy", " Miles Davis", " Taylor Swift"]
+      - ["Try a playlist of", " classic jazz standards", " current pop hits"]
+      - ["How about going to", " a jazz club", " a pop concert"]
+    relation:
+      yes:
+        - "Would a Coltrane album be a good gift for me?"
+        - "Would I enjoy an evening at a jazz club?"
+        - "Should I check out the saxophone quartet playing downtown?"
+      no:
+        - "Would a heavy metal festival be my ideal night out?"
+        - "Is a country music playlist my ideal soundtrack for the weekend?"
+        - "Would tickets to a boy band concert be the perfect gift for me?"
+    ambiguous:
+      - "Recommend an album to relax to."
+      - "Suggest a fun night out in the city."
+      - "What instrument should I learn?"
+      - "Give me a gift idea for myself."
+      - "What music should I play at a dinner party?"
+    lexicon:
+      consistent: [jazz, saxophone, Miles Davis, Coltrane, bebop, swing, Ella Fitzgerald, Blue Note, trumpet, bossa nova, big band, Thelonious Monk, Chet Baker, Herbie Hancock, double bass]
+      inconsistent: [pop, rock, hip-hop, EDM, country, metal, Taylor Swift, rap, Top 40, techno, K-pop, Ed Sheeran, boy band]
+
+  - id: dislikes_crowds
+    category: likes
+    experience: "I really hate crowds and noisy places."
+    counter: "I love big crowds and loud parties."
+    followups:
+      - "I'm planning a night out."
+      - "I want to go somewhere nice for my birthday."
+      - "What's a good way to memorize a speech?"
+    probes:
+      paraphrase: "I'd like to go out somewhere this evening."
+      related: "Where should I go on holiday this summer?"
+    contrasts:
+      - ["How about", " a quiet little bistro", " a packed nightclub"]
+      - ["I'd recommend", " a peaceful cabin", " a big music festival"]
+      - ["You could visit", " a quiet local café", " a busy city-centre bar"]
+    relation:
+      yes:
+        - "Would a quiet cabin in the woods suit me?"
+        - "Should I visit the museum on a weekday morning to avoid the rush?"
+        - "Would a small dinner with two friends be my ideal birthday?"
+      no:
+        - "Would a sold-out stadium concert be a fun night for me?"
+        - "Should I spend New Year's Eve in Times Square?"
+        - "Is a packed nightclub my ideal night out?"
+    ambiguous:
+      - "Suggest a way to celebrate a friend's promotion."
+      - "Plan a day out in a big city for me."
+      - "What should I do on New Year's Eve?"
+      - "Recommend a summer holiday destination."
+      - "Where should I go for a weekend brunch?"
+    lexicon:
+      consistent: [quiet, peaceful, cozy, cosy, secluded, intimate, calm, off-peak, relaxing, low-key, tranquil, private, cabin, uncrowded, less crowded]
+      inconsistent: [crowd, crowded, packed, festival, nightclub, concert, stadium, busy, party, bustling, lively, Times Square, rave, loud]
+
+  # ---------------------------------------------------------------------- values
+  - id: tight_budget
+    category: values
+    experience: "I'm on a really tight budget right now."
+    counter: "Money isn't an issue for me right now."
+    followups:
+      - "I need a new laptop for work."
+      - "I want to plan a weekend away."
+      - "What's the best way to learn to juggle?"
+    probes:
+      paraphrase: "My work computer needs replacing."
+      related: "Where should I go on a date this weekend?"
+    contrasts:
+      - ["I'd recommend", " an affordable option", " a premium option"]
+      - ["Look for", " a refurbished model", " the latest flagship model"]
+      - ["How about", " a free picnic in the park", " a fancy tasting menu"]
+    relation:
+      yes:
+        - "Should I look for discounts before I buy anything?"
+        - "Would a refurbished phone be a smart purchase for me?"
+        - "Should I cook at home instead of eating out this week?"
+      no:
+        - "Should I book a five-star hotel for my trip?"
+        - "Is a designer handbag a sensible purchase for me right now?"
+        - "Should I upgrade to first class on my next train journey?"
+    ambiguous:
+      - "Suggest a gift for my friend's birthday."
+      - "What should I do this Saturday?"
+      - "Recommend a phone I should buy."
+      - "Plan a dinner for me and my partner."
+      - "What should I buy for my new apartment?"
+    lexicon:
+      consistent: [budget, cheap, affordable, free, discount, sale, secondhand, second-hand, thrift, save, inexpensive, low-cost, refurbished, coupon, bargain, budget-friendly]
+      inconsistent: [luxury, premium, designer, expensive, splurge, high-end, five-star, first class, fancy, upscale, gourmet, exclusive, lavish, top-of-the-line, flagship]
+
+  - id: no_alcohol
+    category: values
+    experience: "I don't drink alcohol."
+    counter: "I love a good glass of wine."
+    followups:
+      - "I'm going to a friend's birthday party tonight."
+      - "I want to pick a drink to go with dinner."
+      - "How do I back up my phone?"
+    probes:
+      paraphrase: "My friend is celebrating their birthday this evening and I'm invited."
+      related: "What should I order at the bar?"
+    contrasts:
+      - ["How about", " a sparkling mocktail", " a glass of champagne"]
+      - ["I'd suggest", " a virgin mojito", " a classic mojito"]
+      - ["You could bring", " a nice sparkling juice", " a nice bottle of wine"]
+    relation:
+      yes:
+        - "Should I ask the bartender for a mocktail menu?"
+        - "Would a non-alcoholic beer be a good choice for me?"
+        - "Should I bring sparkling juice to the dinner party?"
+      no:
+        - "Should I order a round of tequila shots?"
+        - "Would a wine-tasting tour be a good birthday gift for me?"
+        - "Is a bottle of whiskey a good present for me?"
+    ambiguous:
+      - "What should I drink at a wedding reception?"
+      - "Suggest a drink to go with pizza."
+      - "Recommend something to sip on a summer evening."
+      - "Plan a fun Friday night for me."
+      - "What should I bring to a housewarming party?"
+    lexicon:
+      consistent: [mocktail, non-alcoholic, alcohol-free, juice, soda, sparkling water, lemonade, tea, kombucha, virgin, iced tea, coffee, sober, non-alcoholic beer, sparkling juice]
+      inconsistent: [wine, beer, cocktail, whiskey, vodka, champagne, gin, rum, tequila, prosecco, margarita, sangria, shots, bourbon, alcohol]
+
+  - id: no_car
+    category: values
+    experience: "I don't own a car."
+    counter: "I drive my car everywhere."
+    followups:
+      - "I need to get to the airport early on Monday."
+      - "I'm going to visit my parents in another town."
+      - "How do I start a vegetable garden?"
+    probes:
+      paraphrase: "I have an early flight on Monday and need to get to the airport."
+      related: "How should I get to work tomorrow?"
+    contrasts:
+      - ["The easiest option is to", " take the train", " drive yourself"]
+      - ["I'd suggest", " the bus", " driving"]
+      - ["You could", " cycle there", " drive there"]
+    relation:
+      yes:
+        - "Should I check the bus timetable before I leave?"
+        - "Is a monthly transit pass a good investment for me?"
+        - "Would I need to book a taxi to get to the airport at 4am?"
+      no:
+        - "Should I worry about finding parking at the stadium?"
+        - "Do I need to renew my car insurance this month?"
+        - "Should I fill up my tank before the road trip?"
+    ambiguous:
+      - "Plan a day trip for me this weekend."
+      - "How should I get my groceries home?"
+      - "Suggest a way to visit the coast next weekend."
+      - "What's the best way to commute in winter?"
+      - "How should I get to a concert downtown?"
+    lexicon:
+      consistent: [bus, train, bike, cycle, cycling, walk, walking, subway, tram, metro, taxi, public transport, public transportation, rideshare, Uber, carpool, delivery, transit]
+      inconsistent: [drive, driving, car, parking, highway, gas, fuel, road trip, garage, car insurance, freeway, your car, tank, park your car]
