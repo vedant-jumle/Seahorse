@@ -132,6 +132,9 @@ def parse_args():
     p.add_argument("--top-k", type=int, default=20)
     p.add_argument("--presence", type=float, default=1.5)
     p.add_argument("--amb3", type=int, default=2, help="ambiguous prompts per disposition in stage 3")
+    p.add_argument("--eval-items", nargs="+", default=None,
+                   help="stage 3: items whose prompts are generated (default all; e.g. one job per item group). "
+                        "The memories (and the combined RLS memory) always hold every item.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--check-tol", type=float, default=0.05)
     p.add_argument("--tiny", default=None, choices=["qwen2", "qwen3_5"],
@@ -598,11 +601,17 @@ def parse_yn(text):
 
 
 def ranks(vals, higher=True):
-    """1 = best; nan = worst."""
-    key = lambda i: (math.isnan(vals[i]), -vals[i] if higher else vals[i]) if not math.isnan(vals[i]) else (True, 0)
-    out = [0] * len(vals)
-    for k, i in enumerate(sorted(range(len(vals)), key=key)):
-        out[i] = k + 1
+    """1 = best; ties (and nan, the worst) share their mean rank, so an all-nan metric ranks nothing."""
+    k = [(1, 0.0) if math.isnan(v) else (0, -v if higher else v) for v in vals]
+    order = sorted(range(len(vals)), key=lambda i: k[i])
+    out, i = [0.0] * len(vals), 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and k[order[j + 1]] == k[order[i]]:
+            j += 1
+        for t in range(i, j + 1):
+            out[order[t]] = (i + j) / 2 + 1
+        i = j + 1
     return out
 
 
@@ -1042,7 +1051,7 @@ def run3(C, cfg, M, mem, cond_list, rows, texts, shared):
     A = C.args
     smp = qwen_sampler(A.temp3, A.top_k, A.top_p, A.presence)
     t0, n_done = time.time(), 0
-    for s in C.ids:
+    for s in C.eval_ids:
         scen = C.by_id[s]
         for kind, text, cons in prompts3(C, s):
             seed = seed_of("s3", text, A.seed)
@@ -1127,6 +1136,8 @@ def agg3(rows):
 
 def stage3(C, out, cfg):
     A = C.args
+    C.eval_ids = [s for s in C.ids if A.eval_items is None or s in A.eval_items]
+    assert C.eval_ids, f"--eval-items {A.eval_items} not among {C.ids}"
     M = {l: memories(C, l, W256, combined=True) for l in cfg["layers"]}
     check = check_cached(C, cfg["layers"], cfg["scale"],
                          lambda l, s: (M[l][s][0], C.KS[l][W256], *M[l][s][1:]), think=True)
@@ -1158,7 +1169,7 @@ def report3(C, cfg, S, choice, check, meta):
       f"{' TINY ' + A.tiny if A.tiny else ''}")
     w(f"injection set (stage 2 choice): {json.dumps(cfg)}; key pooled_w256, read hard; isolated = delta per item; comb "
       f"= all items in one RLS memory. Prompt positions use alpha_answer; generated tokens before </think> alpha_think, "
-      f"</think> and after alpha_answer (x the per-layer scale).")
+      f"</think> and after alpha_answer (x the per-layer scale). Prompts of: {C.eval_ids}.")
     w(f"generation: thinking cap {A.think_cap} tokens (then </think> is forced), answer cap {A.answer_cap}; per prompt x "
       f"condition 1 greedy + {A.samples3} samples (T {A.temp3:g}, top-p {A.top_p:g}, top-k {A.top_k}, presence penalty "
       f"{A.presence:g} on generated tokens), the same random numbers for every condition; thresholds calibrated with "
@@ -1205,7 +1216,7 @@ def samples3(C, rows, path):
     w(f"# Seahorse think_v1 stage 3 thinking traces: {A.model}{' TINY' if A.tiny else ''}; per item x condition: the "
       f"related probe (greedy + sample 1) and one more prompt (greedy; ambiguous for dispositions, the first "
       f"verification probe for facts). g = gate/match/thr at the last prompt position (first injected layer).")
-    for s in C.ids:
+    for s in C.eval_ids:
         scen = C.by_id[s]
         w("")
         w("=" * 110)
