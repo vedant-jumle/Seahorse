@@ -3,7 +3,7 @@ import torch
 from transformers import Qwen2Config, Qwen2ForCausalLM
 
 from seahorse.memory import FastWeightMemory
-from seahorse.residual import capture, decoder_layers, inject
+from seahorse.residual import capture, decoder_layers, inject, text_model
 
 LAYER = 1
 
@@ -57,12 +57,26 @@ def test_inject_changes_logits_and_is_removed(tiny):
     d = model.config.hidden_size
     with torch.no_grad():
         ref = model(ids).logits
+        # transformers >= 5 keeps its own output-capturing hook on every decoder layer
+        n_hooks = len(decoder_layers(model)[LAYER]._forward_hooks)
         with inject(model, LAYER, random_memory(d), alpha=1.0):
             steered = model(ids).logits
         after = model(ids).logits
     assert not torch.allclose(ref, steered)
     assert torch.equal(ref, after)
-    assert len(decoder_layers(model)[LAYER]._forward_hooks) == 0
+    assert len(decoder_layers(model)[LAYER]._forward_hooks) == n_hooks
+
+
+def test_decoder_layers_finds_vlm_text_decoder():
+    # vision-language layout (e.g. Qwen3.5): model.model.language_model.layers
+    lm = torch.nn.Module()
+    lm.layers = torch.nn.ModuleList([torch.nn.Identity()])
+    inner = torch.nn.Module()
+    inner.language_model = lm
+    outer = torch.nn.Module()
+    outer.model = inner
+    assert decoder_layers(outer) is lm.layers
+    assert text_model(outer) is lm
 
 
 def test_inject_only_affects_layers_at_and_after(tiny):

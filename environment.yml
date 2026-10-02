@@ -8,7 +8,10 @@ dependencies:
       # cu126 wheels bundle their own CUDA runtime and include sm_70 (V100)
       - --extra-index-url https://download.pytorch.org/whl/cu126
       - torch==2.6.*
-      - transformers>=4.45,<5
+      # qwen3_5 (Qwen3.5) needs transformers 5; verified with 5.18.0 (huggingface_hub 1.33,
+      # tokenizers 0.23). Linear-attention kernels (flash-linear-attention, causal-conv1d) are
+      # not installed: Qwen3.5's Gated DeltaNet layers use transformers' pure-torch fallback.
+      - transformers>=5.18,<6
       - accelerate
       - pyyaml
       - pytest
