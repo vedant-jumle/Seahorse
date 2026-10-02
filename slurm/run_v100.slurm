@@ -3,13 +3,13 @@
 #SBATCH --partition=gpu-v100
 #SBATCH --time=08:00:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=6
 #SBATCH --gpus-per-task=1
-#SBATCH --mem-per-cpu=8G
+#SBATCH --mem-per-cpu=5300M
 #SBATCH --output=/scratch/%u/logs/seahorse_%j.out
 #SBATCH --error=/scratch/%u/logs/seahorse_%j.err
 
-# V100 variant of run.slurm (gpu-v100: tesla_v100s 32GB, sm_70, 2-day limit). V100 has no bf16
+# V100 variant of run.slurm (gpu-v100: tesla_v100s 32GB, sm_70, 2-day limit, <=5333MB/CPU). V100 has no bf16
 # and fp16 overflows on Qwen, so experiments run in fp32 (the seahorse default). From the repo root:
 #   EXP=think_v1 EXTRA_ARGS="--stage 1" OUT=/scratch/$USER/seahorse_runs/x sbatch [--time=..] slurm/run_v100.slurm
 # Runs experiments/$EXP/run.py; outputs go to $OUT (default /scratch/$USER/seahorse_runs/${EXP}_<jobid>).
