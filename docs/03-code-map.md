@@ -19,16 +19,23 @@ Seahorse/
 │   │   ├── run.py
 │   │   ├── scenarios.yaml
 │   │   └── generic_prompts.txt   ~100 neutral prompts used to estimate the centring mean μ
-│   └── v0_1/                     follow-up: specificity, relations, write positions, samples
-│       ├── run.py
-│       └── scenarios.yaml
+│   ├── v0_1/                     follow-up: specificity, relations, write positions, samples
+│   │   ├── run.py
+│   │   └── scenarios.yaml
+│   ├── diag_dose/                diagnostic: how big the steer is, where it lands, what combining does
+│   │   └── run.py
+│   └── diag_order/               diagnostic: does write order decide who survives in a combined memory?
+│       └── run.py
 ├── slurm/                        DelftBlue job scripts
 │   ├── setup_delftblue.sh        one-off env build + model download (login node)
 │   ├── v0.slurm                  the job that ran v0 (kept as the record)
 │   └── run.slurm                 generic job: EXP=<experiment> sbatch slurm/run.slurm
 ├── results/                      (untracked) outputs pulled back from the cluster
 │   ├── v0_408770/
-│   └── v0_1_415909/
+│   ├── v0_1_415909/
+│   ├── diag_dose_577895/
+│   ├── diag_order_577896/
+│   └── seahorse_<jobid>.out      job logs of the two diagnostic runs
 └── docs/                         this documentation
 ```
 
@@ -119,7 +126,33 @@ Same pipeline, extended:
 ### `v0_1/scenarios.yaml`
 The v0 scenarios plus `counter` (a counter-experience per scenario), `foils` (2 per fact) and
 `relation_probes` (2 per disposition, each with the consistent answer `a` and the
-inconsistent `b`).
+inconsistent `b`). In all six relation probes `a` is "No", so a general bias towards "No"
+scores as a relation gain (see [04-experiments.md §4.5.2](04-experiments.md#452-diag_order-does-write-order-decide-who-survives)).
+
+### `diag_dose/run.py`: how big is the steer, and where does it land?
+A measurement pass with the method unchanged. It loads `v0_1/run.py` (via importlib) and reuses its pipeline (`compute_mu`, `collect_writes`, `build_memory`) and `v0_1/scenarios.yaml`.
+- **Logging hook** (`log_inject`): a copy of `inject` that computes k(h), the recall M·k and the steer s = α·M·k and logs per-position statistics. It asserts that its output equals `memory.read(h, α)`, and once per baseline × layer × mode × α it checks end to end that the logits match the library's `inject` (48 checks).
+- **Inputs** (`build_inputs`): each scenario's 3 probes teacher-forced with the ceiling's greedy continuation, the relation probes (prompt only), and the 8 unrelated probes with the baseline's continuation. Every position is tagged as template head, user text, template tail, continuation, or the answer position (last prompt token).
+- **Per position:** ‖h‖, ‖h − μ‖, ‖s‖, the steer ratio ‖s‖/‖h − μ‖, the norm change ‖h'‖/‖h‖ − 1, and the max cosine to the stored write keys (all, tail-only, content-only). Also the recall fraction ‖M·k‖ / mean‖Δ‖ and, in combined mode, the cosine and length ratio of the combined recall against the probe's own isolated memory.
+- **Write side** (`write_keys`): ‖Δ‖, ‖h_without − μ‖ and their ratio per write token.
+- **Sweep:** baselines {without, contrastive} × modes {isolated, combined} × layers {14, 17, 23, 26} × α {1, 2, 4}. Entropy gate, position `all`.
+- **Outputs:** `positions.jsonl.gz` (one row per position × config), `summary.csv` (medians, p90s and energy shares by baseline, mode, layer, α, probe kind and position category), `write_tokens.csv`, `report.txt` (tables T1–T8 plus the four pre-registered predictions P1–P4) and `config.json`.
+
+### `diag_order/run.py`: does write order decide who survives?
+A measurement pass with the method unchanged (the v0.1 pipeline, entropy gate, position `all`, α = 2, layers 23 and 26, both baselines). Only the set and order of writes vary, and each condition builds a fresh memory (`conditions`, `build`):
+- `iso` and `iso_notail`: one memory per scenario, the references for retention.
+- `a_comb_orig`: all six in the v0.1 order. `b_comb_rev`: reversed.
+- `c_veg_<x>`: vegetarian first, then one interferer (peanut, dog or norway), with and without the tail.
+- `d_comb_notail`: original order, but the writes skip the 5 template-tail tokens. `d_comb_notail_renorm` does the same with the entropy gate renormalised over the kept tokens.
+
+What it computes and checks:
+- **`select`** wraps v0.1's `select`, optionally dropping the tail. `fidelity` gives the **forgetting curves**: after each scenario's writes, the mean cos(M·k_t, Δ_t) and relative error at every scenario's own write keys.
+- **`key_overlap`** gives the mean cosine between the write keys of each pair of scenarios, split into content and template-tail tokens. `gate_stats` reports where the entropy gate puts its weight.
+- **`retention`** = condition effect ÷ isolated effect. It is flagged, not divided, when the isolated effect is ≈0 or negative.
+- **Checks:** every `all`-variant memory must equal v0.1's `build_memory` exactly. `repro_check` compares `a_comb_orig` and `iso` with v0.1's `results.jsonl` (set by `--v01-results`, default on scratch; tolerance `--repro-tol` 0.01 nats), and the run fails if they don't match.
+- **Outputs:** `results.jsonl`, `summary.csv` (per condition × baseline × layer × scenario: gap, Δtarget, specificity, Δrelation, leakage and retention), `forgetting.csv`, `key_overlap.csv`, `report.txt` and `config.json`.
+
+Both diagnostics have a `--tiny` smoke-test mode: a tiny random Qwen2 with the real tokenizer, which skips the reproduction check.
 
 ---
 
@@ -151,6 +184,11 @@ git pull
 EXP=v0_1 sbatch slurm/run.slurm
 tail -f /scratch/$USER/logs/seahorse_<jobid>.out
 # outputs: /scratch/$USER/seahorse_runs/v0_1_<jobid>/{summary.csv,samples.txt,results.jsonl,write_stats.jsonl,config.json}
+
+# the diagnostics (diag_order expects v0.1's results.jsonl at --v01-results)
+EXP=diag_dose sbatch slurm/run.slurm
+EXP=diag_order sbatch slurm/run.slurm
 ```
 
-Runtime: v0 took 21m53s and v0.1 took 25m13s on one MIG slice.
+Runtime: v0 took 21m53s and v0.1 took 25m13s on one MIG slice. After the ~4-minute unit
+tests, diag_dose took 5m39s and diag_order 6m42s.

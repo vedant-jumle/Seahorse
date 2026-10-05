@@ -161,6 +161,23 @@ The backbone stays frozen throughout.
 ---
 
 ## Suggested order
+
+> **Update (2026-09-28), after the diagnostics ([04 §4.5](04-experiments.md#45-diagnostics-dose-selectivity-and-write-order)):
+> the priority has moved from dose to selectivity.** At α = 2 the memory already recalls
+> 0.6–0.9 of a stored imprint on related prompts, but also ~0.4 on unrelated ones, and about
+> two-thirds of the steer on unrelated prompts lands on the chat template. In a combined memory
+> the last write wins (recency), with crosstalk at read time. B1 is done: keys of all scenarios
+> overlap about equally (~0.2 cosine after centring, not more for the food pair), and the
+> template-tail keys are practically one shared key. Candidate fixes:
+> - **No read or write at template positions:** skip the template head (system prompt and start-of-turn tokens) and the end-of-turn/assistant-header tail.
+> - **Whitened keys:** remove the shared direction the keys keep after centring, so unrelated inputs match near 0.
+> - **Recursive least squares (B2):** the global least-squares solution over all writes, which also removes the dependence on write order.
+> - **A match threshold:** recall only above a key-match threshold, so weak 0.2–0.3 matches return nothing (a simple form of B4).
+>
+> **Relation probes must be re-baselined without the template tail** before A1 or A2 is read
+> through them. The tail carried a shared yes/no bias, and all six probes have "No" as the
+> consistent answer. The list below is kept as it was written.
+
 1. **A1** (layer sweep for relations; ~20 min on one MIG slice). It decides the fork.
 2. **B1** (key-collision diagnostics; minutes, from stored states). It explains the capacity failure.
 3. **A2, training-free** (salient-moment reinstatement into attention), with relation probes.

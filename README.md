@@ -20,14 +20,15 @@ the hook applies **h ← h + α·M·k(h)** at every position. Situations that re
 recall its change; unrelated ones get nothing. No training, and the base model is never
 modified.
 
-## Status (v0, v0.1 on Qwen2.5-1.5B-Instruct)
+## Status (v0, v0.1 and the diagnostics, on Qwen2.5-1.5B-Instruct)
 - ✅ Carries **which** fact it was (specific: targets rise by +4 nats for names and +11 for the job, while foils stay flat) and **which way** a preference points (up to ~80% of the in-context effect with a contrastive write).
-- ✅ Selective, with low leakage at moderate strength. The **confusion gate** improves recall and halves leakage. **4 salient tokens ≈ a whole moment.**
-- ❌ **No premise the model can reason with.** Yes/no inferences never flip. The steer changes what comes to mind, not what the model concludes.
-- ❌ **Tiny capacity for dispositions:** they collide at N = 6. Facts survive.
+- ✅ Low output leakage at moderate strength. The **confusion gate** improves recall and halves leakage. **4 salient tokens ≈ a whole moment.**
+- ❌ **Not selective.** The memory isn't too weak. At α = 2 it recalls 0.6–0.9 of a stored imprint on related prompts, but also ~0.4 on unrelated ones, and about two-thirds of the steer on unrelated prompts lands on the shared chat template.
+- ❌ **No premise the model can reason with.** Yes/no inferences never flip, although memory does fire on those probes. The steer changes what comes to mind, not what the model concludes. Part of the small relation gain was a template artefact.
+- ❌ **Capacity is set by write order.** In a combined memory the last write survives whole, and earlier ones are lost or reversed (RNN-style recency), with crosstalk between same-topic memories at read time. The earlier "facts survive" was only the last-written fact (job).
 
 → The steer behaves like a **modulatory** channel. Episodic content likely needs
-**reinstatement into attention**. See the next moves.
+**reinstatement into attention**. First, recall has to become selective. See the next moves.
 
 ## Documentation
 | Doc | Contents |
@@ -35,8 +36,12 @@ modified.
 | [docs/01-core-idea.md](docs/01-core-idea.md) | The problem (records vs memories), the target properties, inspirations (Bartlett, complementary learning systems, hippocampal indexing, the CA1 comparator, neuromodulators), premises from the literature, related work, the neuromodulator side idea |
 | [docs/02-method.md](docs/02-method.md) | The exact mechanism: hook point, centring, **the memory operator explained in depth** (maths, properties, a worked example, capacity), what gets written, write variants, reading, metrics, sanity checks, limitations |
 | [docs/03-code-map.md](docs/03-code-map.md) | What every file does, and how to run things (locally and on DelftBlue) |
-| [docs/04-experiments.md](docs/04-experiments.md) | v0 and v0.1: setup, full results tables, samples, interpretation, caveats |
+| [docs/04-experiments.md](docs/04-experiments.md) | v0 and v0.1: setup, full results tables, samples, interpretation, caveats. The diagnostics (steer dose and selectivity, write order), with corrections to earlier claims |
 | [docs/05-next-moves.md](docs/05-next-moves.md) | Open directions: the premise fork (layer sweep vs an episodic channel), capacity, removing the scaffold, salience, training, evaluation, parked ideas |
+| [docs/06-open-notes.md](docs/06-open-notes.md) | Notes to come back to: possible confounds in the relation-probe result, the online-baseline problem, and thoughts on the neuromodulator idea (gain vs additive, tonic state, loop stability) |
+| [docs/07-where-we-are.md](docs/07-where-we-are.md) | A plain-language report on the whole project: the question, prior work, the theory, how we test it, the results stage by stage, what it means, limits, next steps, and an appendix of real model outputs |
+| [docs/08-how-it-works.md](docs/08-how-it-works.md) | The current design end to end, in plain words: calibration, whitened gist keys, shifts, the memory matrix (delta rule and least squares), the threshold, and what happens at every word |
+| [docs/09-where-it-fails.md](docs/09-where-it-fails.md) | Every failure so far, with real examples, the likely cause, the evidence, and possible fixes, grouped into four root causes |
 
 ## Quick start
 ```bash
@@ -50,7 +55,7 @@ On DelftBlue: `EXP=v0_1 sbatch slurm/run.slurm` (see [docs/03-code-map.md](docs/
 ```
 src/seahorse/   memory.py (the operator) · residual.py (hooks) · sessions.py · metrics.py
 tests/          delta-rule properties, hook correctness
-experiments/    v0/, v0_1/  (run.py + scenarios.yaml)
+experiments/    v0/, v0_1/  (run.py + scenarios.yaml) · diag_dose/, diag_order/  (run.py)
 slurm/          DelftBlue setup and job scripts
 docs/           the documentation above
 ```
