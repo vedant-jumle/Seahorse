@@ -1,7 +1,12 @@
 # 4. Experiments and results
 
+> **Scope.** This log covers v0, v0.1 and the diagnostics, all on the original v0/v0.1 design.
+> The later stages (the attention test, benchmark v1, the gist-key / threshold / least-squares
+> experiment and the `samples_v2` text run) are not logged here yet. They are summarised in
+> [where-we-are.md §5](../where-we-are.md#5-what-we-found-the-story-in-order) and its appendix.
+
 Two experiments and two diagnostic passes so far, all on **Qwen2.5-1.5B-Instruct (frozen,
-fp32)** on one DelftBlue A100 MIG slice (10GB). The method is in [02-method.md](02-method.md).
+fp32)** on one DelftBlue A100 MIG slice (10GB). The method is in [original-method.md](../reference/original-method.md).
 Raw outputs are in `results/v0_408770/`, `results/v0_1_415909/`, `results/diag_dose_577895/`
 and `results/diag_order_577896/`.
 
@@ -250,7 +255,7 @@ Across both experiments, the steer behaves like a **neuromodulator**: it biases 
 and preferences in open-ended generation, but it never becomes a premise that downstream
 reasoning uses.
 
-This is what the emotion paper's finding predicts (P2 in [01-core-idea.md](01-core-idea.md)):
+This is what the emotion paper's finding predicts (P2 in [core-idea.md](../reference/core-idea.md)):
 transformers don't keep state in the residual stream. Anything they reason with, they
 *attend to*, from representations cached at earlier positions. In the ceiling, the question's
 tokens attend back to "I'm vegetarian", and the middle layers compute the implication. A
@@ -265,7 +270,7 @@ So the results suggest a **two-channel memory**:
 | Channel | Carries | Mechanism | Status |
 |---|---|---|---|
 | **Modulatory** | Dispositions, preferences, "how I relate to this person" | The plastic steer (this work) | Works partially; recall unselective, capacity set by write order (§4.5) |
-| **Episodic** | Facts and premises the model reasons with | Reinstating compressed, salient moments where attention can reach them | Next step ([05-next-moves.md](05-next-moves.md)) |
+| **Episodic** | Facts and premises the model reasons with | Reinstating compressed, salient moments where attention can reach them | Next step ([next-moves-v0.1.md](next-moves-v0.1.md)) |
 
 **Update after the diagnostics (§4.5).** The two-channel reading survives, and the diagnosis
 of the modulatory channel is sharper. Its problem is **selectivity, not strength**. At α = 2
@@ -292,7 +297,7 @@ steer carries no premise is now stronger.
 
 Two measurement passes, run to decide between three readings that v0/v0.1 left open: the
 steer is **too weak** (dose), memory **doesn't fire** on relation probes
-([06-open-notes.md](06-open-notes.md) N1), or dispositions **collide by topic** (Q3b). Neither
+([open-notes.md](open-notes.md) N1), or dispositions **collide by topic** (Q3b). Neither
 pass changes the method. Both reuse the v0.1 pipeline (entropy gate, write position `all`),
 both ran at commit `1d0628e`, and each took about 6 minutes on one MIG slice after the unit
 tests.
@@ -520,5 +525,5 @@ The ceiling's mean is +3.98.
 ### 4.5.3 What the diagnostics change
 1. **Not too weak, but unselective.** At α = 2 the steer is a quarter of ‖h − μ‖ (a 1–3% norm change). Yet it brings back 0.6–0.9 of an imprint on related prompts and about 0.4 on unrelated ones, and two-thirds of the steer on unrelated prompts sits on the chat template. More α doesn't help: α = 4 breaks because the steer reaches ‖h − μ‖ at template and question positions.
 2. **Capacity loss comes from write order plus read-time crosstalk.** The last write survives whole (recency), and same-topic memories add onto each other's probes. "Facts survive" (v0 conclusion 7, v0.1 conclusion 5) was job, the last write. Keys don't separate by topic or type: all content keys share about 0.2 cosine after centring, and the tail keys are one shared key.
-3. **Relation gains were partly template artefacts.** The tail carried a shared yes/no bias. Without it, the isolated relation gain is about a twelfth of the ceiling's, and the combined one is zero. Memory fires on relation probes (63–77% of related), so the premise failure is real. This answers N1 in [06-open-notes.md](06-open-notes.md).
-4. **For the next steps** ([05-next-moves.md](05-next-moves.md)), selectivity comes before dose. Candidate fixes are no read or write at template positions, whitened keys, recursive least squares and a match threshold. Relation probes must be re-baselined without the template tail.
+3. **Relation gains were partly template artefacts.** The tail carried a shared yes/no bias. Without it, the isolated relation gain is about a twelfth of the ceiling's, and the combined one is zero. Memory fires on relation probes (63–77% of related), so the premise failure is real. This answers N1 in [open-notes.md](open-notes.md).
+4. **For the next steps** ([next-moves-v0.1.md](next-moves-v0.1.md)), selectivity comes before dose. Candidate fixes are no read or write at template positions, whitened keys, recursive least squares and a match threshold. Relation probes must be re-baselined without the template tail.

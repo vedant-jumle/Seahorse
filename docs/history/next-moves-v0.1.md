@@ -1,6 +1,14 @@
-# 5. Next possible moves
+# 5. Next possible moves (after v0.1; archived)
 
-Where things stand ([04-experiments.md](04-experiments.md)): the plastic steer carries
+> **Archived.** The open directions as they stood after v0.1, with a priority update after the
+> diagnostics (2026-09-28), kept as written. The current next steps are in
+> [where-we-are.md §8](../where-we-are.md#8-where-it-could-go), and the open problems with
+> possible fixes in [where-it-fails.md](../where-it-fails.md). Since this was written:
+> - **Done:** B1 (key overlap, in the diagnostics); the goal of B2, as a least-squares write over all memories, so write order no longer matters; and the whitened keys and match threshold from the update at the end (the threshold is a simple form of B4). See failures 5 and 6 in where-it-fails.md.
+> - **Partly done:** F, through benchmark v1 (48 items, a 60-fact pool, balanced yes/no answers, a placebo condition).
+> - **Still open:** A1; A2 (the attention-based channel is being explored separately); B3 beyond whitening; B5 (the capacity curve, now the first next step); C (failure 9); D (now the planned neuromodulated memory); E; and the parked ideas in G.
+
+Where things stand ([experiment-log.md](experiment-log.md)): the plastic steer carries
 **which** fact and **which way** a preference points (specific, low leakage, salience helps),
 but **not premises the model can reason with**, and dispositions **collide** at N = 6. That
 points to a **two-channel memory**: a *modulatory* steer (what we have) and an *episodic*
@@ -91,7 +99,7 @@ Templated facts ("My <relation>'s name is <name>", "I work as a <job>", …) to 
 real memory can't.
 
 **What:** writing online, from a single pass:
-- **Modulatory channel:** Δ measured against **memory's own prediction** (the delta-rule error already does this), or against a running average of recent states (habituation), or against the model's predicted next state (surprise in state space). See the baseline discussion in [01-core-idea.md](01-core-idea.md) and [02-method.md §2.5](02-method.md#25-what-gets-written-the-experience-delta).
+- **Modulatory channel:** Δ measured against **memory's own prediction** (the delta-rule error already does this), or against a running average of recent states (habituation), or against the model's predicted next state (surprise in state space). See the baseline discussion in [core-idea.md](../reference/core-idea.md) and [original-method.md §2.5](../reference/original-method.md#25-what-gets-written-the-experience-delta).
 - **Episodic channel:** no delta needed. Store the **states** of salient moments (reinstatement through attention doesn't hijack the way additive patching does). Salience decides *what* gets stored; the entropy gate and top-k already do this.
 - **The open problem:** the contrastive write worked because it had a matched counter-experience. Online, nothing supplies one. Can memory's own prediction play that role, cancelling what's already known (the concept) and keeping what's new (the relation)?
 
@@ -156,13 +164,13 @@ The backbone stays frozen throughout.
 - **Cold start:** with an empty memory, every moment is maximally surprising.
 - **Consolidation into weights:** replay stored moments into slow weights (complementary learning systems), or bake stable traits in, as abliteration bakes in a projection.
 - **Reconstructive drift:** when memory conflicts with priors, should the prior reshape the memory (Bartlett) rather than memory always winning (Larimar)? Needs confidence-weighted reconciliation.
-- **Steering as neuromodulators:** see [01-core-idea.md §1.7](01-core-idea.md#17-side-idea-steering-vectors-as-neuromodulators-parked). The v0.1 finding that the steer is modulatory makes this closer to the main line than it first looked.
+- **Steering as neuromodulators:** see [core-idea.md §1.7](../reference/core-idea.md#17-side-idea-steering-vectors-as-neuromodulators-parked). The v0.1 finding that the steer is modulatory makes this closer to the main line than it first looked.
 
 ---
 
 ## Suggested order
 
-> **Update (2026-09-28), after the diagnostics ([04 §4.5](04-experiments.md#45-diagnostics-dose-selectivity-and-write-order)):
+> **Update (2026-09-28), after the diagnostics ([experiment-log §4.5](experiment-log.md#45-diagnostics-dose-selectivity-and-write-order)):
 > the priority has moved from dose to selectivity.** At α = 2 the memory already recalls
 > 0.6–0.9 of a stored imprint on related prompts, but also ~0.4 on unrelated ones, and about
 > two-thirds of the steer on unrelated prompts lands on the chat template. In a combined memory

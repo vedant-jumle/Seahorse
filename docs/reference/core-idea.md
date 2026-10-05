@@ -6,9 +6,11 @@
 
 This document explains *why* the project exists, what it is trying to build, where the
 ideas come from, and how it relates to existing work. The concrete mechanism is in
-[02-method.md](02-method.md), the code in [03-code-map.md](03-code-map.md), results in
-[04-experiments.md](04-experiments.md), and open directions in
-[05-next-moves.md](05-next-moves.md).
+[original-method.md](original-method.md) (the v0/v0.1 design; the current one is in
+[how-it-works.md](../how-it-works.md)), the code in [code-map.md](code-map.md), results in
+[experiment-log.md](../history/experiment-log.md), and open directions in
+[next-moves-v0.1.md](../history/next-moves-v0.1.md) (archived; the current next steps are in
+[where-we-are.md §8](../where-we-are.md#8-where-it-could-go)).
 
 ---
 
@@ -165,7 +167,7 @@ suggest that any chronic state "is likely represented… implicitly in the model
 value vectors… recalled when needed by the model's attention mechanism."
 
 This premise turned out to predict the v0.1 result: the steer carries associations, but not
-premises the model can reason with ([04-experiments.md](04-experiments.md)).
+premises the model can reason with ([experiment-log.md](../history/experiment-log.md)).
 
 ### P3: Abstract state lives at mid-to-late layers and is linearly steerable
 Same paper:
@@ -215,10 +217,10 @@ and v0.1 test.
 4. **Salience from inside the model:** surprise against memory, uncertainty (entropy), and valence/arousal.
 5. **Frozen cortex:** the base model is never modified. Training is allowed where needed (the read path).
 
-The mechanism is in [02-method.md](02-method.md). The experiments (v0, v0.1) found that this
+The mechanism is in [original-method.md](original-method.md). The experiments (v0, v0.1) found that this
 channel carries **which** fact and **which way** a preference points, but not **premises the
 model reasons with**. That points to a second, **episodic** channel that reinstates content
-where attention can use it ([05-next-moves.md](05-next-moves.md)).
+where attention can use it ([next-moves-v0.1.md](../history/next-moves-v0.1.md)).
 
 ---
 

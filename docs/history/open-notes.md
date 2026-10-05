@@ -2,8 +2,8 @@
 
 Observations made while re-reading docs 01–05 and the neuromodulator side idea
 (2026-09-25). None of them has been acted on yet. They are here to come back to: some sharpen
-moves already in [05-next-moves.md](05-next-moves.md), some add new ones. (Since then, the
-diagnostics in [04 §4.5](04-experiments.md#45-diagnostics-dose-selectivity-and-write-order)
+moves already in [next-moves-v0.1.md](next-moves-v0.1.md), some add new ones. (Since then, the
+diagnostics in [experiment-log §4.5](experiment-log.md#45-diagnostics-dose-selectivity-and-write-order)
 have settled N1 and part of N8; see the notes under them.)
 
 ---
@@ -11,7 +11,7 @@ have settled N1 and part of N8; see the notes under them.)
 ## 6.1 On the memory results
 
 ### N1. The relation-probe failure may mix "not used" with "not retrieved"
-The v0.1 conclusion ([04-experiments.md](04-experiments.md), Q2b) is that the steer carries
+The v0.1 conclusion ([experiment-log.md](experiment-log.md), Q2b) is that the steer carries
 no premise the model reasons with. But a relation probe is scored **right after the
 assistant header**: log P("Yes"/"No") is predicted at the header positions. Q3 found that
 header positions carry almost nothing, and relation probes ("Is a peanut butter cookie safe
@@ -26,7 +26,7 @@ These are two different failures:
 **What would settle it:** log ‖α·M·k(h)‖ / ‖h‖ and the max cosine to stored keys, per
 position, for relation probes vs related probes. It costs about as much as B1.
 
-> **Resolved by the diagnostics (2026-09-28, [04 §4.5](04-experiments.md#45-diagnostics-dose-selectivity-and-write-order)):
+> **Resolved by the diagnostics (2026-09-28, [experiment-log §4.5](experiment-log.md#45-diagnostics-dose-selectivity-and-write-order)):
 > fired, not used.** On user text, memory fires on relation probes at **63–77% of its
 > related-probe level** (recall fraction 0.44–0.61 vs 0.59–0.87, L14–26). At the answer
 > position the steer is 0.21–0.33 of ‖h − μ‖, against 0.31–0.45 on related disposition
@@ -76,7 +76,7 @@ No action needed.
 
 ## 6.2 On the neuromodulator side idea
 
-Relates to [01-core-idea.md §1.7](01-core-idea.md#17-side-idea-steering-vectors-as-neuromodulators-parked)
+Relates to [core-idea.md §1.7](../reference/core-idea.md#17-side-idea-steering-vectors-as-neuromodulators-parked)
 and the fuller side-idea note in the parent `docs/` folder (not in the repo).
 
 ### N5. Additive vs multiplicative is the line between content and modulation
@@ -122,7 +122,7 @@ Two of the "missing" properties the side idea lists already show up in v0:
 - **Inverted-U dose-response:** α = 2 is best, α = 4 breaks everything, and leakage grows nonlinearly (0.003 → 0.257 from α = 0.5 to 4).
 - **Receptor specificity:** the same memory steer does nothing at L6, is negative at L14, and helps at L23–26.
 
-> **Update (2026-09-28, [04 §4.5.1](04-experiments.md#451-diag_dose-how-big-is-the-steer-and-where-does-it-land)):**
+> **Update (2026-09-28, [experiment-log §4.5.1](experiment-log.md#451-diag_dose-how-big-is-the-steer-and-where-does-it-land)):**
 > the top of the inverted U is now located. At α = 2 the steer is about a quarter of
 > ‖h − μ‖ (a 1–3% norm change). At α = 4, in L23/L26, it reaches the size of ‖h − μ‖ on
 > template-tail and question positions (median ratio 1.0–1.3), and tail positions inflate by

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Seahorse diag_keys: can memory recall be made SELECTIVE?
 
-Known (docs/04-experiments.md §4.5): recall is strong but unselective (~0.4 of an imprint
+Known (docs/history/experiment-log.md §4.5): recall is strong but unselective (~0.4 of an imprint
 comes back on unrelated prompts, two-thirds of it on the chat template); centred keys of
 different scenarios are as similar as keys within one scenario (~0.2 cosine); in combined
 mode the last write wins and same-topic memories cross-talk at read time.

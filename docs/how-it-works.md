@@ -1,6 +1,6 @@
 # Seahorse: how it works, end to end
 
-*A plain walk-through of the current design: every piece, where each number comes from, and what happens when. It's written in the same spirit as [07-where-we-are.md](07-where-we-are.md). The maths is kept light, and every formula is said in words too. Written 2026-09-30.*
+*A plain walk-through of the current design: every piece, where each number comes from, and what happens when. It's written in the same spirit as [where-we-are.md](where-we-are.md). The maths is kept light, and every formula is said in words too. Written 2026-09-30.*
 
 ---
 

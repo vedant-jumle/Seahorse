@@ -1,9 +1,18 @@
-# 2. The method: how Seahorse stores and recalls memory
+# 2. The original method (v0/v0.1): how Seahorse stores and recalls memory
+
+> **Original v0/v0.1 design.** This is the mechanism as tested in v0, v0.1 and the
+> diagnostics: centred per-token keys, sequential delta-rule writes, and a read at every
+> position. For the current design (whitened gist keys, least-squares writes for several
+> memories, a match threshold) see [how-it-works.md](../how-it-works.md). Why it changed is in
+> [where-it-fails.md](../where-it-fails.md), failures [5](../where-it-fails.md#5-it-fired-everywhere-fixed)
+> and [6](../where-it-fails.md#6-the-last-memory-written-won-fixed). The delta rule of §2.4 is still
+> the write rule for a single memory (now with 256-number keys), and the metrics of §2.8 are the
+> ones the [experiment log](../history/experiment-log.md) reports.
 
 This document specifies the mechanism exactly: where it attaches to the LLM, what the memory
 *is*, how it is written, how it is read, and how it is evaluated. It matches the code at
-`src/seahorse/` and `experiments/v0*/` (see [03-code-map.md](03-code-map.md)). For the
-motivation, see [01-core-idea.md](01-core-idea.md).
+`src/seahorse/` and `experiments/v0*/` (see [code-map.md](code-map.md)). For the
+motivation, see [core-idea.md](core-idea.md).
 
 ---
 
@@ -210,7 +219,7 @@ situations are, not on d.
 - **Hard limit:** rank(M) ≤ d. At most d fully independent situations.
 - **Practical limit is far lower**, because residual keys are correlated even after centring (anisotropic, low effective rank). Each write perturbs every earlier memory in proportion to key overlap.
 - The sequential delta rule with η=1 and unit keys is the **Kaczmarz method** for solving M·K = Δ: each step projects onto the latest constraint and forgets earlier ones partially. Larimar instead uses **recursive least squares** (maintaining a key covariance C, with M ← M + C⁻¹Wᵀ(Z − WM)), which keeps the *global* least-squares solution over all writes. That costs more but interferes less. A possible upgrade.
-- **Empirically** (v0/v0.1), write errors on later follow-ups were about 1 or higher when writing from every token (no shared structure; earlier writes made things worse). They were below 1 for pooled or top-k writes, and dispositions already collided at N=6 ([04-experiments.md](04-experiments.md)).
+- **Empirically** (v0/v0.1), write errors on later follow-ups were about 1 or higher when writing from every token (no shared structure; earlier writes made things worse). They were below 1 for pooled or top-k writes, and dispositions already collided at N=6 ([experiment-log.md](../history/experiment-log.md)).
 
 ### Cost
 - Write: O(d²) per written token (an outer product); the loop is sequential by design.
@@ -275,7 +284,7 @@ The with/without comparison assumes we know *what the experience was*. That's ac
 testing whether the channel can carry memory at all, but it isn't experience-driven. The
 intended online version drops the counterfactual and relies only on **memory's own
 prediction** as the baseline (the delta rule's e = h-change − M k). See
-[05-next-moves.md](05-next-moves.md).
+[next-moves-v0.1.md](../history/next-moves-v0.1.md).
 
 ---
 

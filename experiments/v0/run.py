@@ -2,7 +2,7 @@
 """Seahorse v0: write an experience into a fast-weight memory on the residual
 stream in session 1, then test recall in a fresh session 2.
 
-Forward passes only; the base model is frozen. See docs/Idea.md for the design.
+Forward passes only; the base model is frozen. See docs/reference/original-method.md for the design.
 """
 
 import argparse

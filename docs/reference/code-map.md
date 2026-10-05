@@ -37,7 +37,15 @@ Seahorse/
 │   ├── diag_order_577896/
 │   └── seahorse_<jobid>.out      job logs of the two diagnostic runs
 └── docs/                         this documentation
+    ├── where-we-are.md           plain-language overview of the whole project (start here)
+    ├── how-it-works.md           the current design, end to end
+    ├── where-it-fails.md         every failure, its cause and possible fixes
+    ├── reference/                core-idea.md, original-method.md (v0/v0.1), code-map.md (this file)
+    └── history/                  experiment-log.md (v0, v0.1, diagnostics), open-notes.md, next-moves-v0.1.md
 ```
+
+> **Not yet described here:** `experiments/diag_attn/`, `diag_keys/`, `bench_v1_calib/`,
+> `samples_v2/` and `think_v1/`, `src/seahorse/bench/`, and `slurm/run_v100.slurm`.
 
 ---
 
@@ -45,7 +53,7 @@ Seahorse/
 
 ### `memory.py`: the memory operator
 `FastWeightMemory(d, mu, device=None, dtype=float32, eps=1e-6)`, explained in full in
-[02-method.md §2.4](02-method.md#24-the-memory-operator-in-detail-srcseahorsememorypy).
+[original-method.md §2.4](original-method.md#24-the-memory-operator-in-detail-srcseahorsememorypy).
 
 | Member | Does |
 |---|---|
@@ -127,7 +135,7 @@ Same pipeline, extended:
 The v0 scenarios plus `counter` (a counter-experience per scenario), `foils` (2 per fact) and
 `relation_probes` (2 per disposition, each with the consistent answer `a` and the
 inconsistent `b`). In all six relation probes `a` is "No", so a general bias towards "No"
-scores as a relation gain (see [04-experiments.md §4.5.2](04-experiments.md#452-diag_order-does-write-order-decide-who-survives)).
+scores as a relation gain (see [experiment-log.md §4.5.2](../history/experiment-log.md#452-diag_order-does-write-order-decide-who-survives)).
 
 ### `diag_dose/run.py`: how big is the steer, and where does it land?
 A measurement pass with the method unchanged. It loads `v0_1/run.py` (via importlib) and reuses its pipeline (`compute_mu`, `collect_writes`, `build_memory`) and `v0_1/scenarios.yaml`.

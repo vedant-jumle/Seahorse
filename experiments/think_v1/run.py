@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Seahorse think_v1: the current memory design on Qwen3.5-2B, a thinking model.
 
-Design (docs/Seahorse - How It Works.md, unchanged): one entropy-weighted pooled write per
+Design (docs/how-it-works.md, unchanged): one entropy-weighted pooled write per
 follow-up (template tail excluded; dispositions contrastive, facts without); key pooled_w256 =
 running mean over user-text positions of PCA-256-whitened (h - mu) (spread floor 0.01 x mean
 eigenvalue), normalised; the write key comes from the WITHOUT run; read hard: max-cos match to

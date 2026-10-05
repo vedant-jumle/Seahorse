@@ -1,6 +1,6 @@
 # Seahorse: where it fails, and why
 
-*A companion to [07-where-we-are.md](07-where-we-are.md) and [08-how-it-works.md](08-how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01.*
+*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01.*
 
 ---
 

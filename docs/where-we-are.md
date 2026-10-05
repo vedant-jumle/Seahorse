@@ -2,6 +2,8 @@
 
 *A plain-language report on the project so far: what we set out to do, what others have done, what we believe, how we tested it, and what we found. Written 2026-09-30 to step back and see the whole picture.*
 
+*Companions: [how-it-works.md](how-it-works.md) walks through the current design step by step, and [where-it-fails.md](where-it-fails.md) collects every failure with its cause and possible fixes.*
+
 ---
 
 ## 1. The question
