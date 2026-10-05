@@ -34,7 +34,9 @@ the selectivity and order fixes, is in the [experiment log](docs/history/experim
 conclusions of §4.1 and §4.2, and [§4.5.3](docs/history/experiment-log.md#453-what-the-diagnostics-change).
 
 ## Start here
-Read these three in order. They are plain-language reports and cover the whole project.
+Picking up the work? Read **[HANDOVER.md](HANDOVER.md)** first: the current state, what's pending, next steps and conventions.
+
+Then read these three in order. They are plain-language reports and cover the whole project.
 1. **[Where we are](docs/where-we-are.md):** the question, prior work, the theory, how we test it, the results stage by stage, what it means, limits and next steps, with an appendix of real model outputs.
 2. **[How it works](docs/how-it-works.md):** the current design end to end: calibration, whitened gist keys, shifts, the memory matrix (delta rule and least squares), the threshold, and what happens at every word.
 3. **[Where it fails](docs/where-it-fails.md):** every failure so far, with real examples, the likely cause, the evidence and possible fixes, grouped into four root causes.
