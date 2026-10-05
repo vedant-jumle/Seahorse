@@ -1,0 +1,254 @@
+# ref_v1 config: items, their tags, the centroid alternatives and the disclosure-pool exclusions.
+#
+# Items are bench_v1 dispositions (by id) plus a few new one-of-many items written here in the same
+# loaded fields the experiment needs (experience, counter, followups with the generic one last,
+# related, ambiguous, lexicon). Every item has:
+#   tag        two_ended (attribute with a natural opposite pole) | one_of_many (one value out of many:
+#              genre, country, cuisine, sport) | negated (an aversion to one value)
+#   category   bench_v1 category (diet | location | likes | values); the disclosure pool excludes it
+#   topics     what the item is about; the disclosure pool excludes experiences sharing a topic
+#   centroid   6-8 hand-written alternatives in the same category, in the experience's own frame
+#
+# bench_v1 calibration (results/bench_v1_calib_850635, Qwen2.5) flagged 13 of 16 dispositions; only
+# norway, loves_hiking and loves_jazz are unflagged. The others used here are flagged only on
+# contrasts / yes-no inference probes, which ref_v1 does not use; their rate (the lean measured here)
+# is not flagged: vegetarian (contrast c0, 1 inference probe), tight_budget (contrast c2),
+# no_alcohol (2 inference probes), singapore (contrast c1). The new items are not calibrated; the
+# ctx (in-context) condition is their ceiling.
+
+items:
+  # ------------------------------------------------------------------ two-ended
+  - id: vegetarian
+    tag: two_ended
+    topics: [food]
+    centroid:
+      - "By the way, I'm vegan."
+      - "By the way, I'm pescatarian."
+      - "By the way, I'm on a keto diet."
+      - "By the way, I eat gluten-free."
+      - "By the way, I love eating meat."
+      - "By the way, I only eat halal food."
+      - "By the way, I follow a paleo diet."
+      - "By the way, I keep kosher."
+
+  - id: loves_hiking
+    tag: two_ended
+    topics: [activity, sport]
+    centroid:  # indoor hobbies
+      - "I absolutely love reading."
+      - "I absolutely love gaming."
+      - "I absolutely love cooking."
+      - "I absolutely love watching movies."
+      - "I absolutely love painting."
+      - "I absolutely love knitting."
+      - "I absolutely love baking."
+      - "I absolutely love playing board games."
+
+  - id: tight_budget
+    tag: two_ended
+    topics: [money]
+    centroid:  # financial situations
+      - "Money isn't an issue for me right now."
+      - "I'm doing pretty well financially right now."
+      - "I just got a big raise at work."
+      - "I'm saving up for a house right now."
+      - "I'm paying off my student loans right now."
+      - "I have a steady, average income right now."
+      - "I'm happy to splurge a little right now."
+      - "I just inherited some money."
+
+  - id: no_alcohol
+    tag: two_ended
+    topics: [drink]
+    centroid:  # drinking habits
+      - "I love a good glass of wine."
+      - "I love craft beer."
+      - "I drink a lot of coffee."
+      - "I mostly drink tea."
+      - "I love a good cocktail."
+      - "I love whisky."
+      - "I drink a lot of soda."
+      - "I mostly drink sparkling water."
+
+  # ---------------------------------------------------------------- one-of-many
+  - id: loves_jazz
+    tag: one_of_many
+    topics: [music]
+    centroid:
+      - "I'm a huge rock fan."
+      - "I'm a huge classical music fan."
+      - "I'm a huge hip-hop fan."
+      - "I'm a huge country music fan."
+      - "I'm a huge pop fan."
+      - "I'm a huge heavy metal fan."
+      - "I'm a huge EDM fan."
+      - "I'm a huge reggae fan."
+
+  - id: norway
+    tag: one_of_many
+    topics: [place]
+    centroid:
+      - "I live in the United States."
+      - "I live in Japan."
+      - "I live in Brazil."
+      - "I live in Germany."
+      - "I live in India."
+      - "I live in Australia."
+      - "I live in Mexico."
+      - "I live in Egypt."
+
+  - id: singapore
+    tag: one_of_many
+    topics: [place]
+    centroid:
+      - "I live in Canada."
+      - "I live in Japan."
+      - "I live in Brazil."
+      - "I live in Germany."
+      - "I live in India."
+      - "I live in Australia."
+      - "I live in Mexico."
+      - "I live in Egypt."
+
+  - id: japanese_food
+    tag: one_of_many
+    topics: [food]
+    new:
+      category: likes
+      experience: "I love Japanese food."
+      counter: "I love Mexican food."
+      followups:
+        - "I'm picking a restaurant for Friday night."
+        - "I want to learn to cook something new."
+        - "How do I fix a flat bicycle tyre?"
+      related: "Where should I go out for dinner this weekend?"
+      ambiguous:
+        - "Suggest a dish I could cook tonight."
+        - "What should I order for takeout?"
+        - "Plan a dinner party menu for me."
+        - "Recommend a cooking class I could take."
+        - "Give me an idea for a packed lunch."
+      lexicon:
+        consistent: [Japanese, sushi, ramen, sashimi, tempura, miso, udon, soba, teriyaki, yakitori, gyoza, bento, izakaya, matcha, onigiri, katsu, wasabi, edamame, okonomiyaki, donburi, nigiri]
+        inconsistent: [Mexican, Italian, Indian, Chinese, French, Thai, Greek, Spanish, pizza, pasta, taco, burrito, enchilada, quesadilla, lasagna, risotto, tikka masala, pad thai, paella, burger, dim sum]
+    centroid:
+      - "I love Mexican food."
+      - "I love Italian food."
+      - "I love Indian food."
+      - "I love Chinese food."
+      - "I love French food."
+      - "I love Thai food."
+      - "I love Greek food."
+      - "I love American food."
+
+  - id: tennis
+    tag: one_of_many
+    topics: [sport, activity]
+    new:
+      category: likes
+      experience: "I love playing tennis."
+      counter: "I love playing basketball."
+      followups:
+        - "I have some free time this weekend."
+        - "I want to get fitter this year."
+        - "How do I descale a kettle?"
+      related: "What should I do to stay active this summer?"
+      ambiguous:
+        - "Suggest a fun way to spend Saturday morning."
+        - "What sport should I watch on TV tonight?"
+        - "Recommend a birthday gift for me."
+        - "Plan an active weekend for me."
+        - "What should I do on a sunny afternoon?"
+      lexicon:
+        consistent: [tennis, racket, racquet, Wimbledon, forehand, backhand, Federer, Nadal, Djokovic, Serena Williams, Roland Garros, US Open, Australian Open, tennis court, tennis lesson, tennis ball]
+        inconsistent: [basketball, football, soccer, golf, baseball, volleyball, hockey, rugby, cricket, NBA, NFL, swimming, cycling, running, jogging, yoga, hiking, gym, Premier League, Super Bowl]
+    centroid:
+      - "I love playing basketball."
+      - "I love playing football."
+      - "I love playing golf."
+      - "I love swimming."
+      - "I love running."
+      - "I love cycling."
+      - "I love playing volleyball."
+      - "I love playing baseball."
+
+  - id: horror
+    tag: one_of_many
+    topics: [film]
+    new:
+      category: likes
+      experience: "I love horror movies."
+      counter: "I love romantic comedies."
+      followups:
+        - "I'm planning a movie night this weekend."
+        - "I want to find a new TV series to watch."
+        - "How do I clean a cast-iron pan?"
+      related: "What movie should I watch tonight?"
+      ambiguous:
+        - "Recommend a book for my holiday."
+        - "What series should I binge next?"
+        - "Give me a gift idea for myself."
+        - "Plan a cosy night in for me."
+        - "Suggest a podcast I might enjoy."
+      lexicon:
+        consistent: [horror, scary, terrifying, creepy, haunted, ghost, slasher, zombie, supernatural, spooky, eerie, Stephen King, The Shining, The Exorcist, The Conjuring, Hereditary, Get Out, vampire]
+        inconsistent: [romantic comedy, rom-com, comedy, romance, feel-good, musical, animated, Pixar, Disney, documentary, superhero, Marvel, sci-fi, science fiction, action movie, action film, fantasy, heartwarming]
+    centroid:
+      - "I love romantic comedies."
+      - "I love action movies."
+      - "I love science fiction movies."
+      - "I love documentaries."
+      - "I love animated movies."
+      - "I love dramas."
+      - "I love musicals."
+      - "I love westerns."
+
+  # -------------------------------------------------------------------- negated
+  - id: hates_jazz
+    tag: negated
+    topics: [music]
+    negate:  # loves_jazz's follow-ups, prompts and lexicon (sides swapped); experience/counter swapped
+      of: loves_jazz
+      experience: "I can't stand jazz music."
+      counter: "I'm a huge jazz fan."
+    centroid:  # the same frame, other genres
+      - "I can't stand rock music."
+      - "I can't stand classical music."
+      - "I can't stand hip-hop music."
+      - "I can't stand country music."
+      - "I can't stand pop music."
+      - "I can't stand heavy metal music."
+      - "I can't stand electronic music."
+      - "I can't stand reggae music."
+
+# Disclosure pool: bench_v1 dispositions (16) + facts, one per slot (18 hand-written + the fact pool's
+# other 42 slots, values drawn with `seed`). Per item: up to k_disp_max dispositions, the rest facts,
+# K in total; one fixed seeded order per kind (see shifts.pick_disclosure).
+disclosure:
+  k: 24
+  k_disp_max: 8
+  seed: 0
+  candidate_topics:  # bench experiences that overlap an item's topic (keys: item id, or slot for facts)
+    vegetarian: [food]
+    vegan: [food]
+    peanut_allergy: [food]
+    lactose_intolerant: [food, drink]
+    celiac: [food]
+    halal: [food, drink]
+    diabetes: [food, drink]
+    hates_spicy: [food]
+    norway: [place]
+    singapore: [place]
+    loves_hiking: [activity, sport]
+    loves_jazz: [music]
+    dislikes_crowds: [activity]
+    tight_budget: [money]
+    no_alcohol: [drink]
+    no_car: [transport]
+    hometown: [place]
+    university: [place]
+    first language: [place]
+    football team: [sport]
+    instrument: [music]
+    favourite subject: [music]
+    favourite book: [film]
