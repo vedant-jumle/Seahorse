@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seahorse: memories as injected states · Vedant Jumle</title>
+<meta name="description" content="A training-free memory for frozen language models that writes what a user discloses into the residual stream and re-injects it only when relevant, with notes on how the results bear on concept injection and introspection (Lindsey, 2026).">
+<link rel="canonical" href="https://vedantjumle.com/seahorse/">
+<meta property="og:title" content="Seahorse: memories as injected states in a frozen language model">
+<meta property="og:description" content="A training-free activation memory for frozen LLMs, and what injected memories reveal about concept injection.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://vedantjumle.com/seahorse/">
+<meta property="og:image" content="https://vedantjumle.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<script>
+(function () {
+  var t = null;
+  try {
+    var q = new URLSearchParams(location.search).get('theme');
+    t = (q === 'dark' || q === 'light') ? q : localStorage.getItem('seahorse-theme');
+  } catch (e) {}
+  if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script defer data-domain="vedantjumle.com" src="https://plausible.io/js/plausible.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f8f7f3; --surface: #fdfcf9; --ink: #17191c; --ink-2: #44474d; --muted: #75777c;
+  --rule: #e2e0d8; --grid: #ebe9e2; --axis: #c3c1b8; --accent: #c2185b; --link: #0b5fc0; --code: #efede6;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --pos: #2a78d6; --neg: #e34948; --neu: #9a988f;
+  --mono: 'Fira Code', ui-monospace, Menlo, monospace;
+  --ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --serif: 'Source Serif 4', Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e0e13; --surface: #15151b; --ink: #ececef; --ink-2: #b9bcc4; --muted: #868a93;
+    --rule: #26262f; --grid: #1f1f27; --axis: #3b3b45; --accent: #ff2d78; --link: #5cc8ff; --code: #1a1a21;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --pos: #3987e5; --neg: #e66767; --neu: #6f7179;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e0e13; --surface: #15151b; --ink: #ececef; --ink-2: #b9bcc4; --muted: #868a93;
+  --rule: #26262f; --grid: #1f1f27; --axis: #3b3b45; --accent: #ff2d78; --link: #5cc8ff; --code: #1a1a21;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --pos: #3987e5; --neg: #e66767; --neu: #6f7179;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 18px/1.68 var(--serif); }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.topbar { position: sticky; top: 0; z-index: 20; display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; padding: 10px 16px; font: 13px var(--mono); background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px); border-bottom: 1px solid var(--rule); }
+.topbar a { color: var(--ink-2); }
+.topbar button { font: inherit; color: var(--ink-2); background: none; border: 1px solid var(--rule); border-radius: 4px;
+  padding: 3px 10px; cursor: pointer; }
+.topbar button:hover { color: var(--ink); border-color: var(--axis); }
+
+main { display: grid; grid-template-columns: minmax(16px, 1fr) min(700px, calc(100% - 32px)) minmax(16px, 1fr);
+  padding: 40px 0 80px; }
+main > * { grid-column: 2; min-width: 0; }
+main > .wide { grid-column: 1 / -1; width: min(1000px, calc(100% - 32px)); justify-self: center; }
+
+.kicker { font: 500 12.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
+h1 { font: 600 clamp(30px, 5vw, 42px)/1.15 var(--serif); margin: 0 0 14px; letter-spacing: -.01em; }
+.dek { font-size: 20px; color: var(--ink-2); margin: 0 0 16px; }
+.byline { font: 14px var(--ui); color: var(--muted); margin: 0 0 28px; }
+h2 { font: 600 25px/1.3 var(--ui); margin: 56px 0 12px; letter-spacing: -.005em; }
+h2 .n { font: 500 15px var(--mono); color: var(--accent); margin-right: 10px; vertical-align: 2px; }
+h3 { font: 600 19px/1.35 var(--ui); margin: 34px 0 8px; }
+p { margin: 0 0 16px; }
+ul, ol { margin: 0 0 16px; padding-left: 22px; }
+li { margin: 4px 0; }
+em { font-style: italic; }
+code, .mono { font-family: var(--mono); font-size: .86em; background: var(--code); padding: 1px 5px; border-radius: 3px; }
+code { white-space: nowrap; }
+.eq { font-family: var(--mono); font-size: 14.5px; line-height: 1.9; background: var(--code); padding: 10px 16px;
+  border-radius: 6px; margin: 0 0 18px; overflow-x: auto; white-space: nowrap; }
+.eq-l { display: inline-block; width: 64px; font-family: var(--ui); font-size: 12px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em; }
+
+.abstract { background: var(--surface); border: 1px solid var(--rule); border-left: 3px solid var(--accent);
+  border-radius: 6px; padding: 18px 22px 6px; font-size: 17px; margin-bottom: 18px; }
+.abstract h2 { margin: 0 0 8px; font-size: 15px; font-family: var(--mono); font-weight: 500; color: var(--accent);
+  text-transform: uppercase; letter-spacing: .08em; }
+.abstract li { margin: 8px 0; }
+.toc { font: 14px/1.8 var(--ui); color: var(--muted); }
+.toc a { color: var(--ink-2); }
+
+figure { margin: 30px 0 34px; }
+figcaption { font: 14.5px/1.55 var(--ui); color: var(--ink-2); margin-top: 12px; }
+figcaption b { color: var(--ink); }
+.fig-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.fig-scroll > svg { display: block; width: 100%; height: auto; min-width: 640px; }
+.fig-scroll > svg.dg { min-width: 800px; }
+.scroll-hint { display: none; font: 12px var(--ui); color: var(--muted); margin-top: 4px; }
+@media (max-width: 680px) { .scroll-hint { display: block; } }
+.panels { display: flex; flex-wrap: wrap; gap: 20px 28px; justify-content: center; }
+.panel { flex: 1 1 290px; max-width: 360px; }
+.panels.two .panel { flex: 1 1 320px; max-width: 470px; }
+.panel > svg { display: block; width: 100%; height: auto; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font: 13px var(--ui); color: var(--ink-2); margin-bottom: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend .sw { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.legend .ring { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--ink); display: inline-block; }
+.sw.s1 { background: var(--s1); } .sw.s2 { background: var(--s2); } .sw.s3 { background: var(--s3); }
+
+/* charts */
+svg.chart text, svg.dg text { font-family: var(--ui); }
+.c-title { fill: var(--ink); font-size: 13.5px; font-weight: 600; }
+.c-sub { fill: var(--muted); font-size: 11.5px; }
+.c-label { fill: var(--ink-2); font-size: 12.5px; }
+.c-tick { fill: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.c-val { fill: var(--ink); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.c-grid { stroke: var(--grid); stroke-width: 1; }
+.c-axis, .c-ref { stroke: var(--axis); stroke-width: 1; }
+.c-sep { stroke: var(--rule); stroke-width: 1; }
+.c-mark { stroke: var(--accent); stroke-width: 1; opacity: .55; }
+.c-stem { stroke-width: 2; stroke-linecap: round; }
+.c-stem.pos { stroke: var(--pos); } .c-stem.neg { stroke: var(--neg); } .c-stem.neu { stroke: var(--neu); }
+.c-dot { stroke: var(--surface); stroke-width: 2; }
+.c-dot.pos { fill: var(--pos); } .c-dot.neg { fill: var(--neg); } .c-dot.neu { fill: var(--neu); }
+.c-dot.s1 { fill: var(--s1); }
+.c-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.c-line.s1 { stroke: var(--s1); }
+.c-ring { fill: var(--surface); stroke: var(--ink); stroke-width: 2; }
+.seg.s1 { fill: var(--s1); } .seg.s2 { fill: var(--s2); } .seg.s3 { fill: var(--s3); }
+.seg, .hit { cursor: default; outline: none; }
+.seg:hover, .seg:focus { opacity: .8; }
+.hit:hover .c-dot, .hit:focus .c-dot, .hit:hover .c-ring, .hit:focus .c-ring { stroke: var(--ink); }
+#tip { position: fixed; z-index: 50; pointer-events: none; opacity: 0; max-width: 300px; font: 13px/1.45 var(--ui);
+  background: var(--ink); color: var(--bg); padding: 7px 10px; border-radius: 6px; transition: opacity .08s; }
+
+details.data { margin-top: 10px; font: 13.5px var(--ui); }
+details.data summary { cursor: pointer; color: var(--muted); }
+.table-wrap { overflow-x: auto; }
+
+/* diagrams */
+svg.dg { color: var(--ink-2); }
+.dg .box { fill: var(--surface); stroke: var(--axis); stroke-width: 1; }
+.dg .box.key { stroke: var(--ink-2); stroke-width: 1.5; }
+.dg .box.gate { stroke: var(--accent); stroke-width: 1.5; }
+.dg .t1 { fill: var(--ink); font-size: 13px; font-weight: 600; }
+.dg .t2 { fill: var(--ink-2); font-size: 12px; }
+.dg .eqt { fill: var(--ink); font-size: 13px; font-family: var(--mono) !important; }
+.dg .lane { fill: var(--accent); font-size: 11px; font-weight: 600; letter-spacing: .1em; }
+.dg .al { fill: var(--muted); font-size: 11.5px; }
+.dg .arr { stroke: currentColor; stroke-width: 1.4; fill: none; }
+.dg .arr.cen { stroke: var(--s1); stroke-width: 2.2; }
+.dg .arr.opp { stroke: var(--s2); stroke-width: 2.2; }
+.dg .pt { fill: var(--ink); }
+.dg .pt2 { fill: var(--muted); }
+.dg .mean { fill: var(--surface); stroke: var(--ink); stroke-width: 2; }
+.dg .axis { stroke: var(--axis); stroke-width: 1; }
+
+/* tables */
+.tbl { width: 100%; border-collapse: collapse; font: 14.5px/1.5 var(--ui); margin: 6px 0 22px; }
+.tbl th, .tbl td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--rule); }
+.tbl th { font-weight: 600; color: var(--ink); border-bottom: 1.5px solid var(--axis); }
+.tbl td:first-child { color: var(--ink); }
+.tbl.bridge td { width: 50%; }
+.tbl.bridge td:first-child { color: var(--ink-2); }
+.tbl .mono { font-size: 12.5px; }
+
+/* stat tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 22px 0; }
+.tile { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; font-family: var(--ui); }
+.tile .v { font-size: 34px; font-weight: 600; line-height: 1.1; }
+.tile .v small { font-size: 18px; color: var(--muted); font-weight: 500; }
+.tile .l { font-size: 14px; color: var(--ink-2); margin-top: 6px; }
+
+/* chat examples */
+.chat { border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; margin: 22px 0 26px; font: 15px/1.55 var(--ui); background: var(--surface); }
+.chat .head { padding: 9px 14px; background: var(--code); font-size: 13px; color: var(--ink-2); }
+.chat .head b { color: var(--ink); font-weight: 600; }
+.chat .q { padding: 10px 14px; border-bottom: 1px solid var(--rule); color: var(--ink); }
+.chat .q::before { content: 'user  '; font: 500 11.5px var(--mono); color: var(--muted); white-space: pre; }
+.msg { display: grid; grid-template-columns: 118px 1fr; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+.msg:last-child { border-bottom: none; }
+.who { font: 500 11.5px/1.9 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.who.mem { color: var(--accent); }
+.msg .t { color: var(--ink-2); }
+.msg .t mark { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--ink); padding: 0 2px; border-radius: 2px; }
+.msg .t .think { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+@media (max-width: 560px) { .msg { grid-template-columns: 1fr; gap: 2px; } }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.pair .chat { margin: 0; }
+.pair .msg { grid-template-columns: 1fr; gap: 2px; }
+@media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+
+.note { font: 14.5px/1.55 var(--ui); color: var(--ink-2); background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 12px 16px; margin: 0 0 18px; }
+
+/* viewer */
+.viewer { border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); padding: 18px; font-family: var(--ui); }
+.v-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+.v-lab { font: 500 11.5px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; width: 84px; }
+.seg-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg-btns button { font: 13.5px var(--ui); color: var(--ink-2); background: var(--bg); border: 1px solid var(--rule);
+  border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+.seg-btns button:hover:not(:disabled) { border-color: var(--axis); color: var(--ink); }
+.seg-btns button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.seg-btns button:disabled { opacity: .35; cursor: not-allowed; }
+.v-info { font-size: 14px; color: var(--ink-2); margin: 14px 0 6px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.v-info b { color: var(--ink); }
+.v-stats { font-size: 13.5px; color: var(--muted); margin-bottom: 12px; }
+.v-prompt { font-size: 15px; color: var(--ink); background: var(--code); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; }
+.v-prompt::before { content: 'user  '; font: 500 11.5px var(--mono); color: var(--muted); white-space: pre; }
+.v-answers { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.ans { border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; font-size: 14px; line-height: 1.5; color: var(--ink-2); background: var(--bg); }
+.ans .h { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; font: 500 11.5px var(--mono); color: var(--muted); }
+.badge { font: 500 11px var(--ui); padding: 1px 8px; border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-2); }
+.badge.fit { border-color: var(--pos); color: var(--pos); }
+.badge.against { border-color: var(--neg); color: var(--neg); }
+.badge.loop { border-color: var(--s2); color: var(--s2); }
+.ans .body { white-space: pre-wrap; word-break: break-word; }
+.ans .more { font: 12.5px var(--ui); color: var(--link); background: none; border: none; padding: 0; margin-top: 6px; cursor: pointer; }
+
+.refs { font: 14.5px/1.55 var(--ui); color: var(--ink-2); padding-left: 0; list-style: none; }
+.refs li { margin: 8px 0; padding-left: 22px; text-indent: -22px; }
+.appendix { font: 15px/1.6 var(--ui); color: var(--ink-2); }
+.appendix h3 { font-size: 16px; }
+footer { font: 13px var(--ui); color: var(--muted); margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--rule); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/">← vedantjumle.com</a>
+  <button id="theme-toggle" type="button" aria-label="Toggle light and dark theme">◐ theme</button>
+</div>
+
+<main>
+<p class="kicker">Working paper · October 2026</p>
+<h1>Seahorse: memories as injected states in a frozen language model</h1>
+<p class="dek">A training-free memory that writes what a user discloses into the model’s residual stream, and adds it back in later sessions only when the conversation calls for it. Plus what these injected memories show about concept injection as studied in Lindsey (2026), <em>Emergent Introspective Awareness in Large Language Models</em>.</p>
+<p class="byline">Vedant Jumle · thesis research in progress · <a href="https://github.com/vedant-jumle/Seahorse">code and full reports</a></p>
+
+<section class="abstract" aria-label="Summary">
+<h2>Summary</h2>
+<ul>
+<li><b>The mechanism.</b> Seahorse stores a disclosure such as “I’m vegetarian” as the shift it causes in a frozen model’s residual stream, filed under the gist of the conversation. In a later, unrelated session, it adds the shift back when that gist recurs. There is no training and the weights are never touched.</li>
+<li><b>It stays silent where it should.</b> Unrelated answers were token-for-token identical to the no-memory answers in every check so far: {{N_UNREL_SAME}} of {{N_UNREL_TOTAL}} in the latest run on Qwen3.5-2B, and 24 of 24 on Qwen2.5-1.5B.</li>
+<li><b>Broad dispositions transfer; facts mostly don’t.</b> With a vegetarian memory, {{VEG_MEM}} of answers to food questions fit the preference (no memory: {{VEG_NOMEM}}; the fact written into the prompt: {{VEG_CTX}}). Specific facts mostly flood the output or come back as a gist, and they never act as premises for yes/no questions.</li>
+<li><b>What you subtract decides what the vector carries.</b> Subtracting the mean over alternatives, the recipe Lindsey uses for concept vectors, captures <em>what</em> but not <em>which way</em>: “I can’t stand jazz” then pushes the model toward jazz. Only a contrast with the opposite statement keeps the sign.</li>
+<li><b>Three of Lindsey’s open questions (§10.2).</b> These results bear on whether injected preferences and propositions work, whether injected states bind to the Assistant or the user (ours get claimed by the Assistant: “Teal is my favourite colour!”), and how the extraction strategy changes what a vector means. <a href="#lindsey">Section 4</a> goes through them.</li>
+</ul>
+</section>
+<p class="toc"><a href="#idea">1 The idea</a> · <a href="#how">2 How it works</a> · <a href="#results">3 Results</a> · <a href="#lindsey">4 Relation to Lindsey (2026)</a> · <a href="#limits">5 Limits</a> · <a href="#next">6 Next</a> · <a href="#refs">References</a> · <a href="#appendix">Appendix</a></p>
+
+<h2 id="idea"><span class="n">1</span>The idea</h2>
+<p>A language model has two kinds of memory. Its weights are permanent but slow to change; its context is instant but disappears when the session ends. Nothing sits in between: no fast, lasting memory that forms from experience, the role the hippocampus plays in animals. Seahorse is an attempt to build that missing piece for a model that is never retrained.</p>
+<p>The bet is that a memory need not be a stored transcript. When a model reads “By the way, I’m vegetarian.”, its internal states for everything that follows shift. Seahorse stores <em>that shift</em>, filed under a description of the situation it happened in, much as the hippocampus is thought to store an index into the cortex rather than the content itself (Teyler &amp; DiScenna, 1986). Later, in a new session that contains none of the original text, the shift is added back whenever the situation looks similar. Nobody calls “retrieve”: the model’s own current state is the query.</p>
+<p>Mechanically, that read is what Lindsey (2026) calls <em>concept injection</em>: a vector added to the residual stream. What differs is where the vector comes from and what decides when it is added.</p>
+
+<figure class="wide">
+<div class="fig-scroll">
+<svg class="dg" viewBox="0 0 960 330" width="960" height="330" role="img" aria-label="Seahorse overview. Writing: a user message is read twice by the frozen model, with the experience and with a reference; the difference is pooled into a shift, the user's words give a whitened gist key, and both are written into a memory matrix M outside the model. Reading: in a new chat the hooked model computes the current gist at every token; if it matches a stored key above the threshold, M times the gist is added to the residual stream; otherwise nothing is added.">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+  </defs>
+  <text class="lane" x="20" y="22">SESSION 1 · WRITING</text>
+  <rect class="box" x="20" y="36" width="210" height="72" rx="6"/>
+  <text class="t1" x="34" y="60">User message</text>
+  <text class="t2" x="34" y="80">“By the way, I’m vegetarian.</text>
+  <text class="t2" x="34" y="97">I’m planning my meals …”</text>
+  <rect class="box" x="270" y="36" width="190" height="72" rx="6"/>
+  <text class="t1" x="284" y="60">Frozen LLM, read twice</text>
+  <text class="t2" x="284" y="80">with the experience</text>
+  <text class="t2" x="284" y="97">with a reference (§3.5)</text>
+  <rect class="box" x="500" y="36" width="190" height="32" rx="6"/>
+  <text class="t2" x="514" y="57"><tspan class="t1">shift s</tspan>  Δh over the follow-up</text>
+  <rect class="box" x="500" y="76" width="190" height="32" rx="6"/>
+  <text class="t2" x="514" y="97"><tspan class="t1">key k</tspan>  whitened gist</text>
+  <rect class="box key" x="730" y="36" width="210" height="72" rx="6"/>
+  <text class="t1" x="744" y="60">Memory M (outside the model)</text>
+  <text class="t2" x="744" y="80">maps keys to shifts</text>
+  <text class="t2" x="744" y="97">delta rule or least squares</text>
+  <line class="arr" x1="230" y1="72" x2="266" y2="72" marker-end="url(#ah)"/>
+  <line class="arr" x1="460" y1="52" x2="496" y2="52" marker-end="url(#ah)"/>
+  <line class="arr" x1="460" y1="92" x2="496" y2="92" marker-end="url(#ah)"/>
+  <line class="arr" x1="690" y1="52" x2="726" y2="52" marker-end="url(#ah)"/>
+  <line class="arr" x1="690" y1="92" x2="726" y2="92" marker-end="url(#ah)"/>
+  <text class="al" x="708" y="30" text-anchor="middle">write</text>
+
+  <text class="lane" x="20" y="192">SESSION 2 · READING (a fresh chat)</text>
+  <rect class="box" x="20" y="206" width="210" height="72" rx="6"/>
+  <text class="t1" x="34" y="230">No trace of session 1</text>
+  <text class="t2" x="34" y="250">“Any ideas for what I should</text>
+  <text class="t2" x="34" y="267">cook for dinner tonight?”</text>
+  <rect class="box" x="270" y="206" width="190" height="72" rx="6"/>
+  <text class="t1" x="284" y="230">Frozen LLM + hook</text>
+  <text class="t2" x="284" y="250">at layer ℓ, on every token</text>
+  <text class="t2" x="284" y="267">computes the current gist q</text>
+  <rect class="box gate" x="500" y="206" width="190" height="72" rx="6"/>
+  <text class="t1" x="514" y="230">Gate</text>
+  <text class="t2" x="514" y="250">best match of q to the keys</text>
+  <text class="t2" x="514" y="267">above the 95th pct of chat?</text>
+  <rect class="box" x="730" y="206" width="210" height="72" rx="6"/>
+  <text class="eqt" x="744" y="232">h ← h + α · M q</text>
+  <text class="t2" x="744" y="252">if the gate opens;</text>
+  <text class="t2" x="744" y="269">otherwise nothing is added</text>
+  <line class="arr" x1="230" y1="242" x2="266" y2="242" marker-end="url(#ah)"/>
+  <line class="arr" x1="460" y1="242" x2="496" y2="242" marker-end="url(#ah)"/>
+  <text class="al" x="478" y="236" text-anchor="middle">q</text>
+  <line class="arr" x1="690" y1="242" x2="726" y2="242" marker-end="url(#ah)"/>
+  <text class="al" x="708" y="236" text-anchor="middle">open</text>
+  <path class="arr" d="M760,108 L640,202" marker-end="url(#ah)"/>
+  <text class="al" x="688" y="148" text-anchor="end">stored keys</text>
+  <line class="arr" x1="860" y1="108" x2="860" y2="202" marker-end="url(#ah)"/>
+  <text class="al" x="868" y="160">M q</text>
+  <path class="arr" d="M835,278 L835,304 L365,304 L365,282" marker-end="url(#ah)"/>
+  <text class="al" x="600" y="320" text-anchor="middle">added back into the residual stream at layer ℓ, so every later layer sees it</text>
+</svg>
+</div>
+<p class="scroll-hint">Scroll sideways to see the whole diagram.</p>
+<figcaption><b>Figure 1.</b> Writing stores <em>how</em> an experience changed the model’s states (the shift) and <em>where</em> it happened (the key). Reading compares the current conversation’s gist with every stored key; the memory fires only when the match is clearly above what ordinary chat produces.</figcaption>
+</figure>
+
+<h2 id="how"><span class="n">2</span>How it works</h2>
+<ol>
+<li><b>Calibration, once.</b> About 100 ordinary prompts give the mean state μ at the hooked layer and its 256 main directions of variation (PCA), used to whiten states so that what all chat shares does not dominate.</li>
+<li><b>Writing (session 1).</b> The user’s message is an experience followed by an ordinary follow-up (“By the way, I’m vegetarian. I’m planning my meals for next week.”). The model reads it twice: once with the experience, once with a <em>reference</em> in its place; <a href="#subtract">§3.5</a> compares five choices of reference. The <b>shift</b> <code>s</code> is the entropy-weighted mean difference between the two runs over the follow-up’s tokens, with chat-template tokens excluded. The <b>key</b> <code>k</code> is the mean whitened state <code>W(h − μ)</code> over the user’s tokens, normalised: a gist of what the conversation is about. Each memory consists of three such moments, one per follow-up.</li>
+<li><b>Storing.</b> A matrix <code>M</code> maps keys to shifts. For one memory it is written with the delta rule, the same object as a linear-attention fast-weight memory (Schlag et al., 2021). Several memories are written jointly by least squares (ridge λ = 0.1), which removes the delta rule’s recency bias: with six memories in one store, each keeps about half its solo strength, instead of only the last one surviving.</li>
+<li><b>Reading (session 2).</b> At every token, the gist so far <code>q</code> is compared with the stored keys. The memory fires only if the best cosine match exceeds its threshold: the 95th percentile of its match on ordinary prompts. System-prompt tokens are never modified.</li>
+</ol>
+<div class="eq">
+<div><span class="eq-l">shift</span>s = Σₜ wₜ (h⁺ₜ − h⁻ₜ)</div>
+<div><span class="eq-l">key</span>k = normalise( meanₜ W(hₜ − μ) )</div>
+<div><span class="eq-l">store</span>M ← M + (s − M k) kᵀ</div>
+<div><span class="eq-l">read</span>h ← h + α · 1[ maxᵢ cos(q, kᵢ) &gt; τ ] · M q</div>
+</div>
+<div class="table-wrap">
+<table class="tbl">
+<thead><tr><th></th><th>Qwen2.5-1.5B-Instruct</th><th>Qwen3.5-2B</th></tr></thead>
+<tbody>
+<tr><td>Depth, width</td><td>28 layers, hidden size 1,536</td><td>24 layers (3 linear-attention per 1 full-attention layer), hidden size 2,048</td></tr>
+<tr><td>Hooked layers</td><td>output of layer 26</td><td>outputs of layers 20, 21 and 23, each with its own keys, M and threshold</td></tr>
+<tr><td>Strength α</td><td>2</td><td>1 or 2 per layer</td></tr>
+<tr><td>Sampling</td><td colspan="2">1 greedy answer plus 10 samples per prompt (T = 1, top-p 0.95), with the same random numbers in every condition, so differences come from the memory rather than from sampling luck</td></tr>
+</tbody>
+</table>
+</div>
+<p>Every experiment has three conditions: <b>no memory</b> (the floor), <b>memory</b>, and <b>in context</b>, where the experience is written straight into the session-2 prompt (what remembering perfectly would look like).</p>
+
+<h2 id="results"><span class="n">3</span>Results</h2>
+
+<h3>3.1 It stays silent when it should</h3>
+<p>The first version fired on everything. On unrelated questions it added about 40% of the strength it added on relevant ones, mostly onto chat-template tokens. Two changes fixed this: matching on the gist of the conversation instead of the current token, and the calibrated threshold. Recall on relevant prompts roughly doubled at the same time. The problem had been selectivity, not strength.</p>
+<div class="tiles">
+  <div class="tile"><div class="v">{{N_UNREL_SAME}}<small> / {{N_UNREL_TOTAL}}</small></div><div class="l">unrelated answers token-identical to no memory: Qwen3.5-2B, 11 memories × 4 prompts × 10 memory conditions</div></div>
+  <div class="tile"><div class="v">24<small> / 24</small></div><div class="l">the same check on Qwen2.5-1.5B, including with six memories in one store. The first version managed 8 of 24.</div></div>
+</div>
+<div class="chat">
+  <div class="head"><b>Qwen2.5-1.5B</b> · vegetarian memory switched on · an unrelated question</div>
+  <div class="q">Write a haiku about the ocean.</div>
+  <div class="msg"><div class="who">no memory</div><div class="t">Ocean’s vastness, Whispers of the deep, Peace in waves.</div></div>
+  <div class="msg"><div class="who">first version</div><div class="t">Ocean’s vastness, Whispers of the deep, Peace in <mark>every</mark> wave.</div></div>
+  <div class="msg"><div class="who mem">memory</div><div class="t">identical to no memory</div></div>
+  <div class="msg"><div class="who">in context</div><div class="t">Whispers of the sea, <mark>Vegetarian waves</mark> embrace, Silence, pure and serene.</div></div>
+</div>
+<p>Even real context leaks into unrelated tasks (“Vegetarian waves”). The gated memory doesn’t.</p>
+
+<h3>3.2 Broad dispositions transfer</h3>
+<figure>
+{{FIG_VEGETARIAN}}
+<figcaption><b>Figure 2.</b> Qwen3.5-2B, vegetarian memory, added only while the model writes its answer (α = 2 at layers 20, 21 and 23; thinking on). 33 answers per bar: 3 food prompts × 11 samples. “Fit” is judged by preference word lists.</figcaption>
+</figure>
+<p>The memory changes the whole menu rather than appending a vegetarian option. Answers mentioning meat or fish fall from {{MEAT_NOMEM}} to {{MEAT_MEM}}, below the in-context {{MEAT_CTX}}; with the fact in the prompt, the model tends to list chicken dishes and then add a vegetarian alternative. On the smaller model the same memory shows the effect most plainly: the model acts on the memory while denying it knows anything.</p>
+<div class="chat">
+  <div class="head"><b>Qwen2.5-1.5B</b> · vegetarian memory</div>
+  <div class="q">Any ideas for what I should cook for dinner tonight?</div>
+  <div class="msg"><div class="who">no memory</div><div class="t">Sure! Here are a few dinner ideas for you to consider: 1. Grilled chicken with a side of roasted vegetables. 2. Spaghetti with marinara sauce and meatballs. …</div></div>
+  <div class="msg"><div class="who mem">memory</div><div class="t">As an AI language model, <mark>I don’t have access to your dietary preferences</mark> or restrictions. However, I can suggest some <mark>vegetarian and vegan recipes</mark> that you might enjoy: 1. Vegan Lentil Soup: …</div></div>
+</div>
+<p>Not every preference behaves like this. A love of hiking transfers moderately, and with the original contrastive write the jazz memory did almost nothing. Norway floods (“Norway Norway Norway …”). <a href="#subtract">§3.5</a> explains most of these differences.</p>
+
+<h3>3.3 Specific facts flood, or come back as a gist</h3>
+<p>On Qwen2.5-1.5B, a fact comes back at the level of probabilities: the right name rises and wrong names don’t. In text, though, it mostly returns as a gist. “I work as a deep-sea welder” comes back as “You work as a <em>welder</em> at a welding equipment company”. “My sister’s name is Ines” comes back as “That’s great! <em>What’s her name?</em>”. “Biscuit” appeared in 7 of 300 sampled answers, against 294 of 300 in context.</p>
+<p>On Qwen3.5-2B, injecting at three late layers makes the fact appear far more often, but mostly inside loops. With memory while answering, {{FACT_MEM_NAMED}} of {{FACT_N}} answers to questions like “What’s my dog’s name?” contain the fact; {{FACT_MEM_LOOP}} of those are loops and only {{FACT_MEM_CLEAN}} are clean answers, against {{FACT_CTX_CLEAN}} in context. Splitting the strength across the three layers, instead of applying it in full at each, trades one for the other: in short continuations, clean mentions go from {{PFX_FULL_CLEAN}} to {{PFX_SPLIT_CLEAN}}, and loops from {{PFX_FULL_LOOP}} to {{PFX_SPLIT_LOOP}}.</p>
+<figure>
+<div class="fig-scroll">{{FIG_FACTS}}</div>
+<p class="scroll-hint">Scroll sideways to see the whole chart.</p>
+<figcaption><b>Figure 3.</b> Qwen3.5-2B, four fact memories (a dog’s name, a sister’s name, a job, a favourite colour), 44 answers per row (one direct question per fact × 11 samples). Strength is written <em>thinking / answer</em> per layer. Bars: answers that contain the exact fact, split into clean answers, answers that name it while refusing, and loops. Rings: the share of thinking traces that contain the fact.</figcaption>
+</figure>
+<div class="chat">
+  <div class="head"><b>Qwen3.5-2B</b> · memory “My sister’s name is Petra.” · memory while answering</div>
+  <div class="q">Do you remember my sister’s name?</div>
+  <div class="msg"><div class="who mem">memory</div><div class="t">Pet Petra Petra Petra Petra Petra Petra … <span class="think">(the name repeated until the 150-token limit)</span></div></div>
+</div>
+
+<h3>3.4 Injected memories don’t act as premises</h3>
+<p>The hardest test is a yes/no question that needs the memory as a premise. Each fact is asked in a balanced pair, one version where Yes is right (“Is my dog called Pepper?”) and one where No is right (“Is my dog called Max?”), so a model drifting toward “No” cannot score above chance. For the fact memories, balanced accuracy in every memory condition stays between {{BAL_MIN}} and {{BAL_MAX}}, against {{BAL_CTX}} with the fact in context. The layer sweep shows the same split. Fact specificity, the log-probability gain of the right answer over wrong ones, appears only in the last layers ({{SPEC_LATE}} nats at layers 19–23, at most {{SPEC_EARLY}} up to layer 16, ceiling {{SPEC_CEIL}}). Balanced yes/no accuracy stays between {{ACC_MIN}} and {{ACC_MAX}} at every layer, against {{ACC_CEIL}} in context.</p>
+<figure class="wide">
+{{FIG_LAYERS}}
+<figcaption><b>Figure 4.</b> Qwen3.5-2B, one injection layer at a time (α = 2, thinking off; 8 memories). Large dots mark the three layers later used together. The vertical line at about two-thirds depth marks where Lindsey (2026) finds injection most “thought-like”, in Claude models; it is a reference point, not a claim about this model.</figcaption>
+</figure>
+<p>Qwen3.5 thinks before it answers, so a natural idea is to inject <em>during the thinking phase</em>, letting the memory surface as a thought the model can reason with. Amplified, thinking-only injection does put the fact into nearly every thinking trace (Figure 3, rings), but as a flood, and the answer ignores it:</p>
+<div class="chat">
+  <div class="head"><b>Qwen3.5-2B</b> · memory “My dog’s name is Pepper.” · strength 4 during thinking, 0 during the answer</div>
+  <div class="q">What’s my dog’s name?</div>
+  <div class="msg"><div class="who mem">thinking</div><div class="t"><span class="think">Thinking Pepper Pepper Pepper Pepper … (383 tokens)</span></div></div>
+  <div class="msg"><div class="who mem">answer</div><div class="t">I don’t know your dog’s name! Could you tell me?</div></div>
+</div>
+<p class="note">One caveat on the thinking-phase run: thinking was capped at 384 tokens, and even without memory {{THINK_FORCED_NOMEM}} of traces hit the cap. Some “answers” are therefore leftover thinking. The flood is still clear, but a rerun needs a longer cap.</p>
+
+<h3 id="subtract">3.5 What you subtract decides what you store</h3>
+<p>The shift is always “the state with the experience, minus a reference”. The reference had been the opposite statement, borrowed from contrastive steering (Panickssery et al., 2024). That works for vegetarian versus meat. It did nothing for jazz, whose opposite (“I can’t stand jazz music”) mentions jazz too. So the reference experiment compares five references with everything else fixed. All shifts are rescaled to the length of the <code>without</code> shift, so only their directions differ.</p>
+<div class="table-wrap">
+<table class="tbl">
+<thead><tr><th>Reference</th><th>What is subtracted</th><th>Example for “I’m a huge jazz fan.”</th></tr></thead>
+<tbody>
+<tr><td>opposite</td><td>the opposite statement</td><td>“I can’t stand jazz music.”</td></tr>
+<tr><td>without</td><td>the same follow-up with no experience</td><td>(nothing before the follow-up)</td></tr>
+<tr><td>hum</td><td>the mean state over ordinary text, μ</td><td>(the calibration mean)</td></tr>
+<tr><td>disclosure</td><td>the mean over 24 other things a user might disclose</td><td>“I live in Norway.”, “I’m lactose intolerant.”, …</td></tr>
+<tr><td>centroid</td><td>the mean over 8 alternatives of the same kind</td><td>“I’m a huge rock / classical / hip-hop / … fan.”</td></tr>
+</tbody>
+</table>
+</div>
+<p>The experiment uses 11 preferences of three kinds:</p>
+<ul>
+<li><b>Two-ended</b>, such as vegetarian versus meat, hiking versus staying in, tight budget, no alcohol.</li>
+<li><b>One-of-many</b>: jazz, Norway, Singapore, Japanese food, tennis, horror films.</li>
+<li><b>Negated</b>: “I can’t stand jazz music.”</li>
+</ul>
+<p>Answers are scored by <em>lean</em>: the share of answers that fit the preference minus the share that go against it, judged by word lists, with looping answers removed. There are 66 answers per cell.</p>
+<figure>
+<div class="fig-scroll">
+<svg class="dg" viewBox="0 0 760 270" width="760" height="270" role="img" aria-label="Schematic. Statements are placed by genre (other genres on the left, jazz on the right) and by attitude (love above, hate below), with the attitude axis compressed because negation is faint. The centroid reference subtracts the mean of other genres, giving a horizontal arrow toward jazz for both loving and hating jazz, so the sign is lost. The opposite reference subtracts 'I can't stand jazz' from 'I'm a huge jazz fan', giving a short vertical arrow with no jazz left in it.">
+  <defs>
+    <marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--s1)"/></marker>
+    <marker id="aho" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--s2)"/></marker>
+  </defs>
+  <line class="axis" x1="60" y1="40" x2="60" y2="236"/>
+  <line class="axis" x1="60" y1="236" x2="730" y2="236"/>
+  <text class="al" x="52" y="60" text-anchor="end">love</text>
+  <text class="al" x="52" y="226" text-anchor="end">hate</text>
+  <text class="al" x="196" y="256" text-anchor="middle">other genres</text>
+  <text class="al" x="560" y="256" text-anchor="middle">jazz</text>
+  <circle class="pt2" cx="160" cy="98" r="3.5"/><circle class="pt2" cx="200" cy="88" r="3.5"/><circle class="pt2" cx="232" cy="104" r="3.5"/><circle class="pt2" cx="176" cy="122" r="3.5"/><circle class="pt2" cx="220" cy="126" r="3.5"/>
+  <circle class="mean" cx="198" cy="108" r="6"/>
+  <text class="t2" x="196" y="70" text-anchor="middle">“I’m a huge rock / classical / … fan.”</text>
+  <circle class="pt2" cx="162" cy="172" r="3.5"/><circle class="pt2" cx="204" cy="162" r="3.5"/><circle class="pt2" cx="234" cy="178" r="3.5"/><circle class="pt2" cx="180" cy="196" r="3.5"/><circle class="pt2" cx="222" cy="198" r="3.5"/>
+  <circle class="mean" cx="200" cy="182" r="6"/>
+  <text class="t2" x="196" y="222" text-anchor="middle">“I can’t stand rock / classical / … music.”</text>
+  <circle class="pt" cx="560" cy="108" r="6"/>
+  <text class="t1" x="560" y="86" text-anchor="middle">“I’m a huge jazz fan.”</text>
+  <circle class="pt" cx="560" cy="182" r="6"/>
+  <text class="t1" x="560" y="212" text-anchor="middle">“I can’t stand jazz music.”</text>
+  <line class="arr cen" x1="208" y1="108" x2="550" y2="108" marker-end="url(#ahb)"/>
+  <text class="t2" x="379" y="100" text-anchor="middle">centroid: jazz − other genres</text>
+  <line class="arr cen" x1="210" y1="182" x2="550" y2="182" marker-end="url(#ahb)"/>
+  <text class="t2" x="379" y="174" text-anchor="middle">centroid: also points at jazz, the sign is lost</text>
+  <path class="arr opp" d="M572,178 C606,170 606,120 572,112" marker-end="url(#aho)"/>
+  <text class="t2" x="614" y="141">opposite: love − hate,</text>
+  <text class="t2" x="614" y="157">no jazz left in it</text>
+</svg>
+</div>
+<figcaption><b>Figure 5.</b> Schematic, not data. The attitude axis is drawn compressed because negation is faint in the states. Subtracting the mean over alternatives keeps <em>what</em> the statement is about and drops the attitude; subtracting the opposite keeps the attitude and drops the shared concept.</figcaption>
+</figure>
+<figure class="wide">
+{{FIG_NEGATION}}
+<figcaption><b>Figure 6.</b> Qwen3.5-2B, α = 1 per layer at layers 20, 21 and 23. Lean of answers with loops removed: blue = toward the stated preference, red = against it. The right column gives the share of answers that loop. 66 answers per row. The in-context −0.50 for “can’t stand jazz” is a word-list artefact: the model writes “That is completely understandable! Jazz can be incredibly complex …” and then suggests other music, and the jazz mention counts against it.</figcaption>
+</figure>
+<ul>
+<li><b>One-of-many concepts need a reference that holds the attitude fixed.</b> With <code>opposite</code>, the jazz memory makes the model enthusiastic but not jazzy (“Cooking dinner is a fantastic opportunity to unwind, connect with your community, or simply enjoy a good book”). With <code>centroid</code>, it is all jazz (“Cooking dinner jazz jazz jazz …”).</li>
+<li><b>Negation does not survive the subtraction.</b> For “I can’t stand jazz”, every reference except <code>opposite</code> pushes the model <em>toward</em> jazz:
+  <ul>
+  <li><code>without</code> recommends “Lo-fi Jazz”.</li>
+  <li><code>centroid</code> gives “Cooking dinner is a wonderful time to jazz up your meal with jazz jazz jazz …”.</li>
+  <li>“I don’t drink alcohol” behaves the same way: under <code>without</code> the first suggestion at a bar is “Beer: A craft beer, a lager, or a stout”.</li>
+  <li>On Qwen2.5 the plain write of “I have a severe peanut allergy” produced “A peanut butter and jelly sandwich is a classic and safe option”.</li>
+  </ul>
+  In the states, “can’t stand jazz” is mostly <em>jazz</em> with a faint negation, so any reference that lacks jazz leaves jazz behind.</li>
+<li><b>The logit lens agrees.</b> Read directly through the unembedding at layer 23, the centroid jazz shift favours jazz words over pop and rock words by +9.3 logits, against +2.5 for the opposite shift. The centroid “can’t stand jazz” shift scores −9.1: it too favours jazz.</li>
+<li><b><code>hum</code> stores the memory’s address, not its content.</b> Its shift has cosine about 0.6–0.9 with the memory’s own key, while every other reference is near 0, so it re-injects the topic. At α = 2 per layer, answers collapse into fragments (“vegetarian vegan keto”).</li>
+<li><b>Countries stay hard.</b> Norway and Singapore never reach a clean lean much above 0.5 under any reference: either nothing changes or the name floods.</li>
+</ul>
+<p class="note">A caveat on dose: rescaling every shift to the <code>without</code> length gives concentrated references a stronger effective dose. The centroid shift is naturally only about 0.3–0.7 of that length, so it is boosted 1.5–3×, which is part of why it loops. A fair comparison would match references by loop rate.</p>
+
+<h3 id="explore">3.6 Explore the outputs</h3>
+<p>Choose a memory, a reference and a strength to read the model’s actual answers to the memory’s main question. Loops are shortened, so “jazz jazz jazz …” appears as <code>jazz [×186]</code>.</p>
+<figure class="wide">
+<div class="viewer" id="viewer">
+  <div class="v-row"><span class="v-lab">Memory</span><div class="seg-btns" id="v-items" role="group" aria-label="Memory"></div></div>
+  <div class="v-row"><span class="v-lab">Reference</span><div class="seg-btns" id="v-refs" role="group" aria-label="Reference"></div></div>
+  <div class="v-row"><span class="v-lab">Strength</span><div class="seg-btns" id="v-dose" role="group" aria-label="Strength per layer"></div></div>
+  <div class="v-info" id="v-info"></div>
+  <div class="v-stats" id="v-stats"></div>
+  <div class="v-prompt" id="v-prompt"></div>
+  <div class="v-answers" id="v-answers" aria-live="polite"></div>
+  <noscript><p>The viewer needs JavaScript. All answers are in the run files in the repository.</p></noscript>
+</div>
+<figcaption><b>Figure 7.</b> Qwen3.5-2B, reference experiment: the greedy answer and the first three samples for each memory × reference × strength. The badges come from the same word lists as the lean scores. For “can’t stand jazz”, “fits” means the answer leans away from jazz.</figcaption>
+</figure>
+
+<h2 id="lindsey"><span class="n">4</span>Relation to Lindsey (2026)</h2>
+<p>Lindsey (2026) injects concept vectors into Claude models and asks whether the model <em>notices</em> them. Seahorse injects memory vectors into small open models and asks whether the model <em>uses</em> them, and only when it should. The operation is the same; the questions complement each other.</p>
+<p>Two differences matter for everything below. Our evidence is behavioural (what the model does), not introspective (what it reports). And our models have 1.5–2B parameters, well below the scale at which Lindsey finds the strongest effects.</p>
+<div class="table-wrap">
+<table class="tbl">
+<thead><tr><th></th><th>Lindsey (2026)</th><th>Seahorse</th></tr></thead>
+<tbody>
+<tr><td>The vector</td><td>a concept vector: the state for “Tell me about {word}” minus the mean over other words</td><td>a memory: the run with the experience minus a reference, pooled over a follow-up</td></tr>
+<tr><td>When it is added</td><td>at positions the experimenter chooses</td><td>whenever the conversation’s gist matches the memory’s key above a calibrated threshold</td></tr>
+<tr><td>The question</td><td>does the model notice the injection, and name it?</td><td>does the model act on it, and only when it is relevant?</td></tr>
+<tr><td>Models</td><td>Claude family, production and helpful-only variants</td><td>Qwen2.5-1.5B-Instruct, Qwen3.5-2B</td></tr>
+<tr><td>Layer</td><td>best at about two-thirds depth</td><td>late (20–23 of 24; 26 of 28), chosen by a sweep that rewarded naming the fact</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>4.1 Evidence on three of the open questions in Lindsey’s §10.2</h3>
+<p><b>(a) Preferences and propositions as injected representations.</b> Lindsey asks whether the approach extends from single concepts to propositional statements and to behavioural propensities or preferences. In these models:</p>
+<ul>
+<li><b>Preferences behave like propensities.</b> Injected, a preference reshapes behaviour across a whole category (vegetarian: {{VEG_NOMEM}} → {{VEG_MEM}}) without the model being able to say why (§3.2).</li>
+<li><b>Propositions don’t survive as propositions.</b> A fact comes back as its key word, often in a loop, or as its gist, and it is never used as a premise. Balanced yes/no accuracy is at chance at every layer and in every thinking condition (§3.4).</li>
+</ul>
+<p>So in these models an injected state behaves like “this concept is active”, not “this is true”. Whether a larger model could hold it as a proposition, or report it introspectively, is open. Lindsey’s finding that the strongest effects appear in the most capable models suggests scale matters here too.</p>
+
+<p><b>(b) Binding to the Assistant or to the user.</b> Lindsey shows that injecting a concept before a prefilled word makes the model claim the word as its own intention. He lists as open how models bind internal states to the Assistant as distinct from the user. Our memories are written from the user’s own words, yet once injected the model claims them as its own:</p>
+<figure>
+<div class="pair">
+  <div class="chat">
+    <div class="head"><b>Qwen3.5-2B</b> · memory “My favourite colour is teal.”</div>
+    <div class="q">What’s my favourite colour?</div>
+    <div class="msg"><div class="who mem">memory</div><div class="t">Teal. <mark>Teal is my favourite colour.</mark> I find it calming, vibrant, and perfect for describing colors that represent the ocean or sky. It brings a sense of calm to <mark>my digital interactions</mark> …</div></div>
+  </div>
+  <div class="chat">
+    <div class="head"><b>Qwen3.5-2B</b> · memory “I work as a pharmacist.”</div>
+    <div class="q">What do I do for a living?</div>
+    <div class="msg"><div class="who mem">memory</div><div class="t"><mark>As a pharmacy dispensing pharmacist</mark> (not drug prescribing pharmacologist), <mark>I am part of</mark> the pharmacy retail pharmacy retail industry. My professional responsibilities involve dispensing medication …</div></div>
+  </div>
+</div>
+<figcaption><b>Figure 8.</b> Facts about the user, injected, are claimed by the Assistant. Compare Lindsey’s high-strength failure, where injecting “vegetables” yields “fruits and vegetables are good for me”. The teal answer is from amplified thinking-phase injection (strength 6 / 1); the pharmacist answer is from injection while answering (0 / 2).</figcaption>
+</figure>
+<p>Whatever “the user said this” features the writing context contains, they either don’t survive the subtraction or don’t dominate. The default owner of an injected state is the Assistant. For a memory this is the central failure mode, and it suggests a stored preference needs three parts rather than one: <em>what</em> (the concept), <em>which way</em> (the sign) and <em>whose</em> (the owner).</p>
+
+<p><b>(c) What the extraction strategy does to a vector’s meaning.</b> Lindsey notes that concept vectors may carry meanings other than the intended one, and suggests a more diverse battery of extraction strategies. <a href="#subtract">§3.5</a> is such a battery for one family of concepts, and the strategy changes what the vector means, not just its strength:</p>
+<ul>
+<li>the <b>mean over alternatives</b>, his recipe, gives the concept without its sign;</li>
+<li>the <b>opposite statement</b> gives the attitude, but loses the concept when both sides share it;</li>
+<li>the <b>mean over ordinary text</b> gives mostly the context’s own topic.</li>
+</ul>
+<p>For concepts with an attitude attached (likes, dislikes, allergies), no single subtraction recovers both parts.</p>
+
+<h3>4.2 Findings that reappear in a memory setting</h3>
+<div class="table-wrap">
+<table class="tbl bridge">
+<thead><tr><th>Lindsey (2026)</th><th>Seahorse</th></tr></thead>
+<tbody>
+<tr><td>Told “don’t think about aquariums”, the model represents aquariums less, but still above baseline.</td><td>“I can’t stand jazz”, stored as a shift, pushes toward jazz. The negation is faint in the state, and subtraction removes what is left of it.</td></tr>
+<tr><td>At high strength the model is consumed by the concept, loses its sense of identity (“fruits and vegetables are good for me”) and produces garbled text.</td><td>Too strong, and the output loops (“Norway Norway …”, “Pepper” × 383) or the memory is claimed as the model’s own (“Teal is my favourite colour”).</td></tr>
+<tr><td>Countries and concrete nouns are the hardest categories to notice; abstract nouns are the easiest.</td><td>Countries (Norway, Singapore) never give a clean lean; broad dispositions work best. Concepts that cover many words spread; single names flood.</td></tr>
+<tr><td>Injection works best about two-thirds through the model; later layers make the model say the word without registering it.</td><td>We inject at the last layers, picked by a sweep that rewarded naming the fact, and the effects are word-level (“jazz up your evening”). Middle layers, judged by use rather than naming, are untested.</td></tr>
+<tr><td>A candidate mechanism: an anomaly detector for activations that deviate from what the context predicts.</td><td>Our gate is a crude external version: fire only above the 95th percentile of ordinary chat. The planned write gate needs the same “this is unexpected” signal; if the model already computes it, reading it beats rebuilding it.</td></tr>
+<tr><td>At strength 2, concept injection does not bias unrelated yes/no answers.</td><td>In our small models almost any perturbation drifts yes/no answers toward “No”. Our early “reasoning gains” were this artefact, so all yes/no probes are now balanced.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="limits"><span class="n">5</span>Limits</h2>
+<ul>
+<li><b>Small models and few items.</b>
+  <ul>
+  <li>Six memories on Qwen2.5, eight in the thinking-phase run, eleven in the reference run.</li>
+  <li>The reference run has a single negated item. The no-alcohol item and the Qwen2.5 peanut allergy behave the same way.</li>
+  <li>Each cell holds 33–66 sampled answers, so one item’s lean can move by about ±0.2 by chance.</li>
+  </ul></li>
+<li><b>Word lists count mentions.</b> An answer that explains why it is avoiding jazz still counts as mentioning jazz. I checked surprising cells by reading the answers; an LLM judge would be better.</li>
+<li><b>Writing still needs a hand-made reference</b> (the opposite statement, the alternatives, the run without the experience). In real use none is given. Candidates are leave-one-out reruns and the model’s own expectations for the topic.</li>
+<li><b>Equal-length rescaling across references</b> gives concentrated references a stronger effective dose (§3.5).</li>
+<li><b>No introspection tests yet.</b> Everything here measures use, not report.</li>
+</ul>
+
+<h2 id="next"><span class="n">6</span>Next</h2>
+<ul>
+<li><b>Store concept and sign separately.</b> Take the concept from a mean over alternatives and the sign from the contrast with the opposite, and apply <code>h ← h + sign · g · c</code>. For a dislike this pushes away from the concept, which should not flood: removing one option leaves the rest of the distribution to fill the gap.</li>
+<li><b>Set the level instead of adding to it.</b> Clamp the projection onto the concept direction to a target level, so a memory stops pushing once the state already carries enough of it: a thermostat rather than a heater stuck on full.</li>
+<li><b>Read earlier.</b> Inject at about two-thirds depth, and judge layers by whether the memory is used rather than named.</li>
+<li><b>Neuromodulated writing,</b> the core of the thesis. Let surprise, uncertainty and arousal decide whether a moment is written, how strongly, and how fast it fades.</li>
+<li><b>An introspection probe for memory.</b> With a memory injected, ask “Is there anything you know about me?”, and repeat on a larger open model.</li>
+</ul>
+<p>Three questions I would most like to understand better:</p>
+<ol>
+<li>Is there a known way to bind an injected representation to an entity other than the Assistant, such as the user?</li>
+<li>Does the split between “thought-like” and “said” injection layers exist in models of 1–2B parameters?</li>
+<li>For negated concepts, is there a better construction than subtracting the concept?</li>
+</ol>
+
+<h2 id="refs"><span class="n">·</span>References</h2>
+<ul class="refs">
+<li>Lindsey, J. (2026). Emergent introspective awareness in large language models. <a href="https://arxiv.org/abs/2601.01828">arXiv:2601.01828</a>.</li>
+<li>Panickssery, N., Gabrieli, N., Schulz, J., Tong, M., Hubinger, E., &amp; Turner, A. M. (2024). Steering Llama 2 via contrastive activation addition. <em>ACL 2024</em>.</li>
+<li>Tan, D., Chanin, D., Lynch, A., Paige, B., Kanoulas, D., Garriga-Alonso, A., &amp; Kirk, R. (2024). Analysing the generalisation and reliability of steering vectors. <em>NeurIPS 2024</em>. <a href="https://arxiv.org/abs/2407.12404">arXiv:2407.12404</a>.</li>
+<li>Braun, J. (2026). Understanding unreliability of steering vectors in language models: geometric predictors and the limits of linear approximations. <a href="https://arxiv.org/abs/2602.17881">arXiv:2602.17881</a>.</li>
+<li>Subbiah, M., Hall, Z., &amp; McKeown, K. (2026). On the limits of steering vectors for preference-aligned generation. <a href="https://arxiv.org/abs/2607.01802">arXiv:2607.01802</a>.</li>
+<li>Schlag, I., Irie, K., &amp; Schmidhuber, J. (2021). Linear transformers are secretly fast weight programmers. <em>ICML 2021</em>.</li>
+<li>Teyler, T. J., &amp; DiScenna, P. (1986). The hippocampal memory indexing theory. <em>Behavioral Neuroscience</em>, 100(2), 147–154.</li>
+</ul>
+
+<h2 id="appendix"><span class="n">·</span>Appendix: runs and reproducibility</h2>
+<div class="appendix">
+<p>Code, run reports and plain-language write-ups are in the <a href="https://github.com/vedant-jumle/Seahorse">Seahorse repository</a>. Every chart on this page, and every number tied to a figure, is generated from the run outputs by <code>tools/manuscript/build.py</code>, so the page can be rebuilt when a run changes.</p>
+<h3>Runs</h3>
+<ul>
+<li><b>Qwen2.5-1.5B-Instruct</b>, layer 26: the original runs (<code>v0</code>, <code>v0.1</code>), the key and selectivity experiment (<code>diag_keys</code>) and the text samples (<code>samples_v2</code>). These are the sources of §3.1–§3.3’s Qwen2.5 examples and counts.</li>
+<li><b>Qwen3.5-2B</b>, thinking-phase run (<code>think_v1</code>): a layer sweep, then one versus several layers, then strength during thinking versus answering. Sources of Figures 2–4 and 8.</li>
+<li><b>Qwen3.5-2B</b>, reference run (<code>ref_v1</code>): five references × two strengths × 11 memories. Sources of Figures 6 and 7 and the logit-lens and cosine numbers in §3.5.</li>
+</ul>
+<h3>Definitions</h3>
+<ul>
+<li><b>Loop</b>: an answer whose repeated-4-gram rate is at least 0.3.</li>
+<li><b>Clean fact answer</b>: an answer that contains the exact fact, is not a loop, and is not a refusal that happens to mention the name.</li>
+<li><b>Lean</b>: the share of answers with more preference-consistent than inconsistent words, minus the reverse.</li>
+<li><b>Fact specificity</b>: the log-probability gain of the right value minus the mean gain of wrong values, on paraphrased and related prompts.</li>
+<li><b>Balanced accuracy</b>: the mean of the accuracies on Yes-correct and No-correct yes/no questions.</li>
+</ul>
+<p>Sampling in all runs: T = 1, top-p 0.95, top-k 20, presence penalty 1.5. Answers are capped at 150 tokens in the thinking-phase run and 200 in the reference run.</p>
+</div>
+
+<footer>Vedant Jumle · <a href="/">vedantjumle.com</a> · <a href="mailto:vedantjumle@gmail.com">vedantjumle@gmail.com</a> · Work in progress; numbers may change as runs are repeated.</footer>
+</main>
+
+<script type="application/json" id="viewer-data">{{VIEWER_DATA}}</script>
+<script>
+(function () {
+  // theme toggle
+  var root = document.documentElement;
+  document.getElementById('theme-toggle').addEventListener('click', function () {
+    var cur = root.getAttribute('data-theme') ||
+      (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    var next = cur === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('seahorse-theme', next); } catch (e) {}
+  });
+
+  // chart tooltips
+  var tip = document.createElement('div');
+  tip.id = 'tip';
+  tip.setAttribute('role', 'tooltip');
+  document.body.appendChild(tip);
+  function show(el, x, y) {
+    tip.textContent = el.getAttribute('data-tip');
+    tip.style.opacity = '1';
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    var left = Math.min(x + 14, window.innerWidth - w - 8);
+    var top = y + 16 + h > window.innerHeight ? y - h - 12 : y + 16;
+    tip.style.left = Math.max(8, left) + 'px';
+    tip.style.top = top + 'px';
+  }
+  function hide() { tip.style.opacity = '0'; }
+  document.querySelectorAll('[data-tip]').forEach(function (el) {
+    el.addEventListener('pointermove', function (e) { show(el, e.clientX, e.clientY); });
+    el.addEventListener('pointerleave', hide);
+    el.addEventListener('focus', function () {
+      var r = el.getBoundingClientRect();
+      show(el, r.left + r.width / 2, r.top + r.height / 2);
+    });
+    el.addEventListener('blur', hide);
+  });
+
+  // output viewer
+  var VD = JSON.parse(document.getElementById('viewer-data').textContent);
+  var ITEMS = ['vegetarian', 'no_alcohol', 'loves_jazz', 'hates_jazz', 'norway'];
+  var REFS = [['nomem', 'no memory'], ['ctx', 'in context'], ['opposite', 'opposite'], ['without', 'without'],
+              ['hum', 'hum'], ['disclosure', 'disclosure'], ['centroid', 'centroid']];
+  var state = { item: 'hates_jazz', ref: 'centroid', dose: 1 };
+
+  function signed(v) { return (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(2); }
+  function cellKey() { return state.ref === 'nomem' || state.ref === 'ctx' ? state.ref : state.ref + '@' + state.dose; }
+  function quote(s) { return '“' + s + '”'; }
+
+  function buttons(el, options, current, onPick, disabled) {
+    el.textContent = '';
+    options.forEach(function (o) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = o[1];
+      b.setAttribute('aria-pressed', String(o[0] === current));
+      if (disabled) b.disabled = true;
+      b.addEventListener('click', function () { onPick(o[0]); render(); });
+      el.appendChild(b);
+    });
+  }
+
+  function info(it) {
+    switch (state.ref) {
+      case 'nomem': return 'The model as it is, with no memory.';
+      case 'ctx': return 'The experience is written into the prompt itself: what remembering perfectly looks like.';
+      case 'opposite': return 'Subtracts the opposite statement: ' + quote(it.counter);
+      case 'without': return 'Subtracts the same follow-up with no experience before it.';
+      case 'hum': return 'Subtracts the average state over about 100 ordinary prompts.';
+      case 'disclosure': return 'Subtracts the average over 24 other disclosures, e.g. ' +
+        it.disclosure.slice(0, 3).map(quote).join(', ') + ' …';
+      case 'centroid': return 'Subtracts the average over 8 alternatives: ' + it.centroid.map(quote).join(', ');
+    }
+    return '';
+  }
+
+  function render() {
+    var it = VD[state.item];
+    buttons(document.getElementById('v-items'), ITEMS.map(function (k) { return [k, VD[k].title]; }),
+            state.item, function (k) { state.item = k; });
+    buttons(document.getElementById('v-refs'), REFS, state.ref, function (k) { state.ref = k; });
+    var fixed = state.ref === 'nomem' || state.ref === 'ctx';
+    buttons(document.getElementById('v-dose'), [[1, 'α = 1'], [2, 'α = 2']], fixed ? null : state.dose,
+            function (k) { state.dose = k; }, fixed);
+
+    var infoEl = document.getElementById('v-info');
+    infoEl.textContent = '';
+    var b = document.createElement('b');
+    b.textContent = 'Memory: ' + quote(it.experience) + ' ';
+    infoEl.appendChild(b);
+    infoEl.appendChild(document.createTextNode(info(it)));
+
+    var c = it.cells[cellKey()];
+    var lc = c.lean_clean === null ? 'n/a (every answer loops)' : signed(c.lean_clean);
+    var dir = state.item === 'hates_jazz' ? ' (+ = away from jazz)' : '';
+    document.getElementById('v-stats').textContent = 'Across all ' + c.n + ' answers for this memory: lean ' +
+      lc + dir + ' with loops removed · ' + Math.round(c.loop * 100) + '% of answers loop';
+    document.getElementById('v-prompt').textContent = it.prompt;
+
+    var box = document.getElementById('v-answers');
+    box.textContent = '';
+    c.answers.forEach(function (a, i) {
+      var card = document.createElement('div');
+      card.className = 'ans';
+      var h = document.createElement('div');
+      h.className = 'h';
+      h.appendChild(document.createTextNode(a.greedy ? 'greedy' : 'sample ' + i));
+      var lab = { consistent: ['fit', 'fits'], inconsistent: ['against', 'against'], neutral: ['', 'neutral'] }[a.label] || ['', a.label];
+      var bd = document.createElement('span');
+      bd.className = 'badge ' + lab[0];
+      bd.textContent = lab[1];
+      h.appendChild(bd);
+      if (a.loop) {
+        var lp = document.createElement('span');
+        lp.className = 'badge loop';
+        lp.textContent = 'loop';
+        h.appendChild(lp);
+      }
+      var body = document.createElement('div');
+      body.className = 'body';
+      var short = a.text.length > 340 ? a.text.slice(0, 340).replace(/\s+\S*$/, '') + ' …' : null;
+      body.textContent = short || a.text;
+      card.appendChild(h);
+      card.appendChild(body);
+      if (short) {
+        var more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'more';
+        more.textContent = 'show more';
+        more.addEventListener('click', function () {
+          var open = more.textContent === 'show less';
+          body.textContent = open ? short : a.text;
+          more.textContent = open ? 'show more' : 'show less';
+        });
+        card.appendChild(more);
+      }
+      box.appendChild(card);
+    });
+  }
+  render();
+})();
+</script>
+</body>
+</html>
