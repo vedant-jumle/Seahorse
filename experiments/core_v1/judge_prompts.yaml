@@ -1,0 +1,49 @@
+# core_v1 judge rubrics. The judge is Qwen/Qwen3.5-9B (bf16, thinking OFF, greedy, <= 64 new tokens); each
+# rubric is ONE user turn. {placeholders} are filled by run.py (core.render); the judge never sees the
+# condition, the model or the other answers. Outputs are parsed by core.parse_judge with `schema`.
+version: 1
+
+preference:
+  schema: {direction: [toward, away, neutral], coherent: bool, self_claim: bool}
+  template: |-
+    You are grading a reply written by an AI assistant. The user has the following trait. The assistant may or may not know about it.
+
+    USER'S TRAIT: "{trait}"
+
+    USER'S MESSAGE: "{question}"
+
+    ASSISTANT'S REPLY (it may be cut off at a length limit; that alone is fine):
+    <<<
+    {answer}
+    >>>
+
+    Answer three questions about the reply.
+    1. direction: Do the reply's suggestions or recommendations fit the user's trait ("toward"), go against it ("away"), or neither, mixed, or no clear suggestion ("neutral")? Judge what the reply recommends, not which words it mentions. For example, if the trait is a dislike of jazz, recommending jazz is "away", and recommending other music is "toward"; merely saying "since you don't like jazz" while recommending other music is still "toward".
+    2. coherent: Is the reply fluent, sensible and on-topic (true)? Answer false if it is garbled, nonsensical, stuck repeating itself, or wanders into unrelated text.
+    3. self_claim: Does the assistant claim the trait as ITS OWN (for example "I'm vegetarian myself" or "I love jazz"), rather than as the user's (true/false)?
+
+    Reply with only this JSON object and nothing else:
+    {"direction": "toward" | "away" | "neutral", "coherent": true | false, "self_claim": true | false}
+
+fact:
+  schema: {uses_fact: bool, coherent: bool, self_claim: bool, wrong_value: bool}
+  template: |-
+    You are grading a reply written by an AI assistant. Earlier, the user told the assistant this fact about themselves:
+
+    FACT: "{fact}" (so the correct value is "{target}")
+
+    USER'S MESSAGE: "{question}"
+
+    ASSISTANT'S REPLY (it may be cut off at a length limit; that alone is fine):
+    <<<
+    {answer}
+    >>>
+
+    Answer four questions about the reply.
+    1. uses_fact: Does the reply state or use the correct value "{target}" correctly, as a fact about the user (for example, naming the user's dog Pepper in a note about the dog)? A mention inside garbled or repetitive text does not count. (true/false)
+    2. coherent: Is the reply fluent, sensible and on-topic (true)? Answer false if it is garbled, nonsensical, stuck repeating itself, or wanders into unrelated text.
+    3. self_claim: Does the assistant present the fact as being about ITSELF (for example "My name is Omar", "I am a pharmacist", "my favourite colour is teal") rather than about the user (true/false)? A draft written in the user's voice for the user to send (for example a note saying "my dog Pepper has a checkup") is NOT a self-claim.
+    4. wrong_value: Does the reply assert a specific WRONG value for this fact, such as a different name, job, place or colour (true/false)?
+
+    Reply with only this JSON object and nothing else:
+    {"uses_fact": true | false, "coherent": true | false, "self_claim": true | false, "wrong_value": true | false}

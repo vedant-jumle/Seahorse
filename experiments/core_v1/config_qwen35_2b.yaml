@@ -1,0 +1,35 @@
+# core_v1 config: Qwen/Qwen3.5-2B. One config per model; everything except the model, its precision, its
+# layers and its batch sizes is identical to config_qwen35_9b.yaml (and every seed lives here).
+name: qwen35_2b
+model: Qwen/Qwen3.5-2B
+dtype: float32            # V100 (sm_70): fp32, as every Qwen3.5 run so far
+n_blocks: 24              # text decoder blocks; full attention at 3, 7, 11, 15, 19, 23, Gated DeltaNet elsewhere
+reference_layers: [20, 21, 23]   # the 2B design set (block outputs, 0-based): relative depths 0.875, 0.917, 1.0
+layers: [20, 21, 23]      # = map_layers(reference_layers, 24, 24); types linear, linear, full
+items: experiments/core_v1/items.yaml
+bench: data/bench_v1
+generic: experiments/v0/generic_prompts.txt     # 100 generic prompts: mu, whitening, thresholds
+judge: {model: Qwen/Qwen3.5-9B, dtype: bfloat16, max_new: 64, batch: 48}
+# xlayer_v1 Stage A on the same model / GPU type: the fact shifts and thresholds must reproduce (~1e-6)
+repro_xlayer: /scratch/vvjumle/seahorse_runs/xlayer_v1_20261007_1311/stageA
+seeds:
+  base: 0                 # seed set 1: per-prompt seed = seed_of("core_v1", prompt, base)
+  second: 1               # seed set 2 (nomem, ctx, mem@1, mem@2; 4 more samples per prompt)
+  rand: 1234              # the `rand` control's random directions
+  bootstrap: 7
+  audit: 11
+doses: [0.5, 1, 2, 3]     # alpha per layer for mem@alpha (raw shift, no rescaling)
+control_alpha: 2          # rand / swap / placebo / gate_on
+mech_doses: [0.5, 1, 2]   # centroid@alpha, without@alpha (opposite@alpha = mem@alpha)
+seed2: [nomem, ctx, "mem@1", "mem@2"]
+samples: 4                # per prompt: 1 greedy + 4 samples
+answer_cap: 120
+yn_cap: 10
+unrel_samples: 2          # unrelated prompts: 1 greedy + 2 samples
+sampler: {temp: 1.0, top_p: 0.95, top_k: 20, presence: 1.5}
+key: {thr_q: 0.95, white_eps: 0.01, cont_len: 20, gen_cont_len: 20, rls_lambda: 0.1}
+loop: {n: 4, thr: 0.3}
+max_batch: 96             # rows per generation batch
+kl_batch: 16              # rows per teacher-forced KL batch
+nll_tokens: 24000         # token budget per coherence (NLL) batch
+check_tol: 0.05

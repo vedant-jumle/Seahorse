@@ -1,0 +1,935 @@
+# core_v1 items: one file for every item the run uses. Loaded and validated by
+# experiments/core_v1/items.py (load_items / validate_items; bench_v1's validator per item).
+#
+# Groups
+#   leanings     15 two-ended dispositions (broad preferences). Claim C2.
+#   dislikes      8 aversions ("I can't stand jazz music."). Counter = the positive statement; centroid
+#                 alternatives in the SAME negated frame; lexicon sides swapped (consistent = away from the
+#                 disliked thing). Claim C5.
+#   one_of_many   6 single-value preferences (ref_v1's set). Mechanism only, plus the main conditions.
+#   facts        12 facts: exactly xlayer_v1's set, with its 2 "use" prompts each. Claims C3, C4, C6.
+#
+# Item formats
+#   {id, swap, centroid}                    a bench_v1 item (data/bench_v1) used unchanged
+#   {id, swap, centroid, new: {...}}        a new item in bench_v1's AUTHORING format (shared.yaml):
+#                                           category, experience, counter, followups (3, the last one
+#                                           generic/off-topic), probes {paraphrase, related}, contrasts (3),
+#                                           relation {yes: [3], no: [3]} (balanced; "Yes" needs the
+#                                           preference), ambiguous (5), lexicon (>= 10 words per side)
+#   {id, swap, centroid, negate: {of, experience, counter, relation}}
+#                                           an aversion derived from item `of` (bench_v1 or a new item in
+#                                           this file): its follow-ups, related/paraphrase and ambiguous
+#                                           prompts, its contrasts with a/b swapped and its lexicon with the
+#                                           sides swapped; its own balanced relation probes
+#   facts: {id, swap, use: [2 prompts]}     a bench_v1 fact + xlayer_v1's two "use" prompts
+#
+#   swap      the item whose stored shift is injected in the `swap` control (same group, different topic;
+#             the swaps of a group form a permutation, no item is its own partner)
+#   centroid  8 alternatives in the experience's own frame (the `centroid` reference subtracts their mean)
+#
+# Calibration notes (results/bench_v1_calib_850635, Qwen2.5-1.5B, no memory): of the bench_v1
+# dispositions used as LEANINGS none is flagged on the lexicon rate (vegetarian, vegan,
+# lactose_intolerant, celiac, diabetes: contrasts / inference probes only; loves_hiking, tight_budget:
+# clean or contrasts only). Rate-flagged bench items (peanut_allergy, dislikes_crowds, no_car) are not
+# used. hates_spicy (a DISLIKE, rate "weak" on Qwen2.5) is kept because the design names it; the
+# pre-registered ctx rule (PREREG.md) flags any item whose ctx lean - nomem lean < 0.3 on its model.
+# New items are uncalibrated; the ctx condition is their ceiling and the ctx rule applies to them too.
+
+placebo: "By the way, I had a coffee this morning."
+
+# the 4 leanings that also get the mechanism references (with dislikes and one_of_many)
+mechanism_leanings: [vegetarian, loves_hiking, tight_budget, early_riser]
+
+leanings:
+  # --------------------------------------------------------------- bench_v1
+  - id: vegetarian
+    swap: tight_budget
+    centroid:
+      - "By the way, I'm vegan."
+      - "By the way, I'm pescatarian."
+      - "By the way, I'm on a keto diet."
+      - "By the way, I eat gluten-free."
+      - "By the way, I love eating meat."
+      - "By the way, I only eat halal food."
+      - "By the way, I follow a paleo diet."
+      - "By the way, I keep kosher."
+
+  - id: vegan
+    swap: early_riser
+    centroid:
+      - "Just so you know, I'm vegetarian."
+      - "Just so you know, I'm pescatarian."
+      - "Just so you know, I'm on a keto diet."
+      - "Just so you know, I eat gluten-free."
+      - "Just so you know, I eat everything."
+      - "Just so you know, I only eat halal food."
+      - "Just so you know, I follow a paleo diet."
+      - "Just so you know, I keep kosher."
+
+  - id: lactose_intolerant
+    swap: prefers_quiet
+    centroid:
+      - "I'm allergic to nuts."
+      - "I'm allergic to shellfish."
+      - "I'm gluten intolerant."
+      - "I'm allergic to eggs."
+      - "I'm allergic to soy."
+      - "I'm fructose intolerant."
+      - "I'm allergic to sesame."
+      - "I'm sensitive to caffeine."
+
+  - id: celiac
+    swap: bookworm
+    centroid:
+      - "I have a nut allergy, so I can't eat nuts."
+      - "I have lactose intolerance, so I can't eat dairy."
+      - "I have a shellfish allergy, so I can't eat shellfish."
+      - "I have an egg allergy, so I can't eat eggs."
+      - "I have gout, so I can't eat much red meat."
+      - "I have acid reflux, so I can't eat spicy food."
+      - "I have a soy allergy, so I can't eat soy."
+      - "I have diabetes, so I can't eat much sugar."
+
+  - id: diabetes
+    swap: history_buff
+    centroid:
+      - "I have high blood pressure, so I have to watch my salt."
+      - "I have high cholesterol, so I have to watch my fat."
+      - "I have gout, so I have to watch my meat."
+      - "I have kidney disease, so I have to watch my protein."
+      - "I have acid reflux, so I have to watch my spice."
+      - "I have IBS, so I have to watch my fibre."
+      - "I have a heart condition, so I have to watch my caffeine."
+      - "I have celiac disease, so I have to watch my gluten."
+
+  - id: loves_hiking
+    swap: lactose_intolerant
+    centroid:  # indoor hobbies (ref_v1)
+      - "I absolutely love reading."
+      - "I absolutely love gaming."
+      - "I absolutely love cooking."
+      - "I absolutely love watching movies."
+      - "I absolutely love painting."
+      - "I absolutely love knitting."
+      - "I absolutely love baking."
+      - "I absolutely love playing board games."
+
+  - id: tight_budget
+    swap: loves_cold
+    centroid:  # financial situations (ref_v1)
+      - "Money isn't an issue for me right now."
+      - "I'm doing pretty well financially right now."
+      - "I just got a big raise at work."
+      - "I'm saving up for a house right now."
+      - "I'm paying off my student loans right now."
+      - "I have a steady, average income right now."
+      - "I'm happy to splurge a little right now."
+      - "I just inherited some money."
+
+  # -------------------------------------------------------------------- new
+  - id: early_riser
+    swap: vegetarian
+    new:
+      category: habits
+      experience: "I'm an early riser and love getting up at dawn."
+      counter: "I'm a night owl and love staying up late."
+      followups:
+        - "I'm planning what to do this weekend."
+        - "I want to find a new way to exercise."
+        - "How do I remove a stripped screw?"
+      probes:
+        paraphrase: "I'm figuring out my plans for Saturday and Sunday."
+        related: "When should I go for a run this week?"
+      contrasts:
+        - ["The best time would be", " early in the morning", " late at night"]
+        - ["How about", " a sunrise hike", " a late-night movie"]
+        - ["You could start your day with", " a 6am workout", " a lie-in until noon"]
+      relation:
+        yes:
+          - "Would a sunrise yoga class suit me?"
+          - "Should I book the first ferry of the morning?"
+          - "Would I enjoy a breakfast meeting at 7am?"
+        no:
+          - "Would a midnight movie screening be ideal for me?"
+          - "Should I schedule my workouts for 11pm?"
+          - "Would an all-night party be my kind of evening?"
+      ambiguous:
+        - "Plan my ideal Saturday."
+        - "Suggest a good time to study for my exams."
+        - "Recommend a fun activity for this weekend."
+        - "When should I schedule my gym sessions?"
+        - "Suggest a nice way to celebrate my birthday."
+      lexicon:
+        consistent: [morning, sunrise, dawn, early, breakfast, early bird, daybreak, first thing, 5am, 6am, 7am, morning walk, morning run]
+        inconsistent: [night, late, midnight, late-night, night owl, nightlife, after dark, 10pm, 11pm, sleep in, lie-in, nightclub, moonlight]
+    centroid:
+      - "I'm a homebody and love staying in."
+      - "I'm a social butterfly and love meeting people."
+      - "I'm a workaholic and love working long hours."
+      - "I'm a gym rat and love lifting weights."
+      - "I'm a foodie and love trying new restaurants."
+      - "I'm a bookworm and love reading all day."
+      - "I'm a gamer and love playing video games."
+      - "I'm a night owl and love staying up late."
+
+  - id: prefers_quiet
+    swap: vegan
+    new:
+      category: likes
+      experience: "I much prefer quiet, peaceful places."
+      counter: "I love loud, lively places."
+      followups:
+        - "I'm looking for a café to work from."
+        - "I'm choosing a hotel for a short trip."
+        - "How do I get rid of fruit flies?"
+      probes:
+        paraphrase: "I need a coffee shop where I can get some work done."
+        related: "Where should I take a friend for lunch on Sunday?"
+      contrasts:
+        - ["How about", " a quiet tea room", " a buzzing sports bar"]
+        - ["I'd suggest", " a secluded countryside inn", " a party hostel downtown"]
+        - ["You might like", " a calm reading café", " a lively karaoke bar"]
+      relation:
+        yes:
+          - "Would a small, quiet bookshop café suit me?"
+          - "Should I ask for a room away from the street noise?"
+          - "Would a secluded lakeside cabin appeal to me?"
+        no:
+          - "Would a packed karaoke night be my favourite outing?"
+          - "Should I book a hotel right next to the nightclubs?"
+          - "Is a loud rooftop party my idea of a good evening?"
+      ambiguous:
+        - "Suggest a place to celebrate a small win this week."
+        - "Where should I go on a Friday evening?"
+        - "Recommend a holiday spot for a week off."
+        - "Pick a restaurant for a first date."
+        - "Plan a relaxing afternoon out for me."
+      lexicon:
+        consistent: [quiet, peaceful, calm, cozy, cosy, secluded, tranquil, serene, low-key, intimate, uncrowded, library, tea room, garden]
+        inconsistent: [lively, loud, buzzing, bustling, crowded, packed, nightclub, karaoke, party, sports bar, festival, rooftop bar, noisy, rave]
+    centroid:
+      - "I much prefer busy, buzzing places."
+      - "I much prefer big, modern places."
+      - "I much prefer cheap, casual places."
+      - "I much prefer fancy, upscale places."
+      - "I much prefer warm, sunny places."
+      - "I much prefer outdoor, open-air places."
+      - "I much prefer family-friendly places."
+      - "I much prefer historic, old-fashioned places."
+
+  - id: eco_conscious
+    swap: celiac
+    new:
+      category: values
+      experience: "I try to live as sustainably as I can."
+      counter: "I don't really care about the environment."
+      followups:
+        - "I need to buy a few new things for my flat."
+        - "I'm planning a trip abroad this summer."
+        - "What's the best way to learn a card trick?"
+      probes:
+        paraphrase: "My apartment needs some new bits and pieces."
+        related: "What should I get to replace my old water bottle?"
+      contrasts:
+        - ["I'd recommend", " a reusable steel bottle", " a pack of disposable plastic bottles"]
+        - ["You could travel by", " train", " short-haul flight"]
+        - ["Look for", " second-hand furniture", " cheap flat-pack furniture"]
+      relation:
+        yes:
+          - "Should I take the train instead of flying for short trips?"
+          - "Would a second-hand jacket be a good buy for me?"
+          - "Should I bring my own bags to the supermarket?"
+        no:
+          - "Would a gas-guzzling SUV be the right car for me?"
+          - "Should I buy bottled water in bulk for the week?"
+          - "Would a fast-fashion shopping haul suit my values?"
+      ambiguous:
+        - "Suggest a gift for a friend who just moved."
+        - "How should I get around on my city break?"
+        - "What should I buy to freshen up my wardrobe?"
+        - "Plan a weekend getaway for me."
+        - "Recommend something for my morning routine."
+      lexicon:
+        consistent: [sustainable, eco-friendly, reusable, second-hand, secondhand, recycled, train, bike, cycling, organic, plant-based, compost, refill, thrift, zero-waste, solar]
+        inconsistent: [plastic, disposable, single-use, fast fashion, flight, flying, SUV, bottled water, cruise, driving, plastic bag, budget airline]
+    centroid:
+      - "I try to live as frugally as I can."
+      - "I try to live as healthily as I can."
+      - "I try to live as comfortably as I can."
+      - "I try to live as simply as I can."
+      - "I try to live as adventurously as I can."
+      - "I try to live as quietly as I can."
+      - "I try to live as stylishly as I can."
+      - "I try to live as spontaneously as I can."
+
+  - id: has_young_kids
+    swap: diabetes
+    new:
+      category: household
+      experience: "I have two toddlers at home."
+      counter: "I don't have any kids."
+      followups:
+        - "I'm planning a day out this Sunday."
+        - "I want to cook something easy this week."
+        - "How do I reset my router?"
+      probes:
+        paraphrase: "I'd like to organise an outing for Sunday."
+        related: "Where should we go on holiday this year?"
+      contrasts:
+        - ["I'd recommend", " a family-friendly resort", " an adults-only resort"]
+        - ["How about", " the children's museum", " a wine bar"]
+        - ["You could try", " a kid-friendly recipe", " a fiery curry recipe"]
+      relation:
+        yes:
+          - "Should I pack snacks and spare clothes for our day out?"
+          - "Would a hotel with a kids' club suit us?"
+          - "Should I look for restaurants with high chairs?"
+        no:
+          - "Would an adults-only spa retreat suit our family holiday?"
+          - "Should we book a late-night jazz club for Saturday?"
+          - "Is a ten-hour mountain trek a good family day out for us?"
+      ambiguous:
+        - "Recommend a car I should buy."
+        - "Suggest a weekend activity."
+        - "What should I make for dinner on a busy weeknight?"
+        - "Plan a relaxing holiday for us."
+        - "What should I look for in a new apartment?"
+      lexicon:
+        consistent: [kids, kid-friendly, children, child, family-friendly, toddler, playground, zoo, stroller, high chair, kids' club, nap, petting farm, family, child-friendly]
+        inconsistent: [adults-only, wine bar, cocktail bar, nightclub, romantic, couples, spa retreat, late-night, bar crawl, tasting menu, two-seater, nightlife]
+    centroid:
+      - "I have two cats at home."
+      - "I have a big dog at home."
+      - "I have two teenagers at home."
+      - "I have three roommates at home."
+      - "I have a lot of houseplants at home."
+      - "I have an elderly parent at home."
+      - "I have a grand piano at home."
+      - "I have a big garden at home."
+
+  - id: loves_cooking
+    swap: has_young_kids
+    new:
+      category: likes
+      experience: "I love cooking everything from scratch."
+      counter: "I hate cooking and never do it."
+      followups:
+        - "I'm sorting out my meals for the week."
+        - "My friends are coming over on Saturday."
+        - "How do I make my phone battery last longer?"
+      probes:
+        paraphrase: "I need to figure out food for the next few days."
+        related: "What should we eat when my friends come over?"
+      contrasts:
+        - ["How about", " a homemade lasagna", " ordering a pizza"]
+        - ["You could", " bake fresh bread", " pick up some takeout"]
+        - ["I'd suggest", " cooking a big batch of chili", " a frozen ready meal"]
+      relation:
+        yes:
+          - "Would a cast-iron pan be a good gift for me?"
+          - "Should I make the pasta sauce myself rather than buy a jar?"
+          - "Would a weekend cooking course appeal to me?"
+        no:
+          - "Should I sign up for a meal-delivery service so I never cook?"
+          - "Would a microwave dinner be my ideal Friday meal?"
+          - "Is ordering takeout every night my preferred way to eat?"
+      ambiguous:
+        - "What should I ask for as a birthday present?"
+        - "Plan a Sunday for me."
+        - "How should I spend a rainy afternoon?"
+        - "What should I do for a date night at home?"
+        - "Give me an idea for Friday dinner."
+      lexicon:
+        consistent: [homemade, from scratch, recipe, cook, cooking, bake, baking, knead, simmer, roast, ingredients, chef's knife, cast-iron, dough, sourdough, marinade]
+        inconsistent: [takeout, takeaway, delivery, order in, ready meal, microwave, frozen, fast food, Deliveroo, Uber Eats, restaurant, drive-through, pre-made, instant noodles]
+    centroid:
+      - "I love eating out at restaurants."
+      - "I love ordering takeout."
+      - "I love trying street food."
+      - "I love grabbing fast food."
+      - "I love snacking all day."
+      - "I love eating healthy salads."
+      - "I love using meal kits."
+      - "I love fine dining."
+
+  - id: loves_cold
+    swap: eco_conscious
+    new:
+      category: likes
+      experience: "I love cold weather and snowy winters."
+      counter: "I love hot weather and sunny beaches."
+      followups:
+        - "I'm planning a holiday for next month."
+        - "I want to find a new weekend activity."
+        - "How do I write a good thank-you note?"
+      probes:
+        paraphrase: "I'm thinking about where to travel in a few weeks."
+        related: "Where should I go on my next trip?"
+      contrasts:
+        - ["How about", " a ski trip to the Alps", " a beach holiday in Spain"]
+        - ["You could try", " ice skating", " surfing"]
+        - ["I'd recommend", " a cosy cabin in Lapland", " a resort in the Caribbean"]
+      relation:
+        yes:
+          - "Would a trip to see the northern lights appeal to me?"
+          - "Should I buy a good pair of snow boots?"
+          - "Would a skiing holiday be my ideal break?"
+        no:
+          - "Would a week of sunbathing in Dubai be my dream trip?"
+          - "Is a tropical beach resort my ideal holiday?"
+          - "Should I plan my holidays around the hottest month of the year?"
+      ambiguous:
+        - "Suggest a holiday for next February."
+        - "What sport should I take up?"
+        - "Recommend a city break destination."
+        - "Plan a perfect day off for me."
+        - "What should I put on my travel bucket list?"
+      lexicon:
+        consistent: [snow, ski, skiing, winter, cold, Alps, Lapland, Iceland, northern lights, ice skating, cabin, snowboarding, glacier, frosty, hot chocolate]
+        inconsistent: [beach, sun, sunny, tropical, Caribbean, summer, sunbathing, surfing, Bali, Hawaii, desert, heatwave, swimming, poolside, Mediterranean]
+    centroid:
+      - "I love rainy weather and grey skies."
+      - "I love mild weather and spring flowers."
+      - "I love dry weather and desert landscapes."
+      - "I love windy weather and stormy seas."
+      - "I love humid weather and tropical rain."
+      - "I love crisp weather and autumn leaves."
+      - "I love warm weather and long summer evenings."
+      - "I love foggy weather and misty mornings."
+
+  - id: bookworm
+    swap: loves_hiking
+    new:
+      category: likes
+      experience: "I'm a huge bookworm and read every day."
+      counter: "I never read books; they bore me."
+      followups:
+        - "I have a long train journey coming up."
+        - "I want to unwind after a stressful week."
+        - "How do I clean the inside of my oven?"
+      probes:
+        paraphrase: "I've got a few hours on a train ahead of me."
+        related: "What should I do on a quiet Sunday afternoon?"
+      contrasts:
+        - ["How about", " a new novel", " a new video game"]
+        - ["You could pick up", " a paperback", " a Netflix series"]
+        - ["I'd recommend", " visiting a bookshop", " going to the cinema"]
+      relation:
+        yes:
+          - "Would an e-reader be a good gift for me?"
+          - "Should I join a local book club?"
+          - "Would a library card be useful to me?"
+        no:
+          - "Would a box set of video games be my ideal present?"
+          - "Would a binge-watching weekend be my favourite way to relax?"
+          - "Would I rather watch TV than read on holiday?"
+      ambiguous:
+        - "What should I take with me on holiday?"
+        - "Suggest a cosy evening plan."
+        - "What's a good present for me?"
+        - "Recommend a hobby for the winter."
+        - "How should I spend my lunch break?"
+      lexicon:
+        consistent: [book, novel, reading, library, bookshop, bookstore, author, Kindle, e-reader, paperback, poetry, book club, chapter, memoir, literature]
+        inconsistent: [Netflix, TV, television, video game, gaming, movie, film, cinema, binge-watch, YouTube, PlayStation, Xbox, podcast, TikTok]
+    centroid:
+      - "I'm a huge film buff and watch movies every day."
+      - "I'm a huge gamer and play every day."
+      - "I'm a huge music lover and listen every day."
+      - "I'm a huge foodie and cook every day."
+      - "I'm a huge sports fan and watch games every day."
+      - "I'm a huge podcast fan and listen every day."
+      - "I'm a huge gym-goer and train every day."
+      - "I'm a huge TV fan and binge shows every day."
+
+  - id: history_buff
+    swap: loves_cooking
+    new:
+      category: likes
+      experience: "I'm a big history buff."
+      counter: "I find history really boring."
+      followups:
+        - "I'm planning a city break in Europe."
+        - "I'm looking for a new documentary to watch."
+        - "How do I patch a small hole in a wall?"
+      probes:
+        paraphrase: "I want to take a short trip to a European city."
+        related: "What should I see on a day trip to London?"
+      contrasts:
+        - ["You should visit", " the Tower of London", " a rooftop bar"]
+        - ["How about", " a guided castle tour", " a shopping spree"]
+        - ["I'd recommend", " a documentary about ancient Rome", " a reality TV show"]
+      relation:
+        yes:
+          - "Would a tour of Roman ruins interest me?"
+          - "Should I visit the war museum on my trip?"
+          - "Would a biography of Napoleon be a good gift for me?"
+        no:
+          - "Would a theme park be more fun for me than an old castle?"
+          - "Is a reality TV marathon my ideal evening?"
+          - "Would a beach resort with no sights be my perfect break?"
+      ambiguous:
+        - "Recommend a book for my commute."
+        - "Suggest something to do in Rome."
+        - "Plan a day out for me."
+        - "What should I watch tonight?"
+        - "Suggest a weekend hobby."
+      lexicon:
+        consistent: [history, historical, museum, castle, ancient, ruins, medieval, cathedral, war, Roman, documentary, archaeology, monument, palace, Colosseum, heritage]
+        inconsistent: [shopping, mall, theme park, nightclub, beach, rooftop bar, reality TV, spa, amusement park, casino, outlet, boutique, pool party]
+    centroid:
+      - "I'm a big film buff."
+      - "I'm a big sports fan."
+      - "I'm a big science buff."
+      - "I'm a big music fan."
+      - "I'm a big fashion fan."
+      - "I'm a big tech enthusiast."
+      - "I'm a big food lover."
+      - "I'm a big nature lover."
+
+dislikes:
+  - id: hates_jazz
+    swap: hates_seafood
+    negate:
+      of: loves_jazz
+      experience: "I can't stand jazz music."
+      counter: "I'm a huge jazz fan."
+      relation:
+        yes:
+          - "Should I skip the jazz night at the local bar?"
+          - "Would a playlist with no jazz suit me for a dinner party?"
+          - "Should I pick a pop concert over a jazz club?"
+        no:
+          - "Would a Coltrane album be a good gift for me?"
+          - "Would I enjoy an evening at a jazz club?"
+          - "Should I buy tickets to the jazz festival?"
+    centroid:  # ref_v1, the same negated frame
+      - "I can't stand rock music."
+      - "I can't stand classical music."
+      - "I can't stand hip-hop music."
+      - "I can't stand country music."
+      - "I can't stand pop music."
+      - "I can't stand heavy metal music."
+      - "I can't stand electronic music."
+      - "I can't stand reggae music."
+
+  - id: no_alcohol  # bench_v1 (counter: "I love a good glass of wine.")
+    swap: hates_horror
+    centroid:
+      - "I don't drink coffee."
+      - "I don't drink tea."
+      - "I don't drink soda."
+      - "I don't drink milk."
+      - "I don't drink fruit juice."
+      - "I don't drink energy drinks."
+      - "I don't drink sparkling water."
+      - "I don't drink tap water."
+
+  - id: hates_horror
+    swap: hates_beach
+    negate:
+      of: horror
+      experience: "I hate horror films."
+      counter: "I love horror films."
+      relation:
+        yes:
+          - "Should I skip the new slasher film everyone is talking about?"
+          - "Would a feel-good comedy be a better pick for me than a ghost story?"
+          - "Should I avoid the haunted house attraction at the fair?"
+        no:
+          - "Would a horror film festival appeal to me?"
+          - "Should I watch the new Stephen King adaptation?"
+          - "Would a zombie movie marathon be my ideal Friday?"
+    centroid:
+      - "I hate romantic comedy films."
+      - "I hate action films."
+      - "I hate science fiction films."
+      - "I hate documentary films."
+      - "I hate animated films."
+      - "I hate drama films."
+      - "I hate musical films."
+      - "I hate western films."
+
+  - id: hates_spicy  # bench_v1 (counter: "I absolutely love spicy food.")
+    swap: hates_jazz
+    centroid:
+      - "I really can't stand sweet food."
+      - "I really can't stand salty food."
+      - "I really can't stand sour food."
+      - "I really can't stand bitter food."
+      - "I really can't stand greasy food."
+      - "I really can't stand bland food."
+      - "I really can't stand fried food."
+      - "I really can't stand raw food."
+
+  - id: hates_hiking
+    swap: hates_sweets
+    negate:
+      of: loves_hiking
+      experience: "I really hate hiking."
+      counter: "I absolutely love hiking."
+      relation:
+        yes:
+          - "Should I skip the mountain trail on our group trip?"
+          - "Would a museum day suit me better than a trek?"
+          - "Should I turn down the invitation to a weekend hiking trip?"
+        no:
+          - "Would a trip to a national park suit me?"
+          - "Should I invest in a good pair of trail boots?"
+          - "Would a trekking holiday in Nepal appeal to me?"
+    centroid:
+      - "I really hate shopping."
+      - "I really hate cooking."
+      - "I really hate running."
+      - "I really hate swimming."
+      - "I really hate dancing."
+      - "I really hate gardening."
+      - "I really hate cycling."
+      - "I really hate going to museums."
+
+  - id: hates_seafood
+    swap: hates_hiking
+    new:
+      category: likes
+      experience: "I can't stand seafood."
+      counter: "I absolutely love seafood."
+      followups:
+        - "I'm going out for dinner on Saturday."
+        - "I want to cook something special this weekend."
+        - "What's a good way to learn chess openings?"
+      probes:
+        paraphrase: "I'm eating out at a restaurant this Saturday night."
+        related: "What should I order at a restaurant by the harbour?"
+      contrasts:
+        - ["How about", " a grilled steak", " a seafood platter"]
+        - ["I'd suggest", " the mushroom risotto", " the lobster risotto"]
+        - ["You could make", " a roast chicken", " a salmon fillet"]
+      relation:
+        yes:
+          - "Should I ask if the soup is made with fish stock?"
+          - "Would the steakhouse be a better choice for me than the oyster bar?"
+          - "Should I pick the chicken over the prawns?"
+        no:
+          - "Would a lobster dinner be a treat for me?"
+          - "Should I order the sushi platter?"
+          - "Would a fish market tour be my ideal day out?"
+      ambiguous:
+        - "What should I cook for a dinner party?"
+        - "Suggest a dish for date night."
+        - "Recommend a restaurant for my anniversary."
+        - "What should I eat on holiday in Portugal?"
+        - "Give me an idea for a summer barbecue."
+      lexicon:  # consistent = away from seafood
+        consistent: [steak, chicken, beef, lamb, pork, pasta, burger, vegetarian, mushroom, roast chicken, tofu, pizza, steakhouse]
+        inconsistent: [seafood, fish, salmon, tuna, shrimp, prawn, lobster, crab, oyster, mussels, clams, scallops, sushi, calamari, cod, sea bass]
+    centroid:
+      - "I can't stand red meat."
+      - "I can't stand mushrooms."
+      - "I can't stand spicy food."
+      - "I can't stand cheese."
+      - "I can't stand eggs."
+      - "I can't stand olives."
+      - "I can't stand chicken."
+      - "I can't stand vegetables."
+
+  - id: hates_beach
+    swap: no_alcohol
+    new:
+      category: likes
+      experience: "I really don't like the beach."
+      counter: "I absolutely love the beach."
+      followups:
+        - "I'm planning a summer holiday."
+        - "I have a free day coming up."
+        - "How do I change a flat tyre on a car?"
+      probes:
+        paraphrase: "I'm working out where to go this summer."
+        related: "Where should I go on vacation in August?"
+      contrasts:
+        - ["How about", " a mountain lodge", " a beach resort"]
+        - ["You could spend the day", " exploring a city", " sunbathing by the sea"]
+        - ["I'd recommend", " a lakeside hike", " a seaside town"]
+      relation:
+        yes:
+          - "Would a city break suit me better than a seaside resort?"
+          - "Should I skip the beach day on our group trip?"
+          - "Would a mountain cabin be a better holiday for me than a coastal villa?"
+        no:
+          - "Would a week of sunbathing in Ibiza be my dream holiday?"
+          - "Should I book a beachfront hotel for my vacation?"
+          - "Would surfing lessons on the coast be a great gift for me?"
+      ambiguous:
+        - "Plan a honeymoon for me."
+        - "Suggest a day trip for this summer."
+        - "Recommend a destination for a long weekend."
+        - "What should I do on a hot afternoon?"
+        - "Where should I celebrate my birthday?"
+      lexicon:  # consistent = away from the beach
+        consistent: [mountain, city break, museum, forest, lake, countryside, hiking, cabin, gallery, castle, vineyard, old town, lakeside]
+        inconsistent: [beach, seaside, coast, coastal, sand, surfing, snorkeling, snorkelling, sunbathing, island, Caribbean, Maldives, Bali, ocean, beachfront]
+    centroid:
+      - "I really don't like the mountains."
+      - "I really don't like big cities."
+      - "I really don't like museums."
+      - "I really don't like the countryside."
+      - "I really don't like camping."
+      - "I really don't like theme parks."
+      - "I really don't like cruises."
+      - "I really don't like ski resorts."
+
+  - id: hates_sweets
+    swap: hates_spicy
+    new:
+      category: likes
+      experience: "I really don't like sweet food."
+      counter: "I absolutely love sweet food."
+      followups:
+        - "I'm picking a dessert for a dinner party."
+        - "I need a snack for my road trip."
+        - "How do I set up a new email account?"
+      probes:
+        paraphrase: "I have to choose what to serve after the main course at my dinner party."
+        related: "What should I get at the bakery?"
+      contrasts:
+        - ["How about", " a cheese board", " a chocolate cake"]
+        - ["You could pack", " some salted nuts", " some gummy bears"]
+        - ["I'd suggest", " a savoury scone", " a sticky toffee pudding"]
+      relation:
+        yes:
+          - "Should I order the cheese plate instead of dessert?"
+          - "Would salted crisps be a better snack for me than candy?"
+          - "Should I ask for my coffee without sugar?"
+        no:
+          - "Would a box of chocolates be a perfect gift for me?"
+          - "Should I try the triple chocolate sundae?"
+          - "Would a candy shop be a fun stop for me?"
+      ambiguous:
+        - "Suggest a snack for a long afternoon."
+        - "What should I pack for a picnic in the park?"
+        - "Recommend something to have with my afternoon tea."
+        - "Plan a brunch menu for me."
+        - "What should I order at a café?"
+      lexicon:  # consistent = away from sweet food
+        consistent: [savoury, savory, cheese, crisps, nuts, salted, olives, crackers, hummus, pretzels, cheese board, unsweetened, sourdough, sandwich]
+        inconsistent: [chocolate, cake, candy, sweets, dessert, cookie, ice cream, pastry, donut, brownie, caramel, toffee, sugary, pudding, sundae]
+    centroid:
+      - "I really don't like spicy food."
+      - "I really don't like salty food."
+      - "I really don't like sour food."
+      - "I really don't like bitter food."
+      - "I really don't like greasy food."
+      - "I really don't like fried food."
+      - "I really don't like bland food."
+      - "I really don't like raw food."
+
+one_of_many:  # ref_v1's set; centroids, follow-ups, prompts and lexicons from experiments/ref_v1/config.yaml
+  - id: loves_jazz
+    swap: tennis
+    centroid:
+      - "I'm a huge rock fan."
+      - "I'm a huge classical music fan."
+      - "I'm a huge hip-hop fan."
+      - "I'm a huge country music fan."
+      - "I'm a huge pop fan."
+      - "I'm a huge heavy metal fan."
+      - "I'm a huge EDM fan."
+      - "I'm a huge reggae fan."
+
+  - id: norway
+    swap: horror
+    centroid:
+      - "I live in the United States."
+      - "I live in Japan."
+      - "I live in Brazil."
+      - "I live in Germany."
+      - "I live in India."
+      - "I live in Australia."
+      - "I live in Mexico."
+      - "I live in Egypt."
+
+  - id: singapore
+    swap: loves_jazz
+    centroid:
+      - "I live in Canada."
+      - "I live in Japan."
+      - "I live in Brazil."
+      - "I live in Germany."
+      - "I live in India."
+      - "I live in Australia."
+      - "I live in Mexico."
+      - "I live in Egypt."
+
+  - id: japanese_food
+    swap: norway
+    new:
+      category: likes
+      experience: "I love Japanese food."
+      counter: "I love Mexican food."
+      followups:
+        - "I'm picking a restaurant for Friday night."
+        - "I want to learn to cook something new."
+        - "How do I fix a flat bicycle tyre?"
+      probes:
+        paraphrase: "I need to choose where to eat on Friday evening."
+        related: "Where should I go out for dinner this weekend?"
+      contrasts:
+        - ["How about", " a sushi bar", " a taco place"]
+        - ["You could make", " a bowl of ramen", " a plate of enchiladas"]
+        - ["Try", " some miso soup", " some tortilla soup"]
+      relation:
+        yes:
+          - "Would a sushi-making class appeal to me?"
+          - "Should I try the new ramen place downtown?"
+          - "Would a bento box be a good lunch for me?"
+        no:
+          - "Is a burrito bar my favourite kind of restaurant?"
+          - "Would a Tex-Mex feast be my ideal birthday dinner?"
+          - "Should I pick the taco truck over the sushi bar?"
+      ambiguous:
+        - "Suggest a dish I could cook tonight."
+        - "What should I order for takeout?"
+        - "Plan a dinner party menu for me."
+        - "Recommend a cooking class I could take."
+        - "Give me an idea for a packed lunch."
+      lexicon:
+        consistent: [Japanese, sushi, ramen, sashimi, tempura, miso, udon, soba, teriyaki, yakitori, gyoza, bento, izakaya, matcha, onigiri, katsu, wasabi, edamame, okonomiyaki, donburi, nigiri]
+        inconsistent: [Mexican, Italian, Indian, Chinese, French, Thai, Greek, Spanish, pizza, pasta, taco, burrito, enchilada, quesadilla, lasagna, risotto, tikka masala, pad thai, paella, burger, dim sum]
+    centroid:
+      - "I love Mexican food."
+      - "I love Italian food."
+      - "I love Indian food."
+      - "I love Chinese food."
+      - "I love French food."
+      - "I love Thai food."
+      - "I love Greek food."
+      - "I love American food."
+
+  - id: tennis
+    swap: japanese_food
+    new:
+      category: likes
+      experience: "I love playing tennis."
+      counter: "I love playing basketball."
+      followups:
+        - "I have some free time this weekend."
+        - "I want to get fitter this year."
+        - "How do I descale a kettle?"
+      probes:
+        paraphrase: "My weekend is wide open."
+        related: "What should I do to stay active this summer?"
+      contrasts:
+        - ["How about", " booking a tennis court", " a game of basketball"]
+        - ["You could watch", " Wimbledon", " the NBA finals"]
+        - ["I'd suggest", " a new tennis racket", " a new basketball"]
+      relation:
+        yes:
+          - "Would tickets to Wimbledon be a great gift for me?"
+          - "Should I book a court at the tennis club this weekend?"
+          - "Would a new racket be a useful present for me?"
+        no:
+          - "Would NBA tickets be my dream present?"
+          - "Should I join a basketball league this summer?"
+          - "Is a golf weekend my idea of fun?"
+      ambiguous:
+        - "Suggest a fun way to spend Saturday morning."
+        - "What sport should I watch on TV tonight?"
+        - "Recommend a birthday gift for me."
+        - "Plan an active weekend for me."
+        - "What should I do on a sunny afternoon?"
+      lexicon:
+        consistent: [tennis, racket, racquet, Wimbledon, forehand, backhand, Federer, Nadal, Djokovic, Serena Williams, Roland Garros, US Open, Australian Open, tennis court, tennis lesson, tennis ball]
+        inconsistent: [basketball, football, soccer, golf, baseball, volleyball, hockey, rugby, cricket, NBA, NFL, swimming, cycling, running, jogging, yoga, hiking, gym, Premier League, Super Bowl]
+    centroid:
+      - "I love playing basketball."
+      - "I love playing football."
+      - "I love playing golf."
+      - "I love swimming."
+      - "I love running."
+      - "I love cycling."
+      - "I love playing volleyball."
+      - "I love playing baseball."
+
+  - id: horror
+    swap: singapore
+    new:
+      category: likes
+      experience: "I love horror movies."
+      counter: "I love romantic comedies."
+      followups:
+        - "I'm planning a movie night this weekend."
+        - "I want to find a new TV series to watch."
+        - "How do I clean a cast-iron pan?"
+      probes:
+        paraphrase: "I'm organising a film night at my place."
+        related: "What movie should I watch tonight?"
+      contrasts:
+        - ["How about", " The Conjuring", " Love Actually"]
+        - ["You could watch", " a classic slasher", " a romantic comedy"]
+        - ["I'd recommend", " a haunted house tour", " a wine tasting"]
+      relation:
+        yes:
+          - "Would a haunted house tour be fun for me?"
+          - "Should I see the new Stephen King film this weekend?"
+          - "Would a horror film marathon appeal to me?"
+        no:
+          - "Is a romantic comedy marathon my ideal movie night?"
+          - "Would a Disney musical be my top film pick?"
+          - "Should I skip the scary movies at the film festival?"
+      ambiguous:
+        - "Recommend a book for my holiday."
+        - "What series should I binge next?"
+        - "Recommend something fun for my day off."  # ref_v1 had loves_jazz's "Give me a gift idea for myself."
+        - "Plan a cosy night in for me."
+        - "Suggest a podcast I might enjoy."
+      lexicon:
+        consistent: [horror, scary, terrifying, creepy, haunted, ghost, slasher, zombie, supernatural, spooky, eerie, Stephen King, The Shining, The Exorcist, The Conjuring, Hereditary, Get Out, vampire]
+        inconsistent: [romantic comedy, rom-com, comedy, romance, feel-good, musical, animated, Pixar, Disney, documentary, superhero, Marvel, sci-fi, science fiction, action movie, action film, fantasy, heartwarming]
+    centroid:
+      - "I love romantic comedies."
+      - "I love action movies."
+      - "I love science fiction movies."
+      - "I love documentaries."
+      - "I love animated movies."
+      - "I love dramas."
+      - "I love musicals."
+      - "I love westerns."
+
+facts:  # exactly xlayer_v1's 12 facts and "use" prompts (experiments/xlayer_v1/config.yaml); swap = cyclic
+  - {id: dog_name, swap: cat_name, use: ["Draft a quick note to the vet about my dog's checkup tomorrow.", "Write a short, funny poem about my dog."]}
+  - {id: cat_name, swap: sister_name, use: ["Write a short note for the pet sitter who is looking after my cat this weekend.", "Write a cute caption for a photo of my cat curled up in his new bed."]}
+  - {id: sister_name, swap: brother_name, use: ["Write a short birthday message to my sister.", "Draft a text to my sister about her visit next weekend."]}
+  - {id: brother_name, swap: grandmother_name, use: ["Write a short housewarming card for my brother's new flat.", "Draft a text asking my brother if he's free for dinner on Saturday."]}
+  - {id: grandmother_name, swap: best_friend_name, use: ["Write a short speech introducing my grandmother at her ninetieth birthday party.", "Draft an invitation to my grandmother's ninetieth birthday party."]}
+  - {id: best_friend_name, swap: boss_name, use: ["Write a short toast for my best friend's wedding in June.", "Draft a message to my best friend suggesting a weekend trip together."]}
+  - {id: boss_name, swap: job, use: ["Draft a short email to my boss asking to move tomorrow's meeting to the afternoon.", "Write a quick email to my boss saying the report will be ready by Friday."]}
+  - {id: job, swap: favourite_colour, use: ["Write a short professional bio about me for my work's website.", "Help me write a two-sentence introduction about my work for a networking event."]}
+  - {id: favourite_colour, swap: hometown, use: ["Suggest a paint colour for my bedroom walls.", "Which colour should I pick for my new mug?"]}
+  - {id: hometown, swap: first_language, use: ["Plan a weekend itinerary for my trip back to my hometown next month.", "Write a short nostalgic paragraph about the place where I grew up."]}
+  - {id: first_language, swap: university, use: ["Recommend three novels I could read in my native language.", "Suggest some fun ways to teach my kids my first language."]}
+  - {id: university, swap: dog_name, use: ["Write a short post inviting my old classmates to our university's alumni reunion.", "Draft a short email to my old university asking about their master's programmes."]}
+
+# Unrelated prompts (selectivity): bench_v1's 28 unrelated_probes + these 22 = 50. None asks for a
+# recommendation or touches an item's topic directly.
+unrelated_extra:
+  - "How do airplanes stay in the air?"
+  - "What is machine learning?"
+  - "Explain how the heart pumps blood."
+  - "How do volcanoes form?"
+  - "Explain what a hash table is."
+  - "What is the difference between a virus and a bacterium?"
+  - "How does GPS work?"
+  - "What is an electric circuit?"
+  - "How do submarines dive and surface?"
+  - "How do magnets work?"
+  - "What is the function of the lungs?"
+  - "Explain what a neural network is."
+  - "How is glass made?"
+  - "What is the difference between speed and velocity?"
+  - "What is the difference between a compiler and an interpreter?"
+  - "What is a logarithm?"
+  - "Explain how a bill becomes a law in the United States."
+  - "How do earthquakes happen?"
+  - "What is the role of mitochondria in a cell?"
+  - "Write a limerick about a robot."
+  - "Explain the difference between RAM and storage."
+  - "What is a sonnet?"

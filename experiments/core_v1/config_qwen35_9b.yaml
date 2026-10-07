@@ -1,0 +1,46 @@
+# core_v1 config: Qwen/Qwen3.5-9B. Identical to config_qwen35_2b.yaml except the model, its layers, the GPU
+# and the batch sizes.
+#
+# Precision: fp32 on a full A100 80GB (gpu-a100): ~38 GB of weights fit, so both models run in fp32 and no
+# fp16 / bf16 path (or 2B precision control) is needed. The judge (a separate job) is this model in bf16.
+#
+# Layers by the relative-depth rule (core.map_layers): 2B block output l of 24 -> round((l + 1) * 32 / 24) - 1
+#   2B 20 (linear) depth 0.875 -> 9B 27 (FULL attention), depth 0.875
+#   2B 21 (linear) depth 0.917 -> 9B 28 (linear),         depth 0.906
+#   2B 23 (full)   depth 1.000 -> 9B 31 (full, the last full-attention block), depth 1.0
+# The other convention (depth l / (n - 1)) gives the same set. 9B full attention: 3, 7, ..., 27, 31.
+# The 2B set's defining structure (it includes the last full-attention block) is matched; its block types
+# are not (27 is full attention where 2B's 20 is linear). A type-matched set would be [28, 29, 31]; the
+# pre-registered rule is "the same relative depths", so [27, 28, 31] is used (run.py asserts the rule).
+name: qwen35_9b
+model: Qwen/Qwen3.5-9B
+dtype: float32
+n_blocks: 32
+reference_layers: [20, 21, 23]   # of the 24-block 2B
+layers: [27, 28, 31]
+items: experiments/core_v1/items.yaml
+bench: data/bench_v1
+generic: experiments/v0/generic_prompts.txt
+judge: {model: Qwen/Qwen3.5-9B, dtype: bfloat16, max_new: 64, batch: 48}
+repro_xlayer: null
+seeds:
+  base: 0
+  second: 1
+  rand: 1234
+  bootstrap: 7
+  audit: 11
+doses: [0.5, 1, 2, 3]
+control_alpha: 2
+mech_doses: [0.5, 1, 2]
+seed2: [nomem, ctx, "mem@1", "mem@2"]
+samples: 4
+answer_cap: 120
+yn_cap: 10
+unrel_samples: 2
+sampler: {temp: 1.0, top_p: 0.95, top_k: 20, presence: 1.5}
+key: {thr_q: 0.95, white_eps: 0.01, cont_len: 20, gen_cont_len: 20, rls_lambda: 0.1}
+loop: {n: 4, thr: 0.3}
+max_batch: 96
+kl_batch: 8
+nll_tokens: 12000
+check_tol: 0.05
