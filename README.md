@@ -20,18 +20,18 @@ keys. Only if the match is clearly above what ordinary text produces does it add
 shift back: **h ← h + α·M·q**. Several memories share one M, written by least squares, so order
 doesn't matter. No training, and the base model is never modified.
 
-## Status
-- ✅ **Carries which fact and which way a preference leans** into a fresh session.
-- ✅ **Selective:** answers to unrelated questions are word-for-word identical to no memory (24 of 24, even with six memories stored together), and recall on related prompts roughly doubled when this was fixed.
-- ✅ **Order-free:** with least-squares writes, each of six memories in one store keeps about half its solo strength, instead of only the last one surviving.
-- ❌ **Faint:** the gist comes back ("welder", "What's her name?") but the exact fact rarely does ("Biscuit" in 7 of 300 samples). Preferences are either faint (contrastive write) or crude (plain write).
-- ❌ **No premises:** yes/no questions that need the memory never flip. An added vector nudges; reasoning needs something the model can attend to, which is a second, episodic channel's job.
-- ❌ **Not yet self-driven:** writing needs a hand-made with/without/opposite comparison, a memory fires only in situations like the ones it was filed under, and capacity beyond six memories is untested.
+The same design was later ported to **Qwen3.5-2B**, which has built-in thinking. There it reads and injects at layers 20, 21 and 23 of 24.
 
-Next: the capacity curve on the benchmark's 60-fact pool, then neuromodulated memory
-([where-we-are.md §8](docs/where-we-are.md#8-where-it-could-go)). The v0/v0.1 status, before
-the selectivity and order fixes, is in the [experiment log](docs/history/experiment-log.md): the
-conclusions of §4.1 and §4.2, and [§4.5.3](docs/history/experiment-log.md#453-what-the-diagnostics-change).
+## Status
+- ✅ **Selective:** answers to unrelated questions are word-for-word identical to no memory, in every test on both models (24 of 24 on Qwen2.5 with six memories stored together; every condition on Qwen3.5).
+- ✅ **Order-free:** with least-squares writes, each of six memories in one store keeps about half its solo strength, instead of only the last one surviving.
+- ✅ **Broad preferences come through strongly** on Qwen3.5. A vegetarian memory takes vegetarian-consistent answers from 12% to 94%, with fewer meat mentions than when the fact is in the prompt.
+- ❌ **Exact facts come out as the gist or as loops:** "welder" for "deep-sea welder"; "Petra Petra Petra…". About 4 of 44 answers name the fact cleanly.
+- ❌ **No premises:** balanced yes/no questions that need the memory never flip, on either model, at any layer, with or without thinking.
+- ❌ **Direction and ownership:** a memory keeps either *what* (jazz) or *which way* (like or dislike), depending on what it's measured against. So dislikes can flip into likes, and the model sometimes claims a memory as its own ("Teal is my favourite colour!"). Single-item preferences (a country) flood or do nothing.
+- ❌ **Not yet self-driven:** writing needs a hand-made with/without/opposite comparison, and capacity beyond six memories is untested.
+
+Running now: reading fact memories at a late layer but injecting them at a middle one (HANDOVER §4). Next: concept × sign, a "thermostat" instead of an added push, then neuromodulated memory ([HANDOVER §8](HANDOVER.md#8-next-steps-and-ideas-in-rough-priority)). The v0/v0.1 status, before the selectivity and order fixes, is in the [experiment log](docs/history/experiment-log.md): the conclusions of §4.1 and §4.2, and [§4.5.3](docs/history/experiment-log.md#453-what-the-diagnostics-change). The Qwen3.5 results are in [§4.6](docs/history/experiment-log.md#46-later-experiments-2026-0910).
 
 ## Start here
 Picking up the work? Read **[HANDOVER.md](HANDOVER.md)** first: the current state, what's pending, next steps and conventions.
@@ -49,7 +49,8 @@ Then, as needed:
 | | [original-method](docs/reference/original-method.md) | **The original v0/v0.1 design** in full: hook point, centring, the memory operator explained in depth (maths, properties, a worked example, capacity), what gets written, write variants, reading, metrics, sanity checks, limitations |
 | | [code-map](docs/reference/code-map.md) | What every file does, and how to run things (locally and on DelftBlue) |
 | | [metrics](docs/reference/metrics.md) | What every number in the experiment tables means, with worked examples and what each measure can't tell you |
-| **History** | [experiment-log](docs/history/experiment-log.md) | The detailed results of v0, v0.1 and the diagnostics (steer dose and selectivity, write order): setup, full tables, samples, interpretation, caveats, with dated corrections to earlier claims |
+| | [literature](docs/reference/literature.md) | Four recent papers on steering reliability and concept injection, and where each touches our results |
+| **History** | [experiment-log](docs/history/experiment-log.md) | The detailed results of v0, v0.1, the diagnostics (steer dose and selectivity, write order) and the Qwen3.5 experiments (think_v1, ref_v1, with loop-corrected numbers): setup, full tables, samples, interpretation, caveats, with dated corrections to earlier claims |
 | | [open-notes](docs/history/open-notes.md) | Notes N1–N9 to come back to: confounds in the relation-probe result, the online-baseline problem, the neuromodulator idea (gain vs additive, tonic state, loop stability); some marked resolved |
 | | [next-moves-v0.1](docs/history/next-moves-v0.1.md) | *Archived:* the open directions after v0.1 (the premise fork, capacity, removing the scaffold, salience, training, evaluation, parked ideas), with a note on what has been done since |
 

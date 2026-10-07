@@ -1,6 +1,6 @@
 # Seahorse: where we are
 
-*A plain-language report on the project so far: what we set out to do, what others have done, what we believe, how we tested it, and what we found. Written 2026-09-30 to step back and see the whole picture.*
+*A plain-language report on the project so far: what we set out to do, what others have done, what we believe, how we tested it, and what we found. Written 2026-09-30 to step back and see the whole picture. Updated 2026-10-07 with the move to Qwen3.5-2B, thinking-phase injection and what a stored shift actually carries (stages 7–8).*
 
 *Companions: [how-it-works.md](how-it-works.md) walks through the current design step by step, and [where-it-fails.md](where-it-fails.md) collects every failure with its cause and possible fixes.*
 
@@ -36,6 +36,7 @@ The main threads we built on, in one line each:
   - It stores what was *unexpected* (a comparator of prediction vs reality).
   - Neuromodulators (dopamine, acetylcholine, noradrenaline, serotonin) decide *when and how strongly* things get stored, not *what*.
 - **Neuromodulation in AI** (Doya's theory, Backpropamine, ANML, Mei et al., Tsuda et al.). Neuromodulators act as knobs on learning: learning rate, error signal, time horizon, gain. Networks that learn to gate their own plasticity forget much less.
+- **How reliable steering really is** (Tan et al., Braun, Subbiah et al.) **and concept injection** (Lindsey). Read later, in October. These map almost one-to-one onto our failures; see [literature.md](reference/literature.md).
 
 The gap we saw: no one had a **training-free memory for a frozen model, formed from the model's own internal states, persistent across sessions, and gated by something like neuromodulation.**
 
@@ -121,7 +122,11 @@ Every experiment follows the same shape:
    - **Leakage:** does memory change answers to unrelated questions (photosynthesis, tax brackets)?
    - **Capacity:** what happens when several memories share one store?
 
-Model: Qwen2.5-1.5B-Instruct, frozen. Runs on DelftBlue. Early experiments used 6 scenarios; we now have a 48-item benchmark.
+Models:
+- **Qwen2.5-1.5B-Instruct**, frozen, for stages 1–6.
+- **Qwen3.5-2B**, a newer model with built-in "thinking", from stage 7.
+
+Runs on DelftBlue. Early experiments used 6 scenarios; we now have a 48-item benchmark and a 60-fact pool. How to read every number in the reports: [metrics.md](reference/metrics.md).
 
 ---
 
@@ -173,6 +178,36 @@ We built 48 items plus a pool of 60 facts, with balanced yes/no questions and a 
 - **The fix for "last one wins":** store memories with a **least-squares** rule instead of step by step. The order no longer matters, by construction. With six memories in one store, each kept about half its individual strength, instead of only the last one surviving.
 - **Probabilistic recall:** a *soft* threshold (recall grows smoothly with match strength) worked as well as a hard one. Flipping coins did not help.
 
+### Stage 7: a newer model, and memory during "thinking" (think_v1)
+We moved to **Qwen3.5-2B**, which writes out its reasoning ("thinking") before answering. The idea: if the memory surfaces *as a thought*, the model might reason with it, which would be the route to premises.
+
+- **Late layers carry facts here too** (layers 19–23 of 24), and **using three layers at once** (23, 20, 21) brings the exact fact out far more than one layer. Selectivity held everywhere.
+- **But mostly as loops.** In short continuations, the fact appeared in 91% of answers, yet only 22% said it cleanly (once or twice). The rest were *"Petra Petra Petra…"*. In full answers, about **4 of 44** named the fact cleanly, against 28 or more with the fact in the prompt. The report's headline "84%" counted the loops.
+- **Turning the memory up only during thinking flooded the thinking** (*"Thinking Pepper Pepper Pepper…"*), and the answer ignored it: *"I don't know your dog's name! Could you tell me?"*. It made noise, not a thought.
+- **Yes/no still never moved** (balanced accuracy at chance in every condition).
+- **The model sometimes claimed the memory as its own:** *"Teal is my favourite colour!"*, *"As a pharmacy dispensing pharmacist, I am…"*.
+- **Preferences: vegetarian became the strongest result so far.** Consistent answers went from 12% to 94%. Answers mentioning meat fell from 79% to 3–15%, fewer than with the fact in the prompt, where about half the answers still mention meat (often a "vegetarian option" next to chicken). Hiking came through moderately. Norway mostly looped. Jazz did little.
+- **Caveat:** the thinking budget (384 tokens) ran out about 95% of the time even with no memory, so many "answers" were leftover thinking.
+
+### Stage 8: what does a stored shift actually carry? (ref_v1)
+Why did vegetarian work and jazz not? A preference memory is "the state *with* the experience minus a reference state". Until now the reference was a hand-made **opposite** ("I love eating meat"). For jazz, the opposite was "I can't stand jazz music", which *also* mentions jazz. We compared five references over 11 preferences: two-ended ones (vegetarian ↔ meat), one-of-many ones (jazz, Norway, Japanese food…), and a dislike ("I can't stand jazz").
+
+- **The opposite carries *which way*, but loses *what* when both sides mention it.** The jazz-fan memory suggested *"podcasts, audiobooks"*: enthusiasm with no genre.
+- **Subtracting alternatives (the "centroid": rock, classical, hip-hop…) carries *what*, very strongly,** but loses *which way*, and floods: *"Cooking dinner jazz jazz jazz…"*.
+- **Dislikes flip into likes under every reference except the opposite.** "I can't stand jazz" made the model suggest *"Lo-fi Jazz"*. "I don't drink alcohol" led with *"a craft beer, a lager, or a stout"*. Inside the model, "can't stand jazz" is mostly *jazz*; the negation is faint.
+- **Subtracting the global average ("hum") stores only the topic,** which is the memory's own address. It does little, and at higher strength it breaks answers into fragments.
+- **Countries still don't work** with any reference: nothing, or *"Norway Norway…"*.
+- Unrelated answers stayed identical everywhere.
+
+Four papers read afterwards ([literature.md](reference/literature.md)) explain most of this:
+- steering works for things that shape a whole answer, not one-slot content
+- overdose looks like "consumed by the concept" and identity loss
+- countries are the hardest concepts to inject
+- "don't think about X" still activates X
+- injected states feel like the model's own intentions
+
+**Running now (xlayer_v1):** reading fact memories at a late layer but injecting them at a middle layer, where injected concepts act more like thoughts than words.
+
 ---
 
 ## 6. What it means
@@ -186,7 +221,9 @@ We built 48 items plus a pool of 60 facts, with balanced yes/no questions and a 
 2. **The right key is the gist of the situation, not the current word.** That is strikingly close to the hippocampal idea of an *index* of a context.
 3. **The unit of memory is the moment.** Per-word selection doesn't matter. Per-moment decisions (whether to store this at all, and how strongly) will.
 4. **Selectivity, not strength, was the problem.** We spent early effort on the wrong axis (volume, norms).
-5. **Measurement can fool you badly.** Two of our early positive results were artifacts. The benchmark and controls (balanced probes, placebo, random baselines) are now essential.
+5. **Measurement can fool you badly.** Two of our early positive results were artifacts, and a third (the "84%" in stage 7) was loops. The benchmark and controls (balanced probes, placebo, random baselines, loops counted separately, reading the text) are now essential.
+6. **A preference has parts: *what*, *which way*, and *whose*.** What you subtract when writing decides which part is kept. No single reference keeps both *what* and *which way*, so they probably need to be stored separately and combined by us (a concept applied with a sign), not by the model.
+7. **Steering suits leanings that shape a whole answer.** It handles a diet beautifully and a name or a country badly: a constant push at every word either never wins in the one place that matters, or takes over.
 
 **The biology lines up more than we expected:**
 - **Gist key** ≈ hippocampal index
@@ -200,7 +237,9 @@ We should treat these as useful analogies, not proof.
 
 ## 7. Honest limits
 
-- **Small scale.** One small model, a handful of scenarios in the key experiments. The new benchmark hasn't been used for memory tests yet.
+- **Small scale.** Two small models (1.5B and 2B), and 4–12 items per experiment. The benchmark is used for items, but not yet for a full memory test.
+- **Dislikes need the hand-made opposite,** or they flip into likes. Single-item preferences (countries) don't work at all yet.
+- **The model claims memories as its own** ("my favourite colour is teal"). Nothing stores *whose* a memory is.
 - **Capacity beyond 6 memories is unknown.** Half strength at six is encouraging, but the real curve (10, 20, 60 memories) hasn't been measured.
 - **Not yet self-driven.** Writing still needs a hand-made comparison ("with the experience" vs "without it"). A real memory has to decide on its own what changed and what to keep.
 - **Preferences need contrastive writing,** and they're noisier to measure than facts.
@@ -212,9 +251,12 @@ We should treat these as useful analogies, not proof.
 ## 8. Where it could go
 
 **Next (near term)**
-- The **capacity curve** on the benchmark's 60-fact pool, with the new design (gist key + threshold + least squares) against the old one.
+- **Read the cross-layer results** (xlayer_v1): does injecting into the "mind" rather than the "mouth" let facts be *used*?
+- **Concept × sign:** store *what* (from alternatives) and *which way* separately, and apply the concept with a sign. The sign could come from a general like/dislike direction, so no hand-made opposite is needed.
+- **A thermostat instead of a push:** set how much of a concept is present to a target level, rather than adding a fixed amount. That should stop floods.
+- **Fair doses** (matched by loop rate), and a burst at the start of thinking instead of a constant push.
+- The **capacity curve** on the benchmark's 60-fact pool.
 - **Rewrite the weak preference items** and re-check them.
-- Bring the docs up to date with the latest results.
 
 **Then (the core contribution)**
 - **Neuromodulated memory.** A small internal state, driven by the model's own signals (surprise, confusion, emotional arousal), that decides *whether* to store a moment, *how strongly*, *what fades*, and *how loud* recall is. The literature gives a clear template (Doya's knobs, Mei's framework), and our results now say where it belongs: at the level of moments and recall, not individual words.
@@ -230,7 +272,7 @@ We should treat these as useful analogies, not proof.
 
 ## One-sentence summary
 
-A training-free, selective, order-free memory that carries dispositions and specific facts across sessions. Its limits (capacity, self-driven writing, reasoning) are now clearly mapped, and the neuromodulation idea has a concrete place to plug in.
+A training-free, selective, order-free memory that carries broad leanings across sessions very well and specific facts poorly. We now know why: a stored shift keeps either *what* or *which way* depending on what it's measured against, and a constant push suits whole-answer leanings, not single words. Its limits (capacity, self-driven writing, reasoning) are clearly mapped, and the neuromodulation idea has a concrete place to plug in.
 
 ---
 

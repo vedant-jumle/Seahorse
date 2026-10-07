@@ -527,3 +527,137 @@ The ceiling's mean is +3.98.
 2. **Capacity loss comes from write order plus read-time crosstalk.** The last write survives whole (recency), and same-topic memories add onto each other's probes. "Facts survive" (v0 conclusion 7, v0.1 conclusion 5) was job, the last write. Keys don't separate by topic or type: all content keys share about 0.2 cosine after centring, and the tail keys are one shared key.
 3. **Relation gains were partly template artefacts.** The tail carried a shared yes/no bias. Without it, the isolated relation gain is about a twelfth of the ceiling's, and the combined one is zero. Memory fires on relation probes (63–77% of related), so the premise failure is real. This answers N1 in [open-notes.md](open-notes.md).
 4. **For the next steps** ([next-moves-v0.1.md](next-moves-v0.1.md)), selectivity comes before dose. Candidate fixes are no read or write at template positions, whitened keys, recursive least squares and a match threshold. Relation probes must be re-baselined without the template tail.
+
+---
+
+## 4.6 Later experiments (2026-09/10)
+
+*The experiments after the diagnostics, in short. The Qwen2.5 ones (diag_attn, bench_v1_calib, diag_keys, samples_v2) are told as stages 4–6 in [where-we-are.md](../where-we-are.md#5-what-we-found-the-story-in-order). Full numbers are in each run's `report.txt` (see the results folders in HANDOVER §6). This section logs the two Qwen3.5-2B experiments in more detail, because their report headlines need correcting. How to read every metric: [metrics.md](../reference/metrics.md).*
+
+### 4.6.1 think_v1: the design on Qwen3.5-2B, with thinking (jobs 906983–906987)
+**Setup:**
+- Qwen3.5-2B, fp32, on V100. The same design as diag_keys: pooled writes, `pooled_w256` key, hard q0.95 threshold, α = 2.
+- 4 facts (dog Pepper, sister Petra, job pharmacist, favourite colour teal) and 4 preferences (vegetarian, norway, loves_hiking, loves_jazz) from bench_v1.
+
+**Stage 1: layer sweep, thinking off, one layer at a time:**
+- **Fact specificity is strong only late:** L19 +4.9, L20 +5.7, L21 +5.4, L22 +5.3, L23 +6.2 nats; layers 4–18 are about 0–1.3.
+- The preference contrast is also best late (2.1–3.0).
+- **Selectivity holds at every layer:** recall on unrelated prompts is about 0.
+- **The balanced yes/no relation accuracy is at chance at every layer.** Facts score accY 0.00 / accN 1.00 everywhere: the "No" bias.
+- The Ledoit–Wolf key is clearly worse: its gate opens on 30–60% of unrelated positions.
+
+**Stage 2: one layer vs several.** Short continuations of the fact prompts, 612 per condition. Here each continuation is split by how many times it mentions the fact:
+
+| Condition | Mentions the fact | Once or twice (clean) | 3+ times (loop) |
+|---|---|---|---|
+| no memory | 0.00 | 0.00 | 0.00 |
+| in context | 0.95 | 0.95 | 0.00 |
+| L23 alone | 0.36 | 0.04 | 0.33 |
+| L23+L20+L21, strength split across layers | 0.21 | 0.16 | 0.05 |
+| L23+L20+L21, full strength each (**chosen**) | 0.91 | 0.22 | 0.70 |
+| L23+L20+L21 full, combined RLS memory | 0.43 | 0.15 | 0.28 |
+
+The stage chooser counted mentions, so it picked the loopiest setting. Unrelated outputs were identical in every condition.
+
+**Stage 3, facts: strength during thinking / answer.**
+- Thinking was on, with a 384-token cap; 11 answers per prompt.
+- The report's `ans_tgt` counts any mention. The clean recount (`results/think_v1_20261003_0004/`, 44 related answers per condition) separates loops, and denials that happen to mention the name.
+
+| Condition (think/answer α) | Report: fact named | Clean answers | Thinking repetition | Balanced yes/no |
+|---|---|---|---|---|
+| no memory | 0.02 | 0/44 | 0.07 | 0.43 |
+| answer only (0/2) | 0.84 | **4/44** (27 loops) | 0.07 | 0.41 |
+| both (2/2) | 0.70 | 1/44 (30 loops) | 0.34 | 0.38 |
+| thinking only (4/0) | 0.11 | 3/44 | **0.98** | 0.50 |
+| thinking only (6/0) | 0.11 | 3/44 | **0.95** | 0.49 |
+| 4/1 | 0.41 | 3/44 | 0.97 | 0.46 |
+| 6/1 | 0.61 | 6/44 | 0.94 | 0.44 |
+| in context | 0.86 | 28/44 | 0.10 | 0.82 |
+| combined memory, both | 0.02 | – | 0.08 | 0.49 |
+
+- The amplified thinking is literally *"Thinking Pepper Pepper Pepper…"*.
+- Thinking hit the cap in about 95% of rows *even with no memory*.
+- **Self-attribution** appears: *"Teal is my favourite colour!"*, *"As a pharmacy dispensing pharmacist, I am…"*.
+
+**Stage 3, preferences: share of consistent answers per item.** 33 per cell; the share of those that are loops in brackets:
+
+| Item | no memory | answer only | both | 6/1 | in context |
+|---|---|---|---|---|---|
+| vegetarian | 0.12 | 0.94 | 0.94 | 0.88 | 0.88 |
+| loves_hiking | 0.24 | 0.39 | 0.76 | 0.67 | 1.00 |
+| norway | 0.00 | 0.82 (0.61) | 0.88 (0.79) | 0.73 (0.58) | 0.94 |
+| loves_jazz | 0.21 | 0.36 | 0.18 | 0.33 | 0.97 |
+
+Vegetarian answers mentioning meat: 0.79 with no memory, 0.15 answer only, 0.03 both, 0.48 in context.
+
+**Conclusions:**
+1. Several late layers carry facts much better than one, but mostly as loops.
+2. Amplified injection during thinking floods the thinking and doesn't reach the answer.
+3. No premises on this model either.
+4. Broad preferences (vegetarian) now work very well; single-item ones loop or do nothing.
+5. The headline metrics need the loop correction.
+
+### 4.6.2 ref_v1: which reference should a preference shift subtract? (jobs 915094–915095)
+**Setup:**
+- Qwen3.5-2B, thinking off, layers 23/20/21, isolated memories.
+- Every shift is rescaled to the length of its `without` shift, so only directions differ.
+- 11 preferences:
+  - **two-ended:** vegetarian, loves_hiking, tight_budget, no_alcohol
+  - **one-of-many:** loves_jazz, norway, singapore, japanese_food, tennis, horror
+  - **negated:** hates_jazz, "I can't stand jazz music."
+- 6 prompts × 11 answers per cell.
+- References:
+  - opposite (with − counter)
+  - without
+  - hum (global mean)
+  - disclosure (the mean over 24 other experiences)
+  - centroid (the mean over 8 same-category alternatives)
+
+**Lean with loops removed (loop rate), at α = 1 per layer:**
+
+| Reference | two-ended | one-of-many | hates_jazz | no_alcohol |
+|---|---|---|---|---|
+| no memory | +0.02 | −0.28 | +0.03 | −0.29 |
+| in context | +0.77 | +0.98 | −0.50* | +0.38 |
+| opposite | **+0.59 (0.00)** | +0.56 (0.32) | **+0.48 (0.00)** | **+0.24** |
+| without | +0.39 (0.04) | +0.49 (0.29) | −0.86 (0.05) | −0.79 |
+| hum | +0.24 (0.02) | +0.30 (0.07) | −0.71 (0.02) | −0.56 |
+| disclosure | +0.45 (0.17) | +0.56 (0.39) | −0.81 (0.18) | −0.85 |
+| centroid | +0.48 (0.41) | **+0.70 (0.70)** | −1.00 (0.58) | −0.42 |
+
+\* A word-list artefact: the in-context answer says "Jazz can be complex…", then recommends classical.
+
+**Logit lens at L23** (consistent minus inconsistent word logits of the stored shift alone):
+
+| Group | opposite | without | hum | disclosure | centroid |
+|---|---|---|---|---|---|
+| two-ended | +3.9 | +3.3 | +1.8 | +4.5 | +6.4 |
+| one-of-many | +10.3 | +3.2 | +0.4 | +3.1 | +11.2 |
+| hates_jazz | +2.5 | +0.5 | +0.9 | +1.0 | **−9.1** |
+
+For loves_jazz alone: opposite +2.5, centroid +9.3.
+
+**Geometry:**
+- The **hum** shift points along the memory's own key (cosine 0.63–0.85 after whitening; 0.80–0.92 with the follow-up's topic). Every other reference is about 0.
+- Raw length relative to `without`:
+  - hum: 1.8–3.2
+  - centroid: 0.3–0.9
+  - opposite: 0.4–1.0
+- So norm-matching boosted the centroid about 2.5×.
+
+**Samples:**
+- **jazz, opposite:** *"explore your favourite podcast series, audiobooks"*
+- **jazz, without:** *"jazz up your evening… jazz covers"*
+- **jazz, centroid:** *"Cooking dinner jazz jazz jazz…"*
+- **hates_jazz, without:** *"Lo-fi Jazz"*
+- **no_alcohol, without:** *"Beer: a craft beer, a lager, or a stout"*
+- **hum at α = 2:** *"just just just…"*, *"vegetarian vegan keto"* (mean length 41 tokens)
+
+**Conclusions:**
+1. The opposite keeps *which way* (it's the only reference that keeps dislikes correct) but loses *what* when both sides mention it.
+2. The centroid keeps *what* most strongly but floods and loses the sign; so do without and disclosure, more weakly.
+3. Hum ≈ the key: it re-injects the topic.
+4. Countries stay weak under every reference.
+5. Unrelated answers were identical in all 110 memory cells.
+
+What follows: store *what* and *which way* separately, and apply the concept with a sign (HANDOVER §8).

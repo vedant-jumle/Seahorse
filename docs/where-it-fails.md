@@ -1,6 +1,6 @@
 # Seahorse: where it fails, and why
 
-*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01.*
+*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01. Updated 2026-10-07 with the Qwen3.5 results (think_v1, ref_v1): failures 13–16, plus updates to 1, 2, 4 and 7. Related papers: [literature.md](reference/literature.md).*
 
 ---
 
@@ -19,7 +19,11 @@
 | 9 | It needs a hand-made comparison to write anything | **Open (the biggest gap to real use)** | A "shift" is defined as a difference from a counterfactual we supply |
 | 10 | Too much strength breaks the text | **Managed** | An added vector can overpower the model's own state |
 | 11 | We fooled ourselves with our measurements | **Fixed** | Unbalanced questions, template artefacts, narrow scores |
-| 12 | We don't know how far any of this generalises | **Open** | One small model, a handful of scenarios |
+| 12 | We don't know how far any of this generalises | **Partly open** | Two small models, a handful of scenarios |
+| 13 | Dislikes turn into likes | **Open (understood)** | Negation is faint inside the model; most references keep the concept and lose the direction |
+| 14 | Single-item preferences flood or do nothing | **Open** | A constant push at every word suits whole-answer leanings, not one word in one place |
+| 15 | The model claims the memory as its own | **Open** | Injected states read as the model's own thoughts; nothing stores *whose* a memory is |
+| 16 | Turning memory up during thinking floods the thinking | **Open** | A constant push on every thinking word is an overdose, not a thought |
 
 The failures cluster into four root causes, discussed at the end:
 - the limits of **adding a vector**
@@ -38,6 +42,17 @@ The failures cluster into four root causes, discussed at the end:
 **How we know it's not a measurement problem.** The memory *does* fire on these questions, at 60–80% of its strength on related prompts. It's present; it just isn't used as a premise.
 
 **What might fix it.** Probably nothing within this channel. The natural answer is a second, *episodic* channel that puts stored moments back where attention can reach them (the other session's "ladder"). This failure is the main reason to think of Seahorse as two channels: this one for leanings, another for premises.
+
+**Update (Qwen3.5-2B, think_v1).** Still at chance on the newer model:
+- at every layer from 4 to 23
+- with one layer or three
+- with memory during thinking, during the answer, or both
+
+Even when the thinking was full of the right name, the yes/no answer didn't change.
+
+Two untested escape routes remain, both from Lindsey 2026 ([literature.md](reference/literature.md)):
+1. Injected concepts act as *thoughts* about two-thirds of the way through a model. We have always injected near the end, the "mouth". xlayer_v1 tests reading late and injecting in the middle.
+2. Using an injected state to reason appeared mainly in large models, so part of this failure may be the 2B model's size.
 
 ---
 
@@ -61,6 +76,16 @@ Multi-word answers ("deep-sea welder") are hardest, because every word has to co
 - More strength, but only where memory fires, since leakage is now controlled.
 - Storing the fact where it's *needed* (at the point of answering "your dog's name is…") rather than as a general shift.
 - A small trained read path that turns the gist into the exact answer.
+
+**Update (Qwen3.5-2B, think_v1).** Using three late layers at once got the exact name out far more often, but mostly as loops:
+- *"Pet Petra Petra Petra Petra…"*
+- *"Thinking Pepper Pepper Pepper… (×383)"*
+
+The counts:
+- In short continuations, 91% mentioned the fact; 22% did so cleanly.
+- In full answers, about 4 of 44 named it cleanly (with the fact in the prompt: 28 or more).
+
+So more strength traded "never" for "flood", with a narrow window in between. Single words are the hardest kind of content for steering (failure 14). They may belong to the episodic channel. The next attempts are injecting in the middle layers (xlayer_v1) and a "thermostat" that sets the concept to a target level instead of adding to it.
 
 ---
 
@@ -103,6 +128,17 @@ Multi-word answers ("deep-sea welder") are hardest, because every word has to co
 - An earlier or multi-layer read.
 - Judging preferences by **rates over many answers**, which the benchmark now supports, so we can see what actually works.
 
+**Update (Qwen3.5-2B, think_v1 and ref_v1).** On the newer model with three layers, **vegetarian is no longer faint**:
+- consistent answers rose from 12% to 94%
+- answers mentioning meat fell from 79% to 3–15%, fewer than with the fact in the prompt
+
+What remains is item-specific:
+- Preferences that shape the whole answer (diet, hiking, budget) work.
+- Single-item ones (a country) don't (failure 14).
+- Dislikes need the opposite (failure 13).
+
+ref_v1 also explained "faint vs crude": the clean (contrastive) version keeps the *direction* but can lose the *concept*; the crude (plain) version keeps the concept and loses the direction.
+
 ---
 
 ## 5. It fired everywhere *(fixed)*
@@ -135,7 +171,7 @@ Result: unrelated answers are now **word-for-word identical** to no memory in **
 - Each of six memories now keeps about **half** its solo strength.
 - **Contradictions now average instead of overwrite.** Writing "my dog is Max" after "my dog is Biscuit", under the same gist, would give a compromise rather than an update.
 
-That second point gives up one of the original thesis's hippocampal properties (reconsolidation). Deciding *when* a new memory should override an old one is a job for the planned modulator.
+That second point gives up one of the original idea's hippocampal properties (reconsolidation). Deciding *when* a new memory should override an old one is a job for the planned modulator.
 
 ---
 
@@ -150,6 +186,8 @@ That second point gives up one of the original thesis's hippocampal properties (
 - More, and more varied, moments per memory.
 - A softer threshold.
 - Recall that also considers the *kind* of question ("prices", "shopping").
+
+**Update (Qwen3.5-2B, think_v1).** On the newer model, the gate opened on every related and ambiguous preference prompt tested (12 of 12). For example, the hiking memory fired on *"Suggest a birthday gift I'd enjoy."*. But those prompts were written to sit fairly close to the follow-ups. The grocery and coffee questions that Norway missed before haven't been retested.
 
 ---
 
@@ -178,7 +216,11 @@ That second point gives up one of the original thesis's hippocampal properties (
 - **"Opposite"** is human knowledge and has no automatic equivalent yet. The most promising replacement is the topic baseline from failure 3.
 - Alternatively, train a small network to predict the shift from the conversation alone, using our hand-made comparisons as training data.
 
-This is the largest gap between the current system and the thesis's "memory formed from experience".
+This is the largest gap between the current system and the project's goal of "memory formed from experience".
+
+**Update (ref_v1).** Two pieces of the scaffold now have candidate replacements:
+- **The *what*** can come from subtracting the average of *other* things a user might say, which needs no hand-written opposite. In ref_v1 this "disclosure" reference carried the concept about as well as "without".
+- **The *which way*** could come from a general like/dislike direction, built once from many "I love X" vs "I hate X" pairs, instead of a hand-written opposite per memory. This is untested.
 
 ---
 
@@ -222,24 +264,97 @@ This is the least glamorous failure and the most important lesson.
 
 **What would tell us.** The 48-item benchmark, then the same design on a 7-billion-parameter model.
 
+**Update.** The design carried over to a second, different model (Qwen3.5-2B, a hybrid with linear and full attention and built-in thinking) with the same key, threshold and write rule; only the layers changed. Selectivity held there too. A larger model is still untested.
+
+---
+
+## 13. Dislikes turn into likes
+
+**What you see.** A memory written from *"I can't stand jazz music."* makes the model recommend jazz:
+- *"Lo-fi Jazz"*
+- *"Cooking dinner is a wonderful time to jazz up your meal with jazz, jazz jazz jazz…"*
+
+*"I don't drink alcohol."* makes it lead with *"Beer: a craft beer, a lager, or a stout"*. This happens with every way of writing the memory except subtracting the hand-made opposite.
+
+**Why.** Inside the model, "I can't stand jazz" is mostly *jazz*, with a faint "can't stand" attached. A memory is "the state with the experience minus a reference":
+- If the reference doesn't mention jazz (nothing, other genres, other disclosures), jazz is what's left, and the faint negation doesn't survive.
+- Only the opposite ("I'm a huge jazz fan") mentions jazz too, so jazz cancels and the dislike is kept.
+
+**How we know.** ref_v1 (11 preferences × 5 references). The same holds for a hidden negation (no_alcohol). Lindsey 2026 finds the same in a different setting: telling a model "don't think about aquariums" weakens aquariums but doesn't remove it.
+
+**What might fix it.** Store *what* and *which way* separately, and apply the concept **with a sign** ("−jazz"), so we do the linking rather than the model. Simply *adding* the two parts probably won't work: a sum puts "jazz" and "hate" side by side but can't say "hate *about* jazz", and jazz is the louder one.
+
+## 14. Single-item preferences flood or do nothing
+
+**What you see.** "I live in Norway" either changes nothing or produces *"The price of a 'decent' winter coat Norway Norway Norway…"*. Singapore barely moves under any setting. Vegetarian, by contrast, reshapes whole menus.
+
+**Why.** A memory pushes at *every* word of the answer.
+- That suits a leaning that shapes the whole answer (every dish can be vegetarian).
+- "Norway" matters in one or two places ("prices in kroner"). A push gentle enough to stay fluent never wins at that one spot; a push strong enough to win there takes over everywhere.
+
+The same split shows up in steering research: whole-answer styles steer well, local ones don't (Subbiah et al. 2026). Countries are the hardest concepts to inject (Lindsey 2026).
+
+**What might fix it.**
+- A **thermostat**: set how much "Norway" is present to a target level instead of adding a fixed amount, so the push stops once the answer has enough.
+- Middle-layer injection.
+- Or accept that single words belong to the episodic channel.
+
+## 15. The model claims the memory as its own
+
+**What you see.**
+- *"Teal is my favourite colour! Teal is calming…"*
+- *"As a pharmacy dispensing pharmacist, I am part of the pharmacy retail industry…"*
+- *"Okay Pepper pepper Pepper…"* at the start of the model's own thinking
+
+**Why.** An added vector carries *what* but not *whose*. Lindsey 2026 shows that models read injected states as their own prior intentions: force a word into a model's reply and it calls it an accident, but inject the concept first and it says it meant it. So a memory about the user's colour arrives as "I'm thinking about teal", and the model fills in "mine".
+
+**What might fix it.** Store *whose* as a third part. One untested route: a direction for "the user has X" vs "I have X", found by contrasting the same fact said by each.
+
+## 16. Turning memory up during thinking floods the thinking
+
+**What you see.** At 2–3× strength, applied only while the model thinks:
+- **The thinking:** *"Thinking Pepper Pepper Pepper Pepper… (×383)"*
+- **The answer:** *"I don't know your dog's name! Could you tell me?"*
+
+Repetition in the thinking is 95–98%. A weak dose during the answer recovers some correct answers, but the thinking stays broken.
+
+**Why.** A constant push on every thinking word is an overdose. The model can't think *about* the memory when the memory is all it can say. The thinking also hit its 384-token budget about 95% of the time even without memory, which muddied every result in that experiment.
+
+**What might fix it.**
+- A **burst at the start of thinking that then fades**, to seed one thought rather than flood every word. This is the phasic vs tonic distinction from neuromodulation.
+- Injecting in the middle layers.
+- A much larger thinking budget.
+
 ---
 
 ## The patterns underneath
 
-The twelve failures come from four root causes.
+The sixteen failures come from four root causes.
 
-**A. Adding a vector is a nudge, not a statement** (failures 1, 2, 4, 10). The memory acts by adding to the model's state. That's enough to change what comes to mind and which way a preference leans. It isn't enough to supply a premise, to name an exact fact the model finds unlikely, or to override strong habits. And pushed too hard, it overwhelms rather than informs. The channel is *modulatory* by nature.
+**A. Adding a vector is a nudge, not a statement** (failures 1, 2, 4, 10, 14, 16). The memory acts by adding to the model's state at every word. That's enough to change what comes to mind and which way a broad preference leans. It isn't enough to:
+- supply a premise
+- name an exact fact the model finds unlikely
+- place one word in the one spot it matters
+- override strong habits
 
-**B. What gets written** (failures 3, 4, 9). The stored shift is either too much (concept plus relation) or too little (a thin contrastive direction), and producing it needs a counterfactual we write by hand. Getting the *content* of a memory right, from a single real conversation, is unsolved.
+Pushed too hard, it overwhelms rather than informs: loops, fragments, a flooded thinking trace. The channel is *modulatory* by nature.
+
+**B. What gets written** (failures 3, 4, 9, 13, 15). A stored shift has parts: *what*, *which way*, and *whose*. What it's measured against decides which parts survive:
+- the opposite keeps *which way*
+- alternatives or "without" keep *what*
+- nothing keeps *whose*
+
+Producing the right parts still needs counterfactuals we write by hand. Getting the *content* of a memory right, from a single real conversation, is unsolved, but we now know what "right" has to contain.
 
 **C. Where it gets filed** (failures 5, 6, 7, 8). Keys decide when a memory fires and how much memories interfere. Most of our progress came from fixing keys (5, 6). Most of what remains (7, 8) is still about keys: memories filed under the wrong situations, or crowding each other.
 
 **D. How we measured** (failure 11, and the uncertainty in 12). Twice we nearly drew the wrong conclusion from a flawed measurement. Balanced, sampled, controlled tests are now non-negotiable.
 
-## Which failures matter most for the thesis
+## Which failures matter most for the project
 
-1. **Failure 9 (the hand-made comparison).** Without solving it, the system isn't "memory formed from experience". It's the thesis's central claim.
-2. **Failure 2 and 4 together (strength and faithfulness).** Selective but faint isn't yet useful. Turning the gist into the fact, and the faint lean into a reliable one, is what would make the memory *matter* in conversation.
-3. **Failure 7 (filing).** A memory that only comes back in near-copies of its original situations won't feel like memory.
+1. **Failure 9 (the hand-made comparison).** Without solving it, the system isn't "memory formed from experience", which is the project's central claim.
+2. **Failures 13 and 15 (direction and ownership).** A memory that turns dislikes into likes, or that the model takes as its own, is worse than none. Concept × sign, and a notion of *whose*, are the next design step.
+3. **Failures 2 and 14 (exact content).** Broad leanings now work well; single words don't. Either a different way of applying the memory (thermostat, middle layers) fixes this, or it's the episodic channel's job.
+4. **Failure 7 (filing).** A memory that only comes back in near-copies of its original situations won't feel like memory.
 
 Failure 1 (premises) is real, but it's the *other* channel's job. It defines this channel's scope rather than counting against it.
