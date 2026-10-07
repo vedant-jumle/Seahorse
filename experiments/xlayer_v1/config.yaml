@@ -1,0 +1,77 @@
+# xlayer_v1 config: the facts and their "use" prompts.
+#
+# Items are bench_v1 hand-written FACTS (data/bench_v1/facts.yaml), by id. Everything else (experience,
+# counter, follow-ups, related/paraphrase probes, measure {prefix, target, foils}, the balanced
+# verification probes) comes from bench_v1 unchanged.
+#
+# `use`: two prompts per fact where a good answer naturally needs the fact WITHOUT being asked for it
+# ("Write a short birthday message to my sister." -> should say "Petra"). They stay on the topic of the
+# fact's follow-ups (the memory is filed under the follow-ups' gist, so off-topic prompts would not open
+# the gate) and never contain the target.
+#
+# bench_v1 calibration (results/bench_v1_calib_850635, Qwen2.5, no memory) flagged 3 of the 18
+# hand-written facts: favourite_colour, favourite_book, football_team (one Yes verification probe each
+# where even the in-context ceiling answers wrong). favourite_colour is kept (it was in think_v1; its
+# flagged probe is "Do I like teal more than any other colour?"); the other 11 items are unflagged.
+#
+# Qwen3.5-2B layer types (config.text_config.layer_types; 24 decoder blocks, 3:1 pattern): full
+# attention at 3, 7, 11, 15, 19, 23; Gated DeltaNet (linear attention) everywhere else. Reads/injections
+# are at the OUTPUT of block l, so an injection at W is first processed by block W+1.
+#   Stage A grid  R 12 linear, 16 linear, 20 linear, 23 full
+#                 W 8 linear, 12 linear, 16 linear, 20 linear, 23 full (an injection at 23 meets only the
+#                 final norm: pure "say it" readout)
+#   Stage B       core R/W 16 linear, 23 full; current R=W 20 linear, 21 linear, 23 full;
+#                 multi-layer cross R 20, 21, 23 -> W 14 linear, 15 full, 16 linear
+
+items:
+  # ------------------------------------------------------------------ pets
+  - id: dog_name            # Pepper
+    use:
+      - "Draft a quick note to the vet about my dog's checkup tomorrow."
+      - "Write a short, funny poem about my dog."
+  - id: cat_name            # Jasper
+    use:
+      - "Write a short note for the pet sitter who is looking after my cat this weekend."
+      - "Write a cute caption for a photo of my cat curled up in his new bed."
+  # ---------------------------------------------------------------- people
+  - id: sister_name         # Petra
+    use:
+      - "Write a short birthday message to my sister."
+      - "Draft a text to my sister about her visit next weekend."
+  - id: brother_name        # Hugo
+    use:
+      - "Write a short housewarming card for my brother's new flat."
+      - "Draft a text asking my brother if he's free for dinner on Saturday."
+  - id: grandmother_name    # Esther
+    use:
+      - "Write a short speech introducing my grandmother at her ninetieth birthday party."
+      - "Draft an invitation to my grandmother's ninetieth birthday party."
+  - id: best_friend_name    # Omar
+    use:
+      - "Write a short toast for my best friend's wedding in June."
+      - "Draft a message to my best friend suggesting a weekend trip together."
+  - id: boss_name           # Gordon
+    use:
+      - "Draft a short email to my boss asking to move tomorrow's meeting to the afternoon."
+      - "Write a quick email to my boss saying the report will be ready by Friday."
+  # ------------------------------------------------------------ attributes
+  - id: job                 # pharmacist
+    use:
+      - "Write a short professional bio about me for my work's website."
+      - "Help me write a two-sentence introduction about my work for a networking event."
+  - id: favourite_colour    # teal (bench calibration flag: see above)
+    use:
+      - "Suggest a paint colour for my bedroom walls."
+      - "Which colour should I pick for my new mug?"
+  - id: hometown            # Leeds
+    use:
+      - "Plan a weekend itinerary for my trip back to my hometown next month."
+      - "Write a short nostalgic paragraph about the place where I grew up."
+  - id: first_language      # Portuguese
+    use:
+      - "Recommend three novels I could read in my native language."
+      - "Suggest some fun ways to teach my kids my first language."
+  - id: university          # Edinburgh
+    use:
+      - "Write a short post inviting my old classmates to our university's alumni reunion."
+      - "Draft a short email to my old university asking about their master's programmes."
