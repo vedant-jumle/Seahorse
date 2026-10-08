@@ -173,7 +173,8 @@ Both diagnostics have a `--tiny` smoke-test mode: a tiny random Qwen2 with the r
 | `samples_v2/run.py` | Real text from the current design vs the old one, no memory and in context | Qwen2.5-1.5B | The source of where-we-are appendix C–D |
 | `think_v1/run.py` | The port to Qwen3.5-2B (text path of `Qwen3_5ForConditionalGeneration`). `--stage 1`: layer sweep 4–23. `--stage 2`: one vs several layers, split vs full strength. `--stage 3`: strength during thinking vs answer (0/0, 0/2, 2/2, 4/0, 6/0, 4/1, 6/1, ctx). | Qwen3.5-2B | Several late layers are strong but loop; thinking floods. The headline fact counts include loops. `raw_outputs.md` in the results folder is readable. |
 | `ref_v1/{run.py, shifts.py, config.yaml}` | Which reference should a preference shift subtract: opposite, without, hum, disclosure (K=24 other experiences) or centroid (8 same-category alternatives)? 11 items tagged two-ended / one-of-many / negated, 2 doses, logit lens of every stored shift. | Qwen3.5-2B | The opposite keeps direction; the centroid keeps the concept and floods; hum ≈ the key |
-| `xlayer_v1/{run.py, xl.py, config.yaml}` | Cross-layer injection for facts: read the shift and key at layer R, inject at W. Stage A is an analytic grid; Stage B generates text with "use" prompts. Gating comes from a no-memory pass; the shift is rescaled by the norm ratio between layers. | Qwen3.5-2B | Queued 2026-10-07 (HANDOVER §4) |
+| `xlayer_v1/{run.py, xl.py, config.yaml}` | Cross-layer injection for facts: read the shift and key at layer R, inject at W. Stage A is an analytic grid; Stage B generates text with "use" prompts. Gating comes from a no-memory pass; the shift is rescaled by the norm ratio between layers. | Qwen3.5-2B | Negative: a fact shift is a late-layer word; earlier injection fades or garbles ([experiment-log §4.6.3](../history/experiment-log.md#463-xlayer_v1-read-the-fact-late-inject-it-earlier-jobs-921693921695)) |
+| `core_v1/` (`run.py`, `core.py`, `analyze.py`, `items.yaml`, `judge_prompts.yaml`, `PREREG.md`, `README.md`, `submit.sh`) | **The consolidated, pre-registered run behind the write-up.** Stages smoke → prep → gen → score (judge + coherence) → analyze; batched two-pass generation with fixed random streams; controls; bootstrap CIs; every table rebuilt from saved files. `slurm/core_v1.slurm` runs it. | Qwen3.5-2B + 9B | C1, C3, C5, C6 hold on both; C2 fails on both; C4 fails on 2B ([§4.6.4](../history/experiment-log.md#464-core_v1-the-pre-registered-run-on-qwen35-2b-and-9b-jobs-922999923009)) |
 
 **Library additions.** `src/seahorse/bench/`:
 - `data.py` loads `data/bench_v1/*.yaml` (compact authoring format) into v0.1-style scenario dicts.
@@ -182,7 +183,7 @@ Both diagnostics have a `--tiny` smoke-test mode: a tiny random Qwen2 with the r
 
 `residual.py` handles transformers-5 decoder layers, which return tensors rather than tuples.
 
-**Tests** cover the newer pure functions too: `test_bench.py`, `test_ref_v1.py`, `test_xlayer_v1.py`.
+**Tests** cover the newer pure functions too: `test_bench.py`, `test_ref_v1.py`, `test_xlayer_v1.py`, `test_core_v1.py`. The last covers the layer rule, conditions, controls, batched == unbatched generation, the bootstrap, judge parsing and items.
 
 **Other:** `tools/manuscript/` builds the public project page. It's maintained in a separate chat, not part of the experiments.
 
@@ -194,6 +195,7 @@ Both diagnostics have a `--tiny` smoke-test mode: a tiny random Qwen2 with the r
 | `setup_delftblue.sh` | One-off, on the **login node** (compute nodes have no internet). Creates or updates the `seahorse` conda env in `/scratch/$USER/.conda/envs`, runs `pip install -e .`, pre-downloads the model into `HF_HOME=/scratch/$USER/hf_cache`. (In practice the env was built by hand: an empty conda env plus pip installs, which is faster than the solver.) |
 | `v0.slurm` | The exact job that ran v0 (kept for reproducibility) |
 | `run.slurm` | Generic job: `EXP=v0_1 sbatch slurm/run.slurm`. Loads modules and the env, sets `HF_HUB_OFFLINE=1`, runs `pytest`, then `experiments/$EXP/run.py --out /scratch/$USER/seahorse_runs/${EXP}_<jobid>`. Extra flags via `EXTRA_ARGS=...` |
+| `core_v1.slurm` | The core_v1 stage job: gpu-v100 for the 2B, gpu-a100 (A100 80GB) for the 9B and the judge, compute-p1 for analysis. Submitted as chains by `experiments/core_v1/submit.sh`. |
 | `run_v100.slurm` | The same pattern on `gpu-v100` (32GB, fp32, ≤5333MB per CPU), used for all the Qwen3.5-2B experiments. `OUT=` overrides the output dir. Example: `EXP=think_v1 EXTRA_ARGS="--stage 1" OUT=/scratch/$USER/seahorse_runs/x sbatch slurm/run_v100.slurm` |
 
 Partition: `gpu-a100-small` (one 10GB MIG slice of an A100; ≤2 CPUs per task, ≤8000MB per

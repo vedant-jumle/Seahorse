@@ -1,6 +1,6 @@
 # Seahorse: where we are
 
-*A plain-language report on the project so far: what we set out to do, what others have done, what we believe, how we tested it, and what we found. Written 2026-09-30 to step back and see the whole picture. Updated 2026-10-07 with the move to Qwen3.5-2B, thinking-phase injection and what a stored shift actually carries (stages 7–8).*
+*A plain-language report on the project so far: what we set out to do, what others have done, what we believe, how we tested it, and what we found. Written 2026-09-30 to step back and see the whole picture. Updated 2026-10-08 with the move to Qwen3.5 (2B and 9B), thinking-phase injection, what a stored shift actually carries, cross-layer injection and the pre-registered run (stages 7–10).*
 
 *Companions: [how-it-works.md](how-it-works.md) walks through the current design step by step, and [where-it-fails.md](where-it-fails.md) collects every failure with its cause and possible fixes.*
 
@@ -206,7 +206,40 @@ Four papers read afterwards ([literature.md](reference/literature.md)) explain m
 - "don't think about X" still activates X
 - injected states feel like the model's own intentions
 
-**Running now (xlayer_v1):** reading fact memories at a late layer but injecting them at a middle layer, where injected concepts act more like thoughts than words.
+### Stage 9: inject the memory into the "mind" instead of the "mouth"? (xlayer_v1)
+Lindsey found that injected concepts act like *thoughts* about two-thirds of the way through a model, while near the end they just get *said*. We had always injected near the end. So for 12 facts we read the memory late and injected it in the middle, then asked prompts where the fact is needed but not requested ("Write a short birthday message to my sister").
+
+- **In the middle layers, the fact isn't there.** Read through the logit lens, the stored memory's top word is the name itself at layers 20–23 ("Pepper" ranks first of about 248,000). At layers 12–16 it ranks somewhere around the 30,000th–100,000th. A fact memory is *an intention to say a word*, and that only exists at the end.
+- **Moved earlier, it fades.** Injected at layer 8, about 10% of its push survives to the output; at layer 16, about two-thirds. The later layers never turn it into anything more.
+- **When strong enough to survive, it garbles rather than loops:** *"My name is Omar."* (asked for the best friend's name); *"I am an AI named Pepper"*; *"It's a very Leeds. There are now over 200."* Our loop detector missed all of this.
+- **Yes/no still didn't move.**
+
+So the "mind" idea fails for facts, for a clear reason: what we store for a fact is mouth-content.
+
+### Stage 10: one pre-registered run on two model sizes (core_v1)
+To back a short write-up, we re-ran the core claims as one consistent experiment:
+- **Models:** Qwen3.5-2B and the 4.5× larger **Qwen3.5-9B**.
+- **Items:** 15 leanings, 8 dislikes, 6 one-of-many preferences, 12 facts.
+- **Controls:** a random vector, a swapped memory, a placebo experience, and the gate removed.
+- **Rules first:** the claims and their pass/fail rules were written down *before* the run.
+- **Judging:** a judge model rated every answer for direction **and** coherence.
+
+The result, claim by claim:
+
+| Claim | 2B | 9B |
+|---|---|---|
+| Selective: unrelated answers unchanged (about 98%; without the gate only 6–10%) | ✅ | ✅ |
+| Leanings transfer at both α=1 and α=2 | ❌ | ❌ |
+| Facts don't come out as clean use (≤15% vs 96–98% in context) | ✅ | ✅ |
+| No premises: yes/no never improves | ❌ (a technicality: it got *worse* at α=2) | ✅ |
+| What you subtract decides direction: dislikes flip under every reference except the opposite | ✅ | ✅ |
+| A fact memory is a late-layer word | ✅ | ✅ |
+
+**The headline claim failed, and why matters.** At α=1, leanings transfer significantly on both models, but modestly: about +0.2 (2B) and +0.1 (9B) on a −1 to +1 scale. At α=2, the word counts keep rising, but the judge rates 61% (2B) and 41% (9B) of answers as incoherent, so the *coherent* lean no longer clears zero.
+- Our earlier word-count wins, like vegetarian at 94% in stage 7, partly counted text that was no longer sensible.
+- The useful dose is a narrow window, and the effect is uneven across items: strong for "early riser", "prefers quiet", "vegan", "vegetarian"; nothing for "celiac", "lactose intolerant", "has young kids".
+
+**The larger model changed nothing.** It was slightly more coherent at the same dose, with the same pattern. The judge itself still needs a hand check: 200 answers are set aside for it.
 
 ---
 
@@ -223,7 +256,9 @@ Four papers read afterwards ([literature.md](reference/literature.md)) explain m
 4. **Selectivity, not strength, was the problem.** We spent early effort on the wrong axis (volume, norms).
 5. **Measurement can fool you badly.** Two of our early positive results were artifacts, and a third (the "84%" in stage 7) was loops. The benchmark and controls (balanced probes, placebo, random baselines, loops counted separately, reading the text) are now essential.
 6. **A preference has parts: *what*, *which way*, and *whose*.** What you subtract when writing decides which part is kept. No single reference keeps both *what* and *which way*, so they probably need to be stored separately and combined by us (a concept applied with a sign), not by the model.
-7. **Steering suits leanings that shape a whole answer.** It handles a diet beautifully and a name or a country badly: a constant push at every word either never wins in the one place that matters, or takes over.
+7. **Steering suits leanings that shape a whole answer.** It handles a diet well and a name or a country badly: a constant push at every word either never wins in the one place that matters, or takes over.
+8. **A fact memory is a word, not a statement.** It's an intention to say the name, present only at the very end of the model. That's why facts loop when injected late and garble when injected earlier. Facts most likely live where they were said, reachable only by attention: the episodic channel's territory.
+9. **Judge coherence, not just words.** Counting words (even with loops removed) overstated every strong-dose result. With a judge, the true dose window turned out narrow, around α=1.
 
 **The biology lines up more than we expected:**
 - **Gist key** ≈ hippocampal index
@@ -237,7 +272,8 @@ We should treat these as useful analogies, not proof.
 
 ## 7. Honest limits
 
-- **Small scale.** Two small models (1.5B and 2B), and 4–12 items per experiment. The benchmark is used for items, but not yet for a full memory test.
+- **Small to mid scale.** Three models (1.5B, 2B, 9B), and 12–15 items per group in the largest run. The judge model hasn't yet been checked against human labels.
+- **Leanings are modest.** At the only dose that stays coherent, the effect is small and uneven across items. The pre-registered "leanings transfer" claim failed its rule on both models.
 - **Dislikes need the hand-made opposite,** or they flip into likes. Single-item preferences (countries) don't work at all yet.
 - **The model claims memories as its own** ("my favourite colour is teal"). Nothing stores *whose* a memory is.
 - **Capacity beyond 6 memories is unknown.** Half strength at six is encouraging, but the real curve (10, 20, 60 memories) hasn't been measured.
@@ -251,10 +287,11 @@ We should treat these as useful analogies, not proof.
 ## 8. Where it could go
 
 **Next (near term)**
-- **Read the cross-layer results** (xlayer_v1): does injecting into the "mind" rather than the "mouth" let facts be *used*?
+- **Finish the short write-up** of the pre-registered results, and hand-check the judge.
 - **Concept × sign:** store *what* (from alternatives) and *which way* separately, and apply the concept with a sign. The sign could come from a general like/dislike direction, so no hand-made opposite is needed.
 - **A thermostat instead of a push:** set how much of a concept is present to a target level, rather than adding a fixed amount. That should stop floods.
-- **Fair doses** (matched by loop rate), and a burst at the start of thinking instead of a constant push.
+- **Fair doses** (matched by coherence, around α=1), per-item doses, and a burst at the start of thinking instead of a constant push.
+- **Hand facts to the episodic channel.** Stages 9–10 settle that this channel carries leanings, not statements.
 - The **capacity curve** on the benchmark's 60-fact pool.
 - **Rewrite the weak preference items** and re-check them.
 
@@ -272,7 +309,12 @@ We should treat these as useful analogies, not proof.
 
 ## One-sentence summary
 
-A training-free, selective, order-free memory that carries broad leanings across sessions very well and specific facts poorly. We now know why: a stored shift keeps either *what* or *which way* depending on what it's measured against, and a constant push suits whole-answer leanings, not single words. Its limits (capacity, self-driven writing, reasoning) are clearly mapped, and the neuromodulation idea has a concrete place to plug in.
+A training-free, selective, order-free memory that carries broad leanings across sessions, modestly and only within a narrow dose window, and carries facts and premises not at all. We now know why, on two model sizes:
+- a stored shift keeps either *what* or *which way*, depending on what it's measured against
+- a fact memory is a word to say, not a statement
+- a constant push suits whole-answer leanings, not single words
+
+Its limits are clearly mapped, and the neuromodulation idea has a concrete place to plug in.
 
 ---
 

@@ -1,6 +1,6 @@
 # Seahorse: where it fails, and why
 
-*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01. Updated 2026-10-07 with the Qwen3.5 results (think_v1, ref_v1): failures 13–16, plus updates to 1, 2, 4 and 7. Related papers: [literature.md](reference/literature.md).*
+*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01. Updated 2026-10-07 with the Qwen3.5 results (think_v1, ref_v1): failures 13–16, plus updates to 1, 2, 4 and 7. Updated 2026-10-08 with cross-layer injection (xlayer_v1) and the pre-registered run on Qwen3.5-2B and 9B (core_v1): updates to 1, 2, 4, 10, 11, 12 and 13. Related papers: [literature.md](reference/literature.md).*
 
 ---
 
@@ -54,6 +54,12 @@ Two untested escape routes remain, both from Lindsey 2026 ([literature.md](refer
 1. Injected concepts act as *thoughts* about two-thirds of the way through a model. We have always injected near the end, the "mouth". xlayer_v1 tests reading late and injecting in the middle.
 2. Using an injected state to reason appeared mainly in large models, so part of this failure may be the 2B model's size.
 
+**Update (xlayer_v1, core_v1).** Both routes are now tested, and neither helped:
+- **Middle-layer injection** left yes/no unchanged.
+- **The 9B model** behaves like the 2B.
+
+In the pre-registered run, the balanced yes/no accuracy never rose on either model, at any dose. What the memory does do is tilt answers toward "Yes" or toward "No" across the board, which helps one kind of question exactly as much as it hurts the other. On the 2B, the fact memory at α=2 even made yes/no *worse*.
+
 ---
 
 ## 2. The exact fact rarely comes out; the gist does
@@ -86,6 +92,15 @@ The counts:
 - In full answers, about 4 of 44 named it cleanly (with the fact in the prompt: 28 or more).
 
 So more strength traded "never" for "flood", with a narrow window in between. Single words are the hardest kind of content for steering (failure 14). They may belong to the episodic channel. The next attempts are injecting in the middle layers (xlayer_v1) and a "thermostat" that sets the concept to a target level instead of adding to it.
+
+**Update (xlayer_v1, core_v1): why it fails, and on two model sizes.** A fact memory stores *an intention to say a word*, not a statement:
+- **Where the name exists:** read through the logit lens, the stored memory's top word is the name itself, but only in the last ~15% of the model's layers. At half depth it ranks around 70,000th. This holds for the 2B and the 9B alike.
+- **What injection does:**
+  - Injected late, the word comes out as loops.
+  - Injected in the middle, it fades or turns into confused text: *"My name is Omar."*, *"I am an AI named Pepper"*, *"It's a very Leeds."*
+- **The numbers:** the judge counts a "clean use" only when the fact is used correctly in a coherent answer. Clean use stays ≤ 15% at every dose (0.5–3) on both models, against 96–98% in context. At α ≥ 2, 85–94% of answers mention the fact without a clean use.
+
+The fact most likely lives where it was said, reachable by attention. That makes it the episodic channel's job, not something to fix in this one.
 
 ---
 
@@ -138,6 +153,12 @@ What remains is item-specific:
 - Dislikes need the opposite (failure 13).
 
 ref_v1 also explained "faint vs crude": the clean (contrastive) version keeps the *direction* but can lose the *concept*; the crude (plain) version keeps the concept and loses the direction.
+
+**Update (core_v1, judged): faint again, but honestly measured.** With a judge model that counts incoherent answers as zero, on 15 preferences:
+- **α=1:** leanings move significantly but modestly, about +0.2 (2B) and +0.1 (9B) on a −1..+1 scale.
+- **α=2:** word counts keep rising, but 41–61% of answers become incoherent, and the coherent lean no longer clears zero.
+
+The pre-registered claim (a gain at both doses) failed on both models. The effect is uneven: some preferences move well ("early riser", "prefers quiet", "vegetarian"), others not at all ("celiac", "lactose intolerant"). Part of the stage-7 "94%" was text the judge would call incoherent. The open questions are a finer dose search around α=1, per-item doses, and a gentler way to apply the memory (the thermostat).
 
 ---
 
@@ -232,6 +253,17 @@ This is the largest gap between the current system and the project's goal of "me
 
 **How it's managed.** Strength stays at 2, and the threshold keeps the shift away from positions where it doesn't belong. Norm-preserving reads (rotating the state instead of adding to it) are available if we need more headroom.
 
+**Update (core_v1): α=2 was already too much.** On Qwen3.5, with the memory added at three layers, a judge rated the answers:
+
+| Strength | Incoherent answers (2B) | Incoherent answers (9B) |
+|---|---|---|
+| no memory | 14% | 3% |
+| α=1 | 22% | 9% |
+| α=2 | 61% | 41% |
+| α=3 | 85% | 80% |
+
+A placebo memory ("I had a coffee this morning") at α=2 is just as damaging, so it's the dose, not the content. The working window is around α=1 per layer; the default is now 1, not 2.
+
 ---
 
 ## 11. We fooled ourselves with our measurements *(fixed)*
@@ -245,6 +277,12 @@ This is the least glamorous failure and the most important lesson.
 - **Random baselines matter.** When choosing which words to store, picking words at *random* worked as well as our clever choices. Without that control, we'd have credited the clever choice.
 
 **The fix** was a proper benchmark (48 items, 60 facts, balanced questions, a placebo condition for the noise floor) and the habit of checking text, not only scores.
+
+**Two more traps, found later:**
+- **The loop trap** (think_v1). "Names the fact" counted *"Petra Petra Petra…"*. Loops are now counted separately.
+- **The coherence trap** (xlayer_v1, core_v1). "Not a loop" still isn't "makes sense". Garbled answers like *"It's a very Leeds."* passed the loop check.
+
+The pre-registered run (core_v1) therefore judges every answer for direction *and* coherence with a judge model, fixes its pass/fail rules in advance (`experiments/core_v1/PREREG.md`), and puts confidence intervals on every number. The judge still needs a hand check on 200 set-aside answers.
 
 ---
 
@@ -264,7 +302,9 @@ This is the least glamorous failure and the most important lesson.
 
 **What would tell us.** The 48-item benchmark, then the same design on a 7-billion-parameter model.
 
-**Update.** The design carried over to a second, different model (Qwen3.5-2B, a hybrid with linear and full attention and built-in thinking) with the same key, threshold and write rule; only the layers changed. Selectivity held there too. A larger model is still untested.
+**Update.** The design carried over to a second, different model (Qwen3.5-2B, a hybrid with linear and full attention and built-in thinking) with the same key, threshold and write rule; only the layers changed. Selectivity held there too.
+
+**Update (core_v1).** It also carried over unchanged to **Qwen3.5-9B**, at the same relative layer depths. Every pre-registered claim came out the same on 2B and 9B, except C4, where the 2B failed on a technicality. Selectivity, the fact limits and the direction result all repeat. The 9B is somewhat more robust to strong doses, but no better at leanings, facts or premises. Models beyond 9B are untested.
 
 ---
 
@@ -281,6 +321,16 @@ This is the least glamorous failure and the most important lesson.
 - Only the opposite ("I'm a huge jazz fan") mentions jazz too, so jazz cancels and the dislike is kept.
 
 **How we know.** ref_v1 (11 preferences × 5 references). The same holds for a hidden negation (no_alcohol). Lindsey 2026 finds the same in a different setting: telling a model "don't think about aquariums" weakens aquariums but doesn't remove it.
+
+**Update (core_v1): confirmed on 8 dislikes (7 on the 2B, where one failed the ctx check) and two model sizes, under pre-registered rules.** Each reference was compared at a matched loop rate (α=1):
+
+| Reference | 2B | 9B | Dislike items pushed the wrong way |
+|---|---|---|---|
+| opposite | +0.23 | +0.25 | none (2B), 1 of 8 (9B) |
+| alternatives (centroid) | −0.38 | −0.37 | **all** |
+| without | −0.25 | −0.31 | most |
+
+The numbers are the judged lean gain vs no memory; all CIs exclude 0.
 
 **What might fix it.** Store *what* and *which way* separately, and apply the concept **with a sign** ("−jazz"), so we do the linking rather than the model. Simply *adding* the two parts probably won't work: a sum puts "jazz" and "hate" side by side but can't say "hate *about* jazz", and jazz is the louder one.
 

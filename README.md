@@ -20,18 +20,19 @@ keys. Only if the match is clearly above what ordinary text produces does it add
 shift back: **h ← h + α·M·q**. Several memories share one M, written by least squares, so order
 doesn't matter. No training, and the base model is never modified.
 
-The same design was later ported to **Qwen3.5-2B**, which has built-in thinking. There it reads and injects at layers 20, 21 and 23 of 24.
+The same design was later ported to **Qwen3.5-2B** (layers 20, 21, 23 of 24) and **Qwen3.5-9B** (27, 28, 31 of 32). Both models have built-in thinking, which is switched off.
 
 ## Status
-- ✅ **Selective:** answers to unrelated questions are word-for-word identical to no memory, in every test on both models (24 of 24 on Qwen2.5 with six memories stored together; every condition on Qwen3.5).
+From the pre-registered run on Qwen3.5-2B and 9B, judged for direction *and* coherence ([experiments/core_v1/PREREG.md](experiments/core_v1/PREREG.md); results in HANDOVER §4):
+- ✅ **Selective:** about 98% of unrelated answers are unchanged on both models. Without the gate, only 6–10% are.
 - ✅ **Order-free:** with least-squares writes, each of six memories in one store keeps about half its solo strength, instead of only the last one surviving.
-- ✅ **Broad preferences come through strongly** on Qwen3.5. A vegetarian memory takes vegetarian-consistent answers from 12% to 94%, with fewer meat mentions than when the fact is in the prompt.
-- ❌ **Exact facts come out as the gist or as loops:** "welder" for "deep-sea welder"; "Petra Petra Petra…". About 4 of 44 answers name the fact cleanly.
-- ❌ **No premises:** balanced yes/no questions that need the memory never flip, on either model, at any layer, with or without thinking.
-- ❌ **Direction and ownership:** a memory keeps either *what* (jazz) or *which way* (like or dislike), depending on what it's measured against. So dislikes can flip into likes, and the model sometimes claims a memory as its own ("Teal is my favourite colour!"). Single-item preferences (a country) flood or do nothing.
-- ❌ **Not yet self-driven:** writing needs a hand-made with/without/opposite comparison, and capacity beyond six memories is untested.
+- ✅ **Direction comes from the opposite:** subtracting a hand-made opposite keeps a dislike a dislike. Every other reference flips dislikes into likes (8 dislikes, both models).
+- ⚠️ **Leanings transfer, but modestly and only at the right dose:** significant at α≈1 per layer (+0.2 on 2B, +0.1 on 9B, on a −1..+1 scale). At α=2 the answers turn incoherent. The pre-registered claim, which needed both doses, failed on both models.
+- ❌ **Facts don't come out as clean use** (≤15% vs 96–98% in context). A fact memory stores *a word to say*, present only in the last ~15% of layers: injected late it loops ("Petra Petra Petra…"), injected earlier it fades or garbles.
+- ❌ **No premises:** balanced yes/no never improves, on any model, layer or dose.
+- ❌ **Ownership and scaffold:** the model sometimes claims a memory as its own ("Teal is my favourite colour!"), and writing still needs a hand-made with/without/opposite comparison.
 
-Running now: reading fact memories at a late layer but injecting them at a middle one (HANDOVER §4). Next: concept × sign, a "thermostat" instead of an added push, then neuromodulated memory ([HANDOVER §8](HANDOVER.md#8-next-steps-and-ideas-in-rough-priority)). The v0/v0.1 status, before the selectivity and order fixes, is in the [experiment log](docs/history/experiment-log.md): the conclusions of §4.1 and §4.2, and [§4.5.3](docs/history/experiment-log.md#453-what-the-diagnostics-change). The Qwen3.5 results are in [§4.6](docs/history/experiment-log.md#46-later-experiments-2026-0910).
+In progress: a short write-up, and a hand check of the judge. Next: concept × sign, a "thermostat" instead of an added push, facts to the episodic channel, then neuromodulated memory ([HANDOVER §8](HANDOVER.md#8-next-steps-and-ideas-in-rough-priority)). The v0/v0.1 status, before the selectivity and order fixes, is in the [experiment log](docs/history/experiment-log.md): the conclusions of §4.1 and §4.2, and [§4.5.3](docs/history/experiment-log.md#453-what-the-diagnostics-change). The Qwen3.5 results, including xlayer_v1 and the pre-registered core_v1, are in [§4.6](docs/history/experiment-log.md#46-later-experiments-2026-0910).
 
 ## Start here
 Picking up the work? Read **[HANDOVER.md](HANDOVER.md)** first: the current state, what's pending, next steps and conventions.

@@ -661,3 +661,109 @@ For loves_jazz alone: opposite +2.5, centroid +9.3.
 5. Unrelated answers were identical in all 110 memory cells.
 
 What follows: store *what* and *which way* separately, and apply the concept with a sign (HANDOVER §8).
+
+### 4.6.3 xlayer_v1: read the fact late, inject it earlier (jobs 921693–921695)
+**Question:** facts come out as words or loops when injected near the end. Do they get *used* if read at a late layer R but injected at a middle layer W? (Lindsey 2026: injected concepts act as thoughts about two-thirds deep.)
+
+**Setup:**
+- Qwen3.5-2B, thinking off, 12 facts, plain shift, isolated memories.
+- Gates come from a no-memory pass ("two-pass").
+- The shift is rescaled by the ratio of median state sizes between layers (×0.15 to ×5).
+
+**Stage A (analytic, 4 R × 5 W × 4 α):**
+- **Logit lens of the stored shift:** the median target rank is about 100,000 at L12, about 30,000 at L16, and **1** at L20 and L23. The fact exists only late, as the word itself.
+- **Read at L16:** Δspecificity ≤ +1.6 at any W, even at α 4. Reading in the middle gives nothing to inject.
+- **Read at L23, α 2.** Compare the direct-path boost (the rescaled vector read out at once) with the full-model boost:
+
+  | Inject at | Direct path | Full model |
+  |---|---|---|
+  | W8 | +8.3 | +0.7 |
+  | W16 | +7.5 | +4.8 |
+  | W20 | +7.2 | +7.5 |
+
+  Later blocks damp an early injection; they never amplify it.
+- **Yes/no:** the margin gains are symmetric (dmY ≈ −dmN), a general tilt. The balanced accuracy is 0.44–0.54 in every cell.
+
+**Stage B (generation, 12 facts; related prompt + 2 use prompts × 11 answers):**
+
+| Condition | Related clean | Use clean | Loops (related/use) | Answer length |
+|---|---|---|---|---|
+| no memory | 0.03 | 0.01 | 0.00 | 117 |
+| in context | 0.99 | 0.99 | 0.00 | 105 |
+| R16→W16 / R16→W23, α 1–2 | 0.03–0.06 | 0.00–0.02 | 0.00 | ~113 |
+| R23→W16, α 2 | 0.12 | 0.09 | 0.00 | 116 |
+| R23→W23, α 2 | 0.06 | 0.13 | 0.11 / 0.10 | 110 |
+| current {20,21,23}, α 2 | 0.19 | 0.09 | 0.71 / 0.83 | 130 |
+| {20,21,23} → {14,15,16}, α 2 | **0.35** | **0.27** | 0.03 / 0.05 | **64** |
+
+The best cell's "clean" hits are mostly garbled or identity-confused text, not loops:
+- *"My name is Omar."*
+- *"I am an AI named Pepper, but I don't have a dog"*
+- *"Leeds is a huge city… It's a very Leeds."*
+
+56% of its answers are under 40 words (8% with no memory). Balanced yes/no stays at 0.50 everywhere except one item.
+
+**Conclusions:**
+1. A fact shift is *an intention to say a word*, present only late.
+2. Injected earlier, it fades, or (across three layers) garbles instead of looping.
+3. No premise effect.
+4. "Not a loop" ≠ coherent. This led to the judge and coherence measures in core_v1.
+
+### 4.6.4 core_v1: the pre-registered run on Qwen3.5-2B and 9B (jobs 922999–923009)
+**Design** (`experiments/core_v1/`, PREREG.md written before the run):
+- Qwen3.5-2B (V100) and Qwen3.5-9B (A100 80GB), both fp32, thinking off. Layers 2B {20,21,23}, 9B {27,28,31} (the same relative depth).
+- **Shifts:** facts plain; preferences opposite. The mechanism references are without and centroid.
+- **Doses and controls:** α {0.5,1,2,3}, plus rand, swap, placebo and gate_on at α 2.
+- **Items:** 15 leanings, 8 dislikes, 6 one-of-many, 12 facts, 50 unrelated prompts.
+- **Answers:** 1 greedy + 4 samples per prompt (a second seed set for nomem, ctx, mem@1 and mem@2).
+- **Judge:** Qwen3.5-9B (bf16). `j_lean` (+1 coherent toward, −1 coherent away, 0 otherwise) and `use_judge_clean` are the primary measures; parse rate 1.00.
+- **Statistics:** two-level bootstrap CIs (items, prompts).
+
+**Verdicts:**
+
+| Claim | Rule (short) | 2B | 9B |
+|---|---|---|---|
+| C1 selectivity | gated `unrel_same` ≥ 0.95; gate_on lower | holds (0.98; gate_on 0.06) | holds (0.98; 0.10) |
+| C2 leanings | gain > 0 at α 1 **and** 2; controls ≤ ⅓ | **fails** | **fails** |
+| C3 facts | clean use ≤ ½ ctx at every α; mention-unclean > nomem at α ≥ 2 | holds | holds |
+| C4 no premises | yes/no gain CI includes 0, and the margin is a tilt | **fails** (2B facts α 2: −0.15 [−0.27, −0.04]) | holds |
+| C5 direction (dislikes) | opposite > 0; centroid and without < 0 at a loop-matched α | holds | holds |
+| C6 fact = late word | rank ≤ 10 only at depth ≥ 0.75; > 100 at depth ≤ 0.5 | holds (from L19, depth 0.83) | holds (from L27, depth 0.875) |
+
+**Leanings (15 items, judged lean, gain vs no memory [95% CI]; share of incoherent answers):**
+
+| | 2B gain | 2B incoherent | 9B gain | 9B incoherent |
+|---|---|---|---|---|
+| ctx | +0.72 [0.55, 0.89] | 0.22 | +0.81 [0.63, 1.00] | 0.04 |
+| α 0.5 | +0.09 [−0.02, 0.20] | 0.15 | +0.06 [−0.04, 0.16] | 0.06 |
+| α 1 | **+0.20 [0.04, 0.38]** | 0.22 | **+0.11 [0.004, 0.24]** | 0.09 |
+| α 2 | +0.15 [−0.03, 0.36] | 0.61 | +0.15 [−0.02, 0.36] | 0.41 |
+| α 3 | +0.05 [−0.11, 0.22] | 0.85 | −0.06 [−0.24, 0.15] | 0.80 |
+| rand α 2 | +0.01 | 0.27 | +0.01 | 0.08 |
+| placebo α 2 | −0.03 | 0.86 | −0.14 | 0.88 |
+
+- The lexicon lean over non-loop answers keeps rising with α (2B: +0.35 at α 1, +0.51 at α 2). Words move while coherence collapses.
+- **Per item (2B, no memory → α 1):**
+  - large gains: early_riser +0.17→+0.77, prefers_quiet +0.27→+0.90, vegan −0.20→+0.47, bookworm +0.13→+0.50
+  - none: celiac, lactose_intolerant, has_young_kids
+
+**Dislikes (C5, loop-matched α 1, judged gain):**
+
+| Reference | 2B | 9B |
+|---|---|---|
+| opposite | +0.23 [0.05, 0.44] | +0.25 [0.02, 0.50] |
+| centroid | −0.38 [−0.57, −0.19] (all items wrong way) | −0.37 [−0.59, −0.15] (all items) |
+| without | −0.25 [−0.50, −0.03] | −0.31 [−0.54, −0.07] |
+
+**Facts (12 items, use prompts, judged clean use):**
+- 2B: no memory 0.00; ctx 0.96; α 0.5 0.04, α 1 0.15, α 2 0.02, α 3 0.03
+- 9B: ctx 0.98; α 0.5 0.08, α 1 0.12, α 2 0.02, α 3 0.01
+- At α 2, 86–89% of answers mention the fact without a clean use.
+- Teacher-forced at the measure prefix (2B), the memory *does* make the target likely: Δlog P(target) +9 to +11, top-1 0.62–1.00 at α 1–3. The fact is "there" as a next word, but isn't used in free text.
+
+**Conclusions:**
+1. Selectivity, the fact limit, no premises (in effect), and the concept-vs-direction mechanism all replicate on 2B and 9B.
+2. Leanings transfer only in a narrow window around α 1 and modestly. The pre-registered C2 fails because α 2 overdoses.
+3. Scale (2B → 9B) changes coherence at strong doses, not the pattern.
+
+**Pending:** the hand audit of the judge (`analysis/audit_sample.jsonl`, 200 answers). Until then, the judge numbers are provisional.

@@ -1,6 +1,6 @@
 # Seahorse: what the numbers in the tables mean
 
-*A plain guide to the measures in the experiment reports, mainly `ref_v1` (which reference to subtract when writing a preference) and `think_v1` (memory during Qwen3.5's thinking). For each measure: what it counts, a worked example, and what it can't tell you. The examples are real outputs from those runs where possible. Written 2026-10-06.*
+*A plain guide to the measures in the experiment reports, mainly `ref_v1` (which reference to subtract when writing a preference) and `think_v1` (memory during Qwen3.5's thinking). For each measure: what it counts, a worked example, and what it can't tell you. The examples are real outputs from those runs where possible. Written 2026-10-06; §7b (judged measures and statistics of the pre-registered `core_v1` run) added 2026-10-08.*
 
 ---
 
@@ -236,11 +236,38 @@ Three cosines appear in the reports:
 
 ---
 
+## 7b. Judged measures and statistics (`core_v1`)
+
+Word lists and loop checks missed two things: mentions vs recommendations (§1), and text that is garbled but not repetitive (*"It's a very Leeds."*). So core_v1 adds a **judge**: a second language model (Qwen3.5-9B) reads every answer with a fixed rubric (`experiments/core_v1/judge_prompts.yaml`).
+
+| Measure | What it counts | Example (made-up unless it's a quote from a run) |
+|---|---|---|
+| **Judged lean** (`j_lean`, the primary preference measure) | +1 if the answer *coherently recommends* toward the user's trait, −1 if it coherently recommends away, 0 if neutral **or incoherent** | *"Try a lentil curry or a mushroom risotto."* with a vegetarian memory → +1. *"vegetarian vegan keto"* → 0, because it's incoherent. |
+| `j_dir` | the same direction, ignoring coherence | the fragment above → +1 here |
+| **Incoherent** | the share of answers the judge calls incoherent: loops, fragments, word salad, off-task text | *"Since you do not your native language. Let you it in it more."* |
+| **Clean use** (`use_judge_clean`, the primary fact measure) | on "use" prompts, the answer uses the *correct* fact, correctly, in a coherent answer | *"Hi Petra! Can't wait for your visit next weekend…"* → yes. *"Petra Petra Petra…"* or *"My name is Omar"* → no. |
+| `mention_unclean` | the target is mentioned, but not in a clean use: loops, garble, misuse | the fact memory at α 2: 86–89% of answers |
+| `self_claim` | the assistant claims the user's trait or fact as its own | *"Teal is my favourite colour!"* |
+| **NLL** (coherence, no judge) | how surprising the answer is to the model *without* memory: the mean negative log-probability per token. Higher means stranger text. | no memory ≈ 0.9; placebo memory at α 2 ≈ 3.9 (2B) |
+
+**Why "incoherent = 0" matters.** A dose that makes 60% of answers incoherent can still raise word counts, because the loops and fragments are full of target words. The judged lean doesn't rise. In core_v1, at α 2 on the 2B, the word-list lean went up (+0.51) while the judged lean didn't clear zero. Most of the extra "lean" was broken text.
+
+**Statistics used in core_v1:**
+- **Gain** = memory minus no memory, *on the same prompt with the same random numbers*, so prompt difficulty cancels.
+- **Group number** = the average over items of each item's average over its prompts. Every item counts equally.
+- **95% confidence interval** from a two-level bootstrap. Resample the items, then the prompts within each item, 2,000 times; keep the middle 95% of the resulting averages. **If the interval includes 0, we can't claim an effect.**
+- **ctx rule:** a preference item whose in-context answers don't lean at least 0.3 more than no memory is flagged and set aside. If the model can't show the preference even when told, the item can't test memory.
+- **Pre-registration:** the pass/fail rule for each claim was written before the run (PREREG.md). A claim that fails its rule is reported as failed, even if a different rule would have passed it.
+
+**What the judge can't tell you:** whether it's right. It's a model too, and the larger of the two under test. 200 answers are set aside for a hand check. Until that's done, judged numbers are provisional.
+
+---
+
 ## 8. A checklist before believing a number
 
 1. **Compare with `nomem` and `ctx`**, not with 0.
 2. **Use `lean_clean`, not `lean`**, and look at the loop rate beside it. A high score with a high loop rate is a flood, not a preference.
-3. **Check length.** A collapse means broken answers that the loop rate missed.
+3. **Check length, judged incoherence and NLL.** A collapse in any of them means broken answers that the loop rate missed. Prefer the judged lean over word lists.
 4. **Check `unrel_same` = 1.00**: the memory shouldn't touch unrelated questions.
 5. **Read 3–5 actual answers.** Mentions, puns and negation all fool the word lists.
 6. **Mind the sample size.** One preference's score rests on 66 answers and can move by about ±0.2 by chance. Trust differences bigger than that, or ones that repeat across several preferences.
