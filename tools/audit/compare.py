@@ -405,13 +405,15 @@ def _read_gz(path):
         return [json.loads(line) for line in f if line.strip()]
 
 
-def load_run(run_dir):
+def load_run(run_dir, judge=None):
     """Per-row features from one model's saved generations + judge outputs (seed set 1, 'gen' rows).
+    judge: {key: judge row} to use instead of score/judge.jsonl.gz (the multi-judge panel passes other judges).
     Facts: [clean, hit&clean, hit] with clean = judge uses_fact AND coherent. Preference: one-hot of the
     judge's lean class. Rows whose judge did not parse are dropped (and counted)."""
     run_dir = Path(run_dir)
     items = json.load(open(run_dir / "prep" / "items.json"))
-    judge = {r["key"]: r for r in _read_gz(run_dir / "score" / "judge.jsonl.gz")}
+    if judge is None:
+        judge = {r["key"]: r for r in _read_gz(run_dir / "score" / "judge.jsonl.gz")}
     rows, dropped = [], 0
     for f in sorted((run_dir / "gen" / "items").glob("*.jsonl.gz")):
         for r in _read_gz(f):
