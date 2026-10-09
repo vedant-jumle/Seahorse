@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Seahorse core_v1 judge audit - labelling</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Blind labelling page for the core_v1 judge audit. Single file, no server, no external dependencies.
+
+  DISPLAYED fields (whitelist): audit_id, rubric, question, answer, fact, target, trait.
+  HIDDEN / never rendered, even if a row carries them: condition (cond), model, dose / alpha, item, group,
+  kind, key, lexicon, loop, nll, hit, and every judge label (judge, direction/uses_fact/... from the judge).
+  These live in audit_key.jsonl, which this page never asks for and never loads. The h_lexicon_ok field is not
+  asked either: compare.py derives lexicon agreement from the key.
+  Any other field on a row is ignored (only the whitelist above is shown) but is kept in the export unchanged.
+
+  Human fields written on export: fact -> h_uses_fact, h_coherent, h_self_claim, h_wrong_value (true/false/"unsure");
+  preference -> h_direction ("toward"/"away"/"neutral"/"unsure"), h_coherent, h_self_claim (true/false/"unsure");
+  plus h_notes. Unlabelled fields stay null.
+-->
+<style>
+  :root { --bg:#f6f6f3; --fg:#1d1d1b; --muted:#6a6a64; --card:#fff; --line:#d6d6cf; --acc:#1f5fa8; --sel:#1f5fa8; --warn:#a33; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; gap:16px; align-items:center; padding:8px 16px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; }
+  #progress { font-weight:600; }
+  .bar { flex:1; min-width:120px; height:8px; background:#e3e3dc; border-radius:4px; overflow:hidden; }
+  .bar > div { height:100%; background:var(--acc); width:0; }
+  button { font:inherit; padding:5px 12px; border:1px solid var(--line); background:var(--card); border-radius:5px; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
+  #loader { margin:60px auto; max-width:560px; padding:32px; text-align:center; background:var(--card); border:2px dashed var(--line); border-radius:8px; }
+  #loader.over { border-color:var(--acc); }
+  main { display:none; grid-template-columns: minmax(0,3fr) minmax(300px,2fr); gap:16px; padding:16px; max-width:1400px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:12px; }
+  .card h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 6px; font-weight:600; }
+  .text { white-space:pre-wrap; word-break:break-word; margin:0; font:14px/1.45 ui-monospace, Menlo, Consolas, monospace; }
+  #answer { max-height:calc(100vh - 330px); min-height:140px; overflow:auto; background:#fbfbf9; border:1px solid var(--line); padding:8px; border-radius:5px; }
+  .field { padding:8px; border-radius:6px; margin-bottom:6px; border:2px solid transparent; }
+  .field.active { border-color:var(--acc); background:#eef4fb; }
+  .field .q { font-weight:600; }
+  .field .hint { color:var(--muted); font-size:13px; margin-bottom:4px; }
+  .opts { display:flex; gap:6px; flex-wrap:wrap; }
+  .opts button kbd { color:var(--muted); margin-right:4px; font-size:12px; }
+  .opts button.on { background:var(--sel); color:#fff; border-color:var(--sel); }
+  .opts button.on kbd { color:#cfe0f5; }
+  textarea { width:100%; min-height:60px; font:inherit; padding:6px; border:1px solid var(--line); border-radius:5px; }
+  .instr { font-size:13.5px; }
+  .instr ul { margin:4px 0 0 18px; padding:0; }
+  .nav { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .keys { color:var(--muted); font-size:12.5px; margin-top:8px; }
+  #msg { color:var(--warn); font-size:13px; }
+  .tag { display:inline-block; font-size:12px; padding:1px 8px; border-radius:10px; background:#e8eef6; color:var(--acc); }
+  .done { color:#2a7a3a; font-weight:600; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } #answer { max-height:50vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>core_v1 judge audit</h1>
+  <span id="progress">0 / 0</span>
+  <div class="bar"><div id="barfill"></div></div>
+  <button id="btnNext" title="Jump to the next unlabelled row (N)">Next unlabelled (N)</button>
+  <button id="btnExport" class="primary" title="Download audit_labelled.jsonl">Export</button>
+  <button id="btnLoad">Load file</button>
+</header>
+
+<div id="loader">
+  <p><b>Load <code>audit_sample.jsonl</code></b></p>
+  <p>Drag the file here, or <button id="btnPick">choose a file</button></p>
+  <p style="color:var(--muted);font-size:13px">Labels autosave in this browser (keyed by the file name). Load the same file again to resume.
+  Do not open <code>audit_key.jsonl</code> until you have finished.</p>
+  <input type="file" id="file" accept=".jsonl,.json,.txt" style="display:none">
+  <p id="loadmsg" style="color:var(--warn)"></p>
+</div>
+
+<main id="main">
+  <section>
+    <div class="card"><h2>Row <span id="rowno"></span> <span class="tag" id="rubtag"></span></h2>
+      <div id="ctxbox"></div>
+    </div>
+    <div class="card"><h2>User's message</h2><pre class="text" id="question"></pre></div>
+    <div class="card"><h2>Assistant's reply (may be cut off at a length limit; that alone is fine)</h2><pre class="text" id="answer"></pre></div>
+  </section>
+  <aside>
+    <div class="card instr" id="instr"></div>
+    <div class="card"><h2>Your labels</h2><div id="fields"></div>
+      <h2 style="margin-top:8px">Notes</h2><textarea id="notes" placeholder="optional"></textarea>
+    </div>
+    <div class="card">
+      <div class="nav">
+        <button id="btnPrev">&larr; Prev</button><button id="btnFwd">Next &rarr;</button>
+        <span style="flex:1"></span>
+        <span id="rowstate"></span>
+      </div>
+      <div id="msg"></div>
+      <div class="keys">Keys: <b>1/2/3(/4)</b> answer the highlighted field and move to the next one; <b>&uarr;/&darr;</b> or <b>Tab</b> change field;
+      <b>Enter</b> or <b>&rarr;</b> next row; <b>&larr;</b> previous row; <b>N</b> next unlabelled; <b>0</b> clear field;
+      <b>T</b> focus notes (<b>Esc</b> leaves). Option order is always: yes, no, unsure / toward, away, neutral, unsure.</div>
+    </div>
+  </aside>
+</main>
+
+<script>
+"use strict";
+// ---- rubric definitions (adapted from experiments/core_v1/judge_prompts.yaml; same definitions as the judge) ----
+var YN = [{v:true, t:"yes"}, {v:false, t:"no"}, {v:"unsure", t:"unsure"}];
+var COHERENT = {key:"h_coherent", q:"coherent?", hint:"Is the reply fluent, sensible and on-topic? Answer NO if it is garbled, nonsensical, stuck repeating itself, or wanders into unrelated text.", opts:YN};
+var RUBRICS = {
+  fact: {
+    title: "Fact rubric",
+    intro: "Earlier the user told the assistant the FACT shown on the left. Read the user's message and the reply, then answer four questions. Do not judge style or helpfulness beyond the questions.",
+    fields: [
+      {key:"h_uses_fact", q:"uses_fact?", hint:"Does the reply state or use the correct value (shown as 'correct value') correctly, as a fact about the user? Example: naming the user's dog Pepper in a note about the dog. A mention inside garbled or repetitive text does NOT count.", opts:YN},
+      COHERENT,
+      {key:"h_self_claim", q:"self_claim?", hint:"Does the assistant present the fact as being about ITSELF (\"My name is Omar\", \"I am a pharmacist\") rather than about the user? A draft written in the user's voice for the user to send (\"my dog Pepper has a checkup\") is NOT a self-claim.", opts:YN},
+      {key:"h_wrong_value", q:"wrong_value?", hint:"Does the reply assert a specific WRONG value for this fact (a different name, job, place or colour)?", opts:YN}
+    ]
+  },
+  preference: {
+    title: "Preference rubric",
+    intro: "The user has the TRAIT shown on the left (the assistant may or may not know about it). Read the user's message and the reply, then answer three questions.",
+    fields: [
+      {key:"h_direction", q:"direction?", hint:"Do the reply's suggestions or recommendations FIT the user's trait (toward), GO AGAINST it (away), or neither / mixed / no clear suggestion (neutral)? Judge what the reply recommends, not which words it mentions. Example: trait = dislikes jazz; recommending jazz is 'away', recommending other music is 'toward'; saying 'since you don't like jazz' while recommending other music is still 'toward'.",
+       opts:[{v:"toward", t:"toward"}, {v:"away", t:"away"}, {v:"neutral", t:"neutral"}, {v:"unsure", t:"unsure"}]},
+      COHERENT,
+      {key:"h_self_claim", q:"self_claim?", hint:"Does the assistant claim the trait as ITS OWN (\"I'm vegetarian myself\", \"I love jazz\") rather than as the user's?", opts:YN}
+    ]
+  }
+};
+// fields that are displayed (everything else on a row is hidden; see the comment at the top)
+var SHOW = {question:1, answer:1, fact:1, target:1, trait:1};
+
+var rows = [], fname = "", state = {}, idx = 0, activeField = 0;
+
+function $(id) { return document.getElementById(id); }
+function storeKey() { return "seahorse-audit:" + fname; }
+function save() {
+  try { localStorage.setItem(storeKey(), JSON.stringify({state: state, idx: idx})); } catch (e) { /* storage may be unavailable */ }
+}
+function loadSaved() {
+  try {
+    var s = localStorage.getItem(storeKey());
+    if (s) { var o = JSON.parse(s); state = o.state || {}; idx = Math.min(o.idx || 0, rows.length - 1); return true; }
+  } catch (e) { /* ignore */ }
+  state = {}; idx = 0; return false;
+}
+function fieldsOf(row) { return (RUBRICS[row.rubric] || RUBRICS.fact).fields; }
+function isLabelled(row) {
+  var s = state[row.audit_id]; if (!s) return false;
+  return fieldsOf(row).every(function (f) { return s[f.key] !== undefined && s[f.key] !== null; });
+}
+function nLabelled() { return rows.filter(isLabelled).length; }
+
+function parse(text) {
+  var out = [], lines = text.split(/\r?\n/);
+  for (var i = 0; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    var o = JSON.parse(lines[i]);
+    if (o.audit_id === undefined) throw new Error("line " + (i + 1) + " has no audit_id");
+    out.push(o);
+  }
+  return out;
+}
+function openText(text, name) {
+  try {
+    var r = parse(text);
+    if (!r.length) throw new Error("file is empty");
+    var seen = {}; r.forEach(function (x) { if (seen[x.audit_id]) throw new Error("duplicate audit_id " + x.audit_id); seen[x.audit_id] = 1; });
+    rows = r; fname = name; loadSaved();
+    $("loader").style.display = "none"; $("main").style.display = "grid";
+    render();
+  } catch (e) { $("loadmsg").textContent = "Could not read the file: " + e.message; }
+}
+function readFile(f) {
+  if (!f) return;
+  var rd = new FileReader();
+  rd.onload = function () { openText(String(rd.result), f.name); };
+  rd.readAsText(f);
+}
+
+function mkBtn(label, cls, fn) { var b = document.createElement("button"); b.textContent = label; if (cls) b.className = cls; b.onclick = fn; return b; }
+
+function render() {
+  var row = rows[idx], rub = RUBRICS[row.rubric] || RUBRICS.fact, s = state[row.audit_id] || {};
+  $("rowno").textContent = (idx + 1) + " of " + rows.length + " (" + row.audit_id + ")";
+  $("rubtag").textContent = rub.title;
+  var cb = $("ctxbox"); cb.textContent = "";
+  function add(label, text) {
+    var h = document.createElement("div"); h.style.cssText = "color:var(--muted);font-size:12px;margin-top:6px"; h.textContent = label;
+    var p = document.createElement("pre"); p.className = "text"; p.textContent = text; cb.appendChild(h); cb.appendChild(p);
+  }
+  if (row.rubric === "preference") { add("User's trait", row.trait == null ? "" : row.trait); }
+  else { add("Fact the user told the assistant", row.fact == null ? "" : row.fact); add("Correct value", row.target == null ? "" : row.target); }
+  $("question").textContent = row.question == null ? "" : row.question;
+  $("answer").textContent = row.answer == null ? "" : row.answer; $("answer").scrollTop = 0;
+  var ins = $("instr"); ins.textContent = "";
+  var h = document.createElement("h2"); h.textContent = "Instructions: " + rub.title; ins.appendChild(h);
+  var p = document.createElement("div"); p.textContent = rub.intro; ins.appendChild(p);
+  var ul = document.createElement("ul");
+  rub.fields.forEach(function (f) { var li = document.createElement("li"); var b = document.createElement("b"); b.textContent = f.q + " "; li.appendChild(b); li.appendChild(document.createTextNode(f.hint)); ul.appendChild(li); });
+  ins.appendChild(ul);
+  var fl = $("fields"); fl.textContent = "";
+  rub.fields.forEach(function (f, i) {
+    var d = document.createElement("div"); d.className = "field" + (i === activeField ? " active" : "");
+    var q = document.createElement("div"); q.className = "q"; q.textContent = f.q; d.appendChild(q);
+    var o = document.createElement("div"); o.className = "opts";
+    f.opts.forEach(function (op, k) {
+      var b = document.createElement("button"); if (s[f.key] === op.v) b.className = "on";
+      var kb = document.createElement("kbd"); kb.textContent = String(k + 1); b.appendChild(kb); b.appendChild(document.createTextNode(op.t));
+      b.onclick = function () { setVal(i, op.v); };
+      o.appendChild(b);
+    });
+    d.appendChild(o);
+    d.onclick = function (e) { if (e.target.tagName !== "BUTTON") { activeField = i; render(); } };
+    fl.appendChild(d);
+  });
+  $("notes").value = s.h_notes || "";
+  var n = nLabelled();
+  $("progress").textContent = n + " / " + rows.length;
+  $("barfill").style.width = (100 * n / rows.length) + "%";
+  $("rowstate").innerHTML = isLabelled(row) ? '<span class="done">labelled</span>' : "not fully labelled";
+  $("msg").textContent = "";
+}
+function setVal(i, v) {
+  var row = rows[idx], f = fieldsOf(row)[i], s = state[row.audit_id] || (state[row.audit_id] = {});
+  if (v === null) delete s[f.key]; else s[f.key] = v;
+  if (i < fieldsOf(row).length - 1) activeField = i + 1;
+  save(); render();
+}
+function go(d) { idx = Math.max(0, Math.min(rows.length - 1, idx + d)); activeField = 0; save(); render(); }
+function nextUnlabelled() {
+  for (var k = 1; k <= rows.length; k++) {
+    var j = (idx + k) % rows.length;
+    if (!isLabelled(rows[j])) { idx = j; activeField = 0; save(); render(); return; }
+  }
+  $("msg").textContent = "All rows are labelled. Use Export.";
+}
+function exportAll() {
+  var missing = rows.length - nLabelled();
+  if (missing > 0 && !confirm(missing + " of " + rows.length + " rows are not fully labelled. Export anyway? (unlabelled fields stay null)")) return;
+  var lines = rows.map(function (r) {
+    var o = JSON.parse(JSON.stringify(r)), s = state[r.audit_id] || {};
+    fieldsOf(r).forEach(function (f) { o[f.key] = (s[f.key] === undefined) ? null : s[f.key]; });
+    o.h_notes = s.h_notes || "";
+    return JSON.stringify(o);
+  });
+  var blob = new Blob([lines.join("\n") + "\n"], {type: "application/x-ndjson"});
+  var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "audit_labelled.jsonl";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+}
+
+// ---- wiring ----
+$("btnPick").onclick = $("btnLoad").onclick = function () { $("file").click(); };
+$("file").onchange = function () { readFile(this.files[0]); this.value = ""; };
+$("btnNext").onclick = function () { if (rows.length) nextUnlabelled(); };
+$("btnExport").onclick = function () { if (rows.length) exportAll(); };
+$("btnPrev").onclick = function () { go(-1); };
+$("btnFwd").onclick = function () { go(1); };
+$("notes").oninput = function () {
+  var row = rows[idx], s = state[row.audit_id] || (state[row.audit_id] = {}); s.h_notes = this.value; save();
+};
+["dragover", "dragenter"].forEach(function (ev) { document.addEventListener(ev, function (e) { e.preventDefault(); $("loader").classList.add("over"); }); });
+["dragleave", "drop"].forEach(function (ev) { document.addEventListener(ev, function (e) { e.preventDefault(); $("loader").classList.remove("over"); }); });
+document.addEventListener("drop", function (e) { if (e.dataTransfer && e.dataTransfer.files.length) readFile(e.dataTransfer.files[0]); });
+document.addEventListener("keydown", function (e) {
+  if (!rows.length || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (document.activeElement === $("notes")) { if (e.key === "Escape") { $("notes").blur(); e.preventDefault(); } return; }
+  var row = rows[idx], fs = fieldsOf(row), k = e.key;
+  if (k >= "1" && k <= "9") {
+    var opts = fs[activeField].opts, n = parseInt(k, 10) - 1;
+    if (n < opts.length) setVal(activeField, opts[n].v);
+    e.preventDefault();
+  } else if (k === "0" || k === "Backspace") { setVal(activeField, null); activeField = Math.max(0, activeField); render(); e.preventDefault(); }
+  else if (k === "ArrowDown" || k === "Tab" && !e.shiftKey) { activeField = (activeField + 1) % fs.length; render(); e.preventDefault(); }
+  else if (k === "ArrowUp" || k === "Tab" && e.shiftKey) { activeField = (activeField + fs.length - 1) % fs.length; render(); e.preventDefault(); }
+  else if (k === "Enter" || k === "ArrowRight") { go(1); e.preventDefault(); }
+  else if (k === "ArrowLeft") { go(-1); e.preventDefault(); }
+  else if (k === "n" || k === "N") { nextUnlabelled(); e.preventDefault(); }
+  else if (k === "t" || k === "T") { $("notes").focus(); e.preventDefault(); }
+});
+window.addEventListener("beforeunload", function () { if (rows.length) save(); });
+</script>
+</body>
+</html>
