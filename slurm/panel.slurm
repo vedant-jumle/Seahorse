@@ -62,12 +62,17 @@ echo "ollama up on port $PORT (parallel $PARALLEL)"
 rc=0
 for J in $JUDGES; do
   echo "=== judge $J $(date -Is)"
-  if [ "$STAGE" = smoke ]; then
+  if [ "$STAGE" = ftest ]; then   # throughput of the output constraint: schema vs any-JSON vs none
+    for F in schema json none; do
+      python experiments/core_v1/panel_judge.py --run "$RUN" --judge "$J" --out "$PANEL/ftest" --url "http://127.0.0.1:$PORT" \
+        --limit "${N_SMOKE:-64}" --stratified --workers "$WORKERS" --format $F --file "${J}_$F.jsonl" || rc=1
+    done
+  elif [ "$STAGE" = smoke ]; then
     python experiments/core_v1/panel_judge.py --run "$RUN" --judge "$J" --out "$PANEL/smoke" --url "http://127.0.0.1:$PORT" \
       --limit "${N_SMOKE:-64}" --stratified --workers "$WORKERS" || rc=1
   else
     python experiments/core_v1/panel_judge.py --run "$RUN" --judge "$J" --out "$PANEL" --url "http://127.0.0.1:$PORT" \
-      ${SUBSET:+--subset} --workers "$WORKERS" || rc=1
+      ${SUBSET:+--subset} --workers "$WORKERS" --format "${FORMAT:-schema}" || rc=1
   fi
   $OLLAMA ps || true
 done

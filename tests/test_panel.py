@@ -154,7 +154,7 @@ def test_resume_skips_done_and_survives_torn_line(tmp_path):
     out = tmp_path / "out.jsonl"
     calls = []
 
-    def post(url, tag, prompt, schema, seed, num_predict=None, use_format=True, timeout=0):
+    def post(url, tag, prompt, schema, seed, num_predict=None, fmt="schema", timeout=0):
         calls.append(prompt)
         if "uses_fact" in schema:
             return json.dumps({"uses_fact": True, "coherent": True, "self_claim": False, "wrong_value": False}), {}
@@ -176,16 +176,16 @@ def test_retry_once_then_invalid(tmp_path):
     task = P.build_tasks(run, J)[0]
     seeds = []
 
-    def bad(url, tag, prompt, schema, seed, num_predict=None, use_format=True, timeout=0):
-        seeds.append((seed, use_format))
+    def bad(url, tag, prompt, schema, seed, num_predict=None, fmt="schema", timeout=0):
+        seeds.append((seed, fmt))
         return "I refuse", {}
 
     rec = P.judge_one("u", "llama31", task, J[task["rubric"] if task["rubric"] == "fact" else "preference"]["schema"], bad)
     assert rec["ok"] is False and rec["attempts"] == 2 and len(seeds) == 2 and seeds[0][0] != seeds[1][0]
-    assert seeds[0][1] is True and seeds[1][1] is False
+    assert seeds[0][1] == "schema" and seeds[1][1] == "none"
     calls = []
 
-    def flaky(url, tag, prompt, schema, seed, num_predict=None, use_format=True, timeout=0):
+    def flaky(url, tag, prompt, schema, seed, num_predict=None, fmt="schema", timeout=0):
         calls.append(1)
         return ("oops", {}) if len(calls) == 1 else ('{"direction": "away", "coherent": true, "self_claim": false}', {})
 

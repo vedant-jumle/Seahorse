@@ -209,7 +209,7 @@ def read_done(path):
 # ----------------------------------------------------------------------------- Ollama client
 
 
-def chat(url, tag, prompt, schema, seed, num_predict=None, use_format=True, timeout=900):
+def chat(url, tag, prompt, schema, seed, num_predict=None, fmt="schema", timeout=900):
     cfg = JUDGES[tag]
     body = {"model": cfg["model"], "stream": False, "keep_alive": "2h",
             "messages": [{"role": "user", "content": prompt}],
@@ -217,8 +217,10 @@ def chat(url, tag, prompt, schema, seed, num_predict=None, use_format=True, time
                         "num_predict": num_predict or cfg["num_predict"]}}
     if cfg["think"] is not None:
         body["think"] = cfg["think"]
-    if use_format:
+    if fmt == "schema":
         body["format"] = json_schema(schema)
+    elif fmt == "json":
+        body["format"] = "json"
     req = urllib.request.Request(url.rstrip("/") + "/api/chat", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -226,15 +228,16 @@ def chat(url, tag, prompt, schema, seed, num_predict=None, use_format=True, time
     return (out.get("message") or {}).get("content") or "", out
 
 
-def judge_one(url, tag, task, schema, post=chat):
+def judge_one(url, tag, task, schema, post=chat, fmt="schema"):
     """One prompt: query, parse, retry ONCE (different seed, no JSON constraint if the first try had one and
-    was rejected or empty). Returns the output record."""
+    was rejected or empty). Returns the output record. fmt = the first try's output constraint ("schema" = the
+    rubric's JSON schema, "json" = any JSON, "none"); the retry uses the schema if the first try had none, else none."""
     t0 = time.time()
-    raw, p, attempts, err = "", None, 0, None
+    raw, p, attempts, err, full = "", None, 0, None, {}
     for attempt in range(2):
         attempts += 1
         try:
-            raw, _ = post(url, tag, task["prompt"], schema, SEED + attempt, use_format=(attempt == 0))
+            raw, full = post(url, tag, task["prompt"], schema, SEED + attempt, fmt=(fmt if attempt == 0 else ('schema' if fmt == 'none' else 'none')))
             err = None
         except (urllib.error.URLError, TimeoutError, ConnectionError, ValueError) as e:
             raw, err = "", f"{type(e).__name__}: {e}"[:200]
@@ -242,7 +245,8 @@ def judge_one(url, tag, task, schema, post=chat):
         if p["ok"]:
             break
     rec = {"h": task["h"], "judge": tag, "rubric": task["rubric"], "keys": task["keys"], "raw": raw[:600], **p,
-           "attempts": attempts, "ms": int((time.time() - t0) * 1000)}
+           "fmt": fmt, "attempts": attempts, "ms": int((time.time() - t0) * 1000),
+           "tok": [full.get("prompt_eval_count"), full.get("eval_count")]}
     if err:
         rec["err"] = err
     return rec
@@ -258,7 +262,7 @@ def _end_with_newline(path):
                 f.write(b"\n")
 
 
-def run_tasks(url, tag, tasks, J, out_path, workers=16, post=chat, log=print, every=200):
+def run_tasks(url, tag, tasks, J, out_path, workers=16, post=chat, log=print, every=200, fmt="schema"):
     """Judge `tasks` not yet in out_path with `workers` concurrent requests; append each record at once."""
     done = read_done(out_path)
     todo = [t for t in tasks if t["h"] not in done]
@@ -269,7 +273,7 @@ def run_tasks(url, tag, tasks, J, out_path, workers=16, post=chat, log=print, ev
     t0 = time.time()
     _end_with_newline(out_path)
     with open(out_path, "a", encoding="utf-8") as f, ThreadPoolExecutor(workers) as ex:
-        futs = [ex.submit(judge_one, url, tag, t, schemas[t["rubric"]], post) for t in todo]
+        futs = [ex.submit(judge_one, url, tag, t, schemas[t["rubric"]], post, fmt) for t in todo]
         for fut in as_completed(futs):
             rec = fut.result()
             with lock:
@@ -305,6 +309,7 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="first N unique prompts of the priority order")
     ap.add_argument("--stratified", action="store_true", help="with --limit: spread N over both rubrics evenly")
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--format", default="schema", choices=["schema", "json", "none"], help="output constraint of the first try")
     ap.add_argument("--file", default=None, help="output file name (default <tag>.jsonl)")
     a = ap.parse_args()
     J = load_prompts()
@@ -327,7 +332,7 @@ def main():
             chat(a.url, a.judge, tasks[0]["prompt"], J["fact" if tasks[0]["rubric"] == "fact" else "preference"]["schema"], SEED)
         except Exception as e:
             print(f"warm-up failed: {e}")
-    res = run_tasks(a.url, a.judge, tasks, J, out / (a.file or f"{a.judge}.jsonl"), a.workers)
+    res = run_tasks(a.url, a.judge, tasks, J, out / (a.file or f"{a.judge}.jsonl"), a.workers, fmt=a.format)
     print(json.dumps(res))
 
 
