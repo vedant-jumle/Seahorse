@@ -262,20 +262,28 @@ def _end_with_newline(path):
                 f.write(b"\n")
 
 
-def run_tasks(url, tag, tasks, J, out_path, workers=16, post=chat, log=print, every=200, fmt="schema"):
+def run_tasks(url, tag, tasks, J, out_path, workers=16, post=chat, log=print, every=200, fmt="schema", deadline=None):
     """Judge `tasks` not yet in out_path with `workers` concurrent requests; append each record at once."""
     done = read_done(out_path)
     todo = [t for t in tasks if t["h"] not in done]
     log(f"[{tag}] {len(tasks)} unique prompts, {len(done & {t['h'] for t in tasks})} already done, {len(todo)} to do")
     schemas = {"fact": J["fact"]["schema"], "preference": J["preference"]["schema"]}
     lock = threading.Lock()
-    n = n_bad = 0
+    n = n_bad = n_skip = 0
+
+    def work(t):
+        if deadline is not None and time.time() > deadline:   # out of time: leave it for a later resume
+            return None
+        return judge_one(url, tag, t, schemas[t["rubric"]], post, fmt)
     t0 = time.time()
     _end_with_newline(out_path)
     with open(out_path, "a", encoding="utf-8") as f, ThreadPoolExecutor(workers) as ex:
-        futs = [ex.submit(judge_one, url, tag, t, schemas[t["rubric"]], post, fmt) for t in todo]
+        futs = [ex.submit(work, t) for t in todo]
         for fut in as_completed(futs):
             rec = fut.result()
+            if rec is None:
+                n_skip += 1
+                continue
             with lock:
                 f.write(json.dumps(rec) + "\n")
                 f.flush()
@@ -286,7 +294,42 @@ def run_tasks(url, tag, tasks, J, out_path, workers=16, post=chat, log=print, ev
                     log(f"[{tag}] {n}/{len(todo)} done | {n / el:.2f} prompts/s | invalid {n_bad} ({n_bad / n:.1%}) | "
                         f"eta {(len(todo) - n) / max(n / el, 1e-9) / 60:.1f} min")
     el = time.time() - t0
-    return {"judge": tag, "done_now": n, "invalid_now": n_bad, "seconds": el, "per_s": n / el if el > 0 else 0.0}
+    if n_skip:
+        log(f"[{tag}] DEADLINE: {n_skip} prompts not judged (priority order: the pre-registered subset goes first); resume to finish")
+    res = {"judge": tag, "fmt": fmt, "done_now": n, "invalid_now": n_bad, "skipped_deadline": n_skip, "seconds": el,
+           "per_s": n / el if el > 0 else 0.0}
+    json.dump(res, open(str(out_path) + ".stats.json", "w"))
+    return res
+
+
+def pick_format(ftest_dir, tag, speedup=1.67, max_invalid=0.02, min_agree=0.85):
+    """Choose the output constraint for a judge from the ftest runs. 'schema' (the preferred one) stays unless
+    another constraint is valid (<= max_invalid unparsed), agrees with the schema run's labels on >= min_agree
+    of the prompts, and is at least `speedup` times faster. If schema itself is invalid, the fastest valid one."""
+    d = Path(ftest_dir)
+    res, recs = {}, {}
+    for f in ("schema", "json", "none"):
+        p = d / f"{tag}_{f}.jsonl"
+        if p.exists() and Path(str(p) + ".stats.json").exists():
+            st = json.load(open(str(p) + ".stats.json"))
+            rs = [json.loads(line) for line in open(p) if line.strip()]
+            res[f] = {"per_s": st["per_s"], "invalid": sum(not r["ok"] for r in rs) / max(len(rs), 1)}
+            recs[f] = {r["h"]: r for r in rs}
+    if "schema" not in res:
+        return "schema", res
+    flds = ("direction", "uses_fact", "coherent", "self_claim", "wrong_value")
+    valid = []
+    for f in ("json", "none"):
+        if f in res and res[f]["invalid"] <= max_invalid:
+            both = [h for h in recs[f] if h in recs["schema"] and recs[f][h]["ok"] and recs["schema"][h]["ok"]]
+            ag = sum(all(recs[f][h].get(k) == recs["schema"][h].get(k) for k in flds) for h in both) / len(both) if both else 0.0
+            res[f]["agree_with_schema"] = ag
+            if ag >= min_agree or res["schema"]["invalid"] > max_invalid:
+                valid.append(f)
+    best = max(valid, key=lambda f: res[f]["per_s"]) if valid else "schema"
+    if res["schema"]["invalid"] <= max_invalid and best != "schema" and res[best]["per_s"] < speedup * res["schema"]["per_s"]:
+        best = "schema"
+    return best, res
 
 
 def wait_ready(url, tries=240, sleep=2.0):
@@ -301,6 +344,8 @@ def wait_ready(url, tries=240, sleep=2.0):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--pick-format", nargs=2, metavar=("FTEST_DIR", "JUDGE"), help="print (and write format_<judge>.txt) the chosen constraint")
+    ap.add_argument("--deadline-min", type=float, default=None, help="stop starting new prompts after this many minutes")
     ap.add_argument("--run", required=True, help="core_v1 run root (holds qwen35_2b/, qwen35_9b/)")
     ap.add_argument("--judge", required=True, choices=sorted(JUDGES))
     ap.add_argument("--out", required=True, help="panel output dir")
@@ -312,6 +357,11 @@ def main():
     ap.add_argument("--format", default="schema", choices=["schema", "json", "none"], help="output constraint of the first try")
     ap.add_argument("--file", default=None, help="output file name (default <tag>.jsonl)")
     a = ap.parse_args()
+    if a.pick_format:
+        best, res = pick_format(*a.pick_format)
+        print(json.dumps({"chosen": best, **res}))
+        (Path(a.pick_format[0]).parent / f"format_{a.pick_format[1]}.txt").write_text(best)
+        return
     J = load_prompts()
     tasks = build_tasks(a.run, J, subset=a.subset)
     if a.limit:
@@ -332,7 +382,8 @@ def main():
             chat(a.url, a.judge, tasks[0]["prompt"], J["fact" if tasks[0]["rubric"] == "fact" else "preference"]["schema"], SEED)
         except Exception as e:
             print(f"warm-up failed: {e}")
-    res = run_tasks(a.url, a.judge, tasks, J, out / (a.file or f"{a.judge}.jsonl"), a.workers, fmt=a.format)
+    res = run_tasks(a.url, a.judge, tasks, J, out / (a.file or f"{a.judge}.jsonl"), a.workers, fmt=a.format,
+                    deadline=time.time() + a.deadline_min * 60 if a.deadline_min else None)
     print(json.dumps(res))
 
 

@@ -200,3 +200,28 @@ def test_prevalence_and_summary_shapes():
                           for n in ("orig", "gemma4")}, ["orig", "gemma4"])
     assert S["C5"]["qwen35_2b"]["differs_from_orig"] == ["gemma4"]
     assert "NOT robust" in AP.verdict_text(S, ["orig", "gemma4"])
+
+
+def test_deadline_leaves_work_for_resume(tmp_path):
+    run = _fake_run(tmp_path / "run")
+    tasks = P.build_tasks(run, J)
+    out = tmp_path / "o.jsonl"
+    post = lambda *a, **k: ('{"direction": "toward", "coherent": true, "self_claim": false}', {})
+    r = P.run_tasks("u", "gemma4", tasks, J, out, workers=1, post=post, log=lambda *_: None, deadline=0.0)
+    assert r["done_now"] == 0 and r["skipped_deadline"] == len(tasks) and not P.read_done(out)
+
+
+def test_pick_format(tmp_path):
+    def put(fmt, per_s, invalid, label):
+        rs = [{"h": str(i), "ok": i >= invalid, "coherent": label, "direction": "toward"} for i in range(50)]
+        p = tmp_path / f"g_{fmt}.jsonl"
+        p.write_text("\n".join(json.dumps(r) for r in rs))
+        json.dump({"per_s": per_s}, open(str(p) + ".stats.json", "w"))
+    put("schema", 1.0, 0, True)
+    put("json", 1.2, 0, True)      # barely faster -> stay on schema
+    put("none", 4.0, 0, True)      # much faster, same labels -> none
+    assert P.pick_format(tmp_path, "g")[0] == "none"
+    put("none", 4.0, 5, True)      # 10% invalid -> not allowed
+    assert P.pick_format(tmp_path, "g")[0] == "schema"
+    put("none", 4.0, 0, False)     # different labels -> not allowed
+    assert P.pick_format(tmp_path, "g")[0] == "schema"

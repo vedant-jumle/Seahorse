@@ -11,7 +11,9 @@
 #   JUDGES    space-separated judge tags (gptoss gemma4 llama31 qwen36); smoke / judge stages
 #   SUBSET    1 = only the answers the pre-registered C2/C3/C5 use (judge stage)
 #   WORKERS   concurrent requests (default 16); PARALLEL = OLLAMA_NUM_PARALLEL (default = WORKERS)
-#   N_SMOKE   smoke prompts per judge (default 64)
+#   N_SMOKE   smoke / ftest prompts per judge (default 64)
+#   DEADLINE_MIN  judge stage: stop starting new prompts after this many minutes (the pre-registered subset goes first)
+#   STAGE ftest: throughput of schema / json / none output constraints; picks format_<judge>.txt used by the judge stage
 # Ollama runs on the GPU node (127.0.0.1, random free port); compute nodes have no internet, so only models
 # already in OLLAMA_MODELS are used. The server is killed on exit.
 set -eo pipefail
@@ -67,12 +69,14 @@ for J in $JUDGES; do
       python experiments/core_v1/panel_judge.py --run "$RUN" --judge "$J" --out "$PANEL/ftest" --url "http://127.0.0.1:$PORT" \
         --limit "${N_SMOKE:-64}" --stratified --workers "$WORKERS" --format $F --file "${J}_$F.jsonl" || rc=1
     done
+    python experiments/core_v1/panel_judge.py --run "$RUN" --out "$PANEL" --judge "$J" --pick-format "$PANEL/ftest" "$J" || true
   elif [ "$STAGE" = smoke ]; then
     python experiments/core_v1/panel_judge.py --run "$RUN" --judge "$J" --out "$PANEL/smoke" --url "http://127.0.0.1:$PORT" \
       --limit "${N_SMOKE:-64}" --stratified --workers "$WORKERS" || rc=1
   else
     python experiments/core_v1/panel_judge.py --run "$RUN" --judge "$J" --out "$PANEL" --url "http://127.0.0.1:$PORT" \
-      ${SUBSET:+--subset} --workers "$WORKERS" --format "${FORMAT:-schema}" || rc=1
+      ${SUBSET:+--subset} --workers "$WORKERS" --format "$(cat "$PANEL/format_$J.txt" 2>/dev/null || echo schema)" \
+      ${DEADLINE_MIN:+--deadline-min $DEADLINE_MIN} || rc=1
   fi
   $OLLAMA ps || true
 done
