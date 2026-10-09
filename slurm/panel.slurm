@@ -31,8 +31,10 @@ export PYTHONUNBUFFERED=1
 cd "$REPO"
 mkdir -p "$PANEL"
 echo "panel STAGE=$STAGE RUN=$RUN JUDGES=${JUDGES:-} commit=$(git log -1 --oneline) node=$(hostname) job=$SLURM_JOB_ID"
-pytest -q tests/test_panel.py
-echo "pytest passed"
+if [ "$STAGE" = analyze ]; then   # the tests import torch/transformers (slow on a cold node); GPU stages skip them
+  pytest -q tests/test_panel.py
+  echo "pytest passed"
+fi
 
 if [ "$STAGE" = analyze ]; then
   python experiments/core_v1/analyze_panel.py --run "$RUN" --panel "$PANEL" --out "$PANEL"
