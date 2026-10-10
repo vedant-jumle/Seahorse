@@ -18,16 +18,14 @@
 \title{What Survives When Activation Steering Is Used as Memory:\\Leanings Partly, Facts Not, and Dislikes Turn into Likes}
 
 \author{Vedant Jumle \\
-  Independent researcher \\
-  \texttt{vedantjumle@gmail.com}}
+  Delft University of Technology \\
+  \texttt{vvjumle@student.tudelft.nl}}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-% TODO (~180 words): gap (procedural steering memory exists; declarative/user content assumed to need text);
-% method (training-free activation memory, gated); mechanism (fixed average vs per-question recomputation);
-% findings P1--P3 with headline numbers; two scales, pre-registered, cross-family judges.
+Activation steering has recently been used as a memory for skills: past experiences of an agent are stored as steering vectors and retrieved later. Facts and preferences about the user are assumed to need text instead. We test that assumption with a training-free activation memory beside a frozen LLM. The change an experience causes in late-layer states is stored as a shift, filed under a whitened key for the conversation's gist, and added back in a later session only when the gist matches. We argue that such a shift is a fixed average of an effect that attention, in context, recomputes for every question, so only question-independent content can survive. In a pre-registered study on Qwen3.5-2B and 9B, with judges from four model families, the memory is selective (about 98\% of unrelated replies are unchanged), but facts are stored as the word to say, in the last layers only, and are almost never used (at most 15\% clean use, against 96--98\% in context). Leanings transfer only in a narrow strength window. Most strikingly, the reference subtracted when writing a preference decides whether its concept or its direction survives: unless the opposite is subtracted, a stored dislike is recalled as a like.
 \end{abstract}
 
 \begin{figure*}[t]
@@ -100,40 +98,189 @@ where $[\cdot]$ is 1 if true and 0 otherwise, $\theta$ is the 95th percentile of
 
 \section{Why a stored shift keeps some content and not other}
 \label{sec:theory}
-% In context, attention recomputes the experience's effect per question (ICV; Geva et al.).
-% A stored shift is one fixed average: only question-independent content survives.
-% P1 facts fail (word-to-say, late only); P2 leanings in a dose window; P3 the reference decides concept vs direction.
+
+In context, an experience affects a later reply through attention. At each new position the model attends back to the tokens of the experience and computes what it needs for the question at hand. \citet{liu2024icv} make this explicit: the attention output is a mixture of the query's own state and the context's states, with weights that depend on the query. \citet{geva2023dissecting} show the same for facts: the attribute is not present at the subject's position in ready-made form; upper-layer attention extracts it, driven by the question.
+
+A stored shift removes the recomputation. It is one vector per moment, averaged over the follow-up's tokens, and it is added unchanged at every position where the gate is open. Whatever part of the experience's effect varies with the question is averaged away; what is constant across questions remains. This gives three predictions.
+
+\paragraph{P1: facts fail.} A fact matters at one slot (\textit{``your dog's name is \_\_\_''}). Its question-specific retrieval does not survive averaging, and what remains is the already-extracted output, \textit{say ``Pepper''}, which only exists near the end of the network. Pushed at every position, such a shift either does nothing or makes the model repeat the word; it should not be used correctly in a reply, and it cannot act as a premise, which requires combining the fact with the question.
+
+\paragraph{P2: leanings survive, in a dose window.} A broad preference (\textit{``I'm vegetarian''}) pushes in the same direction for any food question, so a constant push helps. But the push is added at every position whether or not it is needed, so beyond some strength it should overwhelm the reply.
+
+\paragraph{P3: the reference decides what is stored.} The shift is the state with the experience minus a reference state, so it keeps whatever differs between the two. Against the \emph{opposite} experience the topic cancels and the attitude remains. Against \emph{alternatives} in the same frame (\textit{``I can't stand rock / pop / \ldots''}) the frame cancels and the specific concept remains. Against \emph{nothing}, both remain. Because negation is weakly represented \citep{jang2023negated,lindsey2026introspection}, the concept dominates the last two, so a stored \emph{dislike} should be recalled as a \emph{like}. For positively stated preferences, concept and direction agree, so all three references should push the same way.
 
 \section{Experimental setup}
 \label{sec:setup}
-% Qwen3.5-2B and 9B (fp32), thinking off; items (15 leanings, 8 dislikes, 6 one-of-many, 12 facts);
-% doses, controls (random, swapped, placebo, gate forced on); pre-registration; judge + cross-family panel; bootstrap CIs.
+
+\paragraph{Models.} Qwen3.5-2B (24 blocks) and Qwen3.5-9B (32 blocks), text path only, in fp32, with thinking disabled. Both are hybrids of linear-attention (Gated DeltaNet) and full-attention blocks.
+
+\paragraph{Items.} 41 items in four groups, each with one experience sentence, three follow-up turns that write the memory, and later prompts (Appendix~\ref{app:items}):
+\begin{itemize}
+  \item 15 \textbf{leanings} (e.g.\ vegetarian, tight budget, early riser), each with its opposite and eight same-frame alternatives;
+  \item 8 \textbf{dislikes} (e.g.\ \textit{``I can't stand jazz music.''}, \textit{``I don't drink alcohol.''});
+  \item 6 \textbf{one-of-many} preferences (e.g.\ a home country, a favourite genre);
+  \item 12 \textbf{facts} (names, job, home town, favourite colour, \ldots).
+\end{itemize}
+Preference items are probed with 1 related and 5 ambiguous open-ended prompts (\textit{``What should I listen to while I cook dinner?''}) and with balanced yes/no questions. Fact items are probed with a direct question, two \emph{use} prompts that need the fact without asking for it (\textit{``Write a short birthday message to my sister.''}), and balanced yes/no questions (\textit{``Is my dog called Pepper?''} / \textit{``\ldots{} Max?''}). 50 unrelated prompts test leakage.
+
+\paragraph{Conditions.} No memory (\texttt{nomem}); the experience written into the prompt (\texttt{ctx}, the ceiling); the memory at $\alpha \in \{0.5, 1, 2, 3\}$ per layer; and four controls at $\alpha{=}2$: a random vector with the recall's norm through the item's own gate (\texttt{rand}), another item's shift under this item's gate (\texttt{swap}), a memory written from a neutral sentence (\texttt{placebo}), and the item's memory with the gate removed (\texttt{gate\_on}). For the mechanism (P3), the dislikes, one-of-many items and four leanings are also written with the \emph{centroid} and \emph{without} references at $\alpha \in \{0.5, 1, 2\}$.
+
+\paragraph{Generation.} Each prompt gets one greedy and four sampled replies ($T{=}1$, top-$p$ 0.95, top-$k$ 20, presence penalty 1.5, at most 120 tokens). Every condition uses the same random streams, so differences come from the memory. A second seed set repeats the main conditions.
+
+\paragraph{Measures.} Replies are labelled by an LLM judge (Qwen3.5-9B, thinking off) with fixed rubrics (Appendix~\ref{app:judge}). For preferences the primary measure is the \emph{judge lean}: $+1$ for a coherent reply whose recommendations fit the user's trait, $-1$ for a coherent reply against it, and $0$ otherwise. Incoherent replies count as 0, so loops and garbled text never count as success. For facts the primary measure is \emph{clean use} on the use prompts: the reply uses the correct value as a fact about the user and is coherent. We also report word-list measures, repetition loops (repeated 4-gram rate $\ge 0.3$), the judge's incoherence rate, yes/no accuracy and margins, and the logit lens \citep{nostalgebraist2020logitlens} of stored shifts. Every number has a 95\% bootstrap confidence interval over items and prompts, paired across conditions.
+
+\paragraph{Pre-registration and judge robustness.} Claims, decision rules, an item-inclusion rule (an item is kept if its in-context effect is at least 0.3) and the statistics were committed before any run (Appendix~\ref{app:prereg}). Because the original judge is from the same family as the models it grades, we re-labelled all 34{,}200 replies with three judges from other families (gpt-oss-20B, Gemma-4-12B, Llama-3.1-8B) and a larger Qwen model, and recomputed every judge-based verdict under each judge and under majority votes (Appendix~\ref{app:judge}). This panel was added after the pre-registered analysis.
 
 \section{Results}
 \label{sec:results}
+
 \subsection{The memory is selective}
+With the gate, 98.4\% (2B) and 98.2\% (9B) of replies to the 50 unrelated prompts are token-for-token identical to those with no memory, at $\alpha{=}2$. With the gate removed, only 5.7\% and 10.1\% are; the KL divergence from the no-memory distribution rises four- to six-fold (Figure~\ref{fig:sel} in the appendix). The gate opens somewhere on 3.5\% and 4.0\% of unrelated prompts. Selectivity therefore does not explain any of the failures below: when the memory misbehaves, it does so where it is supposed to fire.
+
 \subsection{Facts are stored as a late word and are not used}
-\subsection{Leanings transfer only in a narrow dose window}
-\subsection{What the shift subtracts decides concept vs direction}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{figures/paper/fig_c6_lens_facts.pdf}
+  \caption{The stored fact shift read through the output layer at every block (logit lens). The median rank of the fact's word (e.g.\ \textit{Pepper}) among about 248k tokens stays near 100k until the last sixth of the network, then jumps to the top.}
+  \label{fig:lens}
+\end{figure}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.92\textwidth]{figures/paper/fig_c3_facts.pdf}
+  \caption{Fact memories on the use prompts. As the strength grows, more replies mention the fact (blue) and more are incoherent (orange), but replies that use the fact cleanly (green, judge) stay at or below 15\%. With the fact in context, 96--98\% use it cleanly (dashed). Shaded: 95\% CIs over items and prompts.}
+  \label{fig:facts}
+\end{figure*}
+
+\paragraph{What is stored.} Read through the output layer, the stored fact shift ranks the fact's word in the top 10 of the vocabulary only at relative depth $\ge 0.83$ (2B) and $\ge 0.875$ (9B); at half depth its median rank is about 70{,}000 on both models (Figure~\ref{fig:lens}). The shift encodes the word to say, and only where saying it is decided. This was pre-registered as C6 and holds on both models.
+
+\paragraph{What happens.} Clean use of the fact stays far below the in-context ceiling at every strength (Figure~\ref{fig:facts}): at most 0.15 (2B) and 0.12 (9B), at $\alpha{=}1$, against 0.96 and 0.98 in context. Increasing the strength does not convert mentions into use. At $\alpha{=}2$, 89\% (2B) and 86\% (9B) of replies mention the fact without using it cleanly, mostly as loops (82\% on both). A typical reply to \textit{``What's my dog's name?''} at $\alpha{=}2$ is \textit{``I Pepper Pepper Pepper\ldots''}; in context it is \textit{``Your dog's name is Pepper.''} At lower strength the model usually answers that it does not know. The three controls never produce the target. This was pre-registered as C3 and holds on both models and under every judge that passed our sanity check (Appendix~\ref{app:judge}).
+
+\paragraph{No premises.} On balanced yes/no questions about the facts, the models without memory answer ``No'' to everything (balanced accuracy 0.50); in context they reach 0.94. The memory never improves the balanced accuracy at any strength, on either model. On the 2B, at $\alpha{=}2$, it even lowers it (by 0.15, CI $[-0.27, -0.04]$), which formally fails the pre-registered rule for C4, whose wording required no change. The yes/no margins move by a general tilt rather than toward the correct answer: on the 9B at $\alpha{=}2$ the Yes-correct margin rises by 0.78 and the No-correct margin falls by 0.73. The same holds for the preference items. We read this as no evidence for premises on either model, with the 2B result being a decrease rather than a gain.
+
+\subsection{Leanings transfer only in a narrow window}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.92\textwidth]{figures/paper/fig_c2_leanings.pdf}
+  \caption{Leaning memories (15 items) under the original judge. The word-list lean of non-looping replies (blue) keeps rising with strength, but the share of incoherent replies (orange) rises faster, so the judge lean of coherent recommendations (green) peaks at $\alpha{\approx}1$--2 and falls. Crosses: controls at $\alpha{=}2$. Dashed: the experience in context.}
+  \label{fig:leanings}
+\end{figure*}
+
+At $\alpha{=}1$, leaning memories shift open-ended replies in the right direction: the judge lean rises by 0.20 (CI $[0.04, 0.38]$, 2B) and 0.11 ($[0.004, 0.24]$, 9B) over no memory, against 0.72 and 0.81 for the experience in context (Figure~\ref{fig:leanings}). An independent second set of samples reproduces these values within about 0.03. At $\alpha{=}2$ the word-list lean keeps rising, but the judge calls 61\% (2B) and 41\% (9B) of replies incoherent, against 14\% and 3\% without memory, and the gain's interval includes zero. At $\alpha{=}3$ most replies are incoherent. The random-vector control's gain is near zero, but its paired difference from the memory at $\alpha{=}2$ also includes zero. The pre-registered claim C2, which required a gain at both $\alpha{=}1$ and $\alpha{=}2$ and a clear separation from every control, therefore \emph{fails} on both models.
+
+This failure depends on the judge. The original judge is the strictest about coherence: it labels 62\% of preference replies coherent, against 72--76\% for the other competent judges. Under a majority vote of the three cross-family judges, the $\alpha{=}2$ gain is 0.36 ($[0.15, 0.58]$, 2B) and 0.28 ($[0.10, 0.48]$, 9B), and the controls separate. The effect is also uneven across items: strong for \textit{early riser}, \textit{prefers quiet}, \textit{vegan} and \textit{vegetarian}, absent for \textit{celiac}, \textit{lactose intolerant} and \textit{has young kids}. We conclude that leanings do transfer, but only within a narrow strength window, with a size that depends on how strictly incoherence is judged. Single-item preferences (one-of-many) barely move at any strength (gain at most 0.14).
+
+\subsection{What the shift subtracts decides concept or direction}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.92\textwidth]{figures/paper/fig_c5_dislikes.pdf}
+  \caption{Dislike memories (2B: 7 items kept by the inclusion rule; 9B: 8), written with each reference and compared at the highest strength with at most 10\% loops ($\alpha{=}1$ for all). Change in judge lean against no memory: positive means the replies avoid what the user dislikes. Only the opposite reference moves replies the right way; the centroid and \emph{without} references push toward the disliked thing, under every competent judge. Bars: 95\% CIs.}
+  \label{fig:dislikes}
+\end{figure*}
+
+For dislikes, the three references move replies in opposite directions (Figure~\ref{fig:dislikes}). Compared at the same loop rate, the memory written against the \textbf{opposite} moves replies away from the disliked thing, by $+0.23$ ($[0.05, 0.44]$, 2B) and $+0.25$ ($[0.02, 0.50]$, 9B). The memory written against the \textbf{centroid} moves them toward it, by $-0.38$ ($[-0.57, -0.19]$) and $-0.37$ ($[-0.59, -0.15]$), and does so for every item on both models. The memory written against \textbf{nothing} also moves them toward it, by $-0.25$ and $-0.31$, for 5 of 7 and 7 of 8 items. Asked for music to cook to after \textit{``I can't stand jazz music.''}, the 9B with the centroid memory recommends \textit{``Jazz Classics: Miles Davis, Bill Evans, or Chet Baker''} (Figure~\ref{fig:main}b). This was pre-registered as C5 and holds on both models. It also holds under gpt-oss, Gemma and both majority votes, with larger effects ($-0.42$ to $-0.53$ for the centroid). The same-family Qwen3.6 judge agrees on every sign, but its \emph{without} interval touches zero.
+
+The logit lens shows the cause directly (Figure~\ref{fig:lensdis} in the appendix). For dislikes, the stored shift's preference for liked-side over disliked-side words at the last layer is $+3.7$ (2B) and $+4.2$ (9B) for the opposite reference, but $-10.6$ and $-11.6$ for the centroid and $-3.2$ and $-3.6$ for \emph{without}: those shifts point at the disliked thing. For positively stated leanings, all three references point the same way ($+4.8$ to $+9.1$), and their behavioural effects agree in sign, as P3 predicts.
 
 \section{Related work}
 \label{sec:related}
 
+\paragraph{Steering and its limits.} Adding vectors to the residual stream controls dispositions such as honesty, refusal and persona \citep{rimsky2024caa,cao2024bipo}. Its effects vary across prompts and concepts \citep{tan2024reliability,braun2025unreliability}, suit traits that shape a whole reply better than local ones \citep{subbiah2026limits}, and trade expression for coherence \citep{subbiah2026limits,suri2025memorization}. Injected concepts overwhelm the model at high strength, are read as the model's own, and are not removed by negation \citep{lindsey2026introspection}. Our leaning and fact results are consistent with all of these; we add the memory setting and the role of the reference.
+
+\paragraph{Conditional and personalised steering.} CAST gates a steering vector on the similarity between the current state and a learned condition \citep{lee2025cast}; our gate is the same idea with the condition written from a single experience. In-context vectors compress demonstrations into a vector \citep{liu2024icv}, and context steering amplifies the effect of a user's context on the output probabilities \citep{he2025cos}; both need the context present. BiPO trains a personalised steering vector for a chosen behaviour \citep{cao2024bipo}. Context steering notes, informally, that a single context also makes its topic more likely and that a contrasting pair isolates the attribute \citep{he2025cos}; we show the consequence for stored memories systematically.
+
+\paragraph{Memory in activations and weights.} Neural Procedural Memory stores an agent's skills as retrieved steering vectors and leaves declarative content to text \citep{zhao2026npm}; our results support that division and explain it. Facts can be written usefully into weights by key--value updates at the subject's position in middle-layer MLPs \citep{meng2022rome,meng2023memit}; our store uses the same update in activations, without optimising the stored value. Factual recall itself relies on question-driven attention in upper layers \citep{geva2023dissecting}, which a stored shift cannot reproduce. Retrieval-augmented generation keeps facts in context \citep{lewis2020rag}.
+
 \section{Limitations}
 \label{sec:limits}
+
+\paragraph{Scale and items.} Two models from one family (2B and 9B) and 41 items, with 6--15 per group. The dislike result rests on 7--8 items. Larger models or other families may behave differently.
+
+\paragraph{Judges.} The primary labels come from an LLM judge from the same family as the graded models. The cross-family panel shows that C3 and C5 do not depend on the judge, but not that the labels are correct; no human labels were collected. Llama-3.1-8B was excluded from the panel after the fact because it failed an objective check (Appendix~\ref{app:judge}); its verdicts are reported. The panel itself was not pre-registered.
+
+\paragraph{Design.} Each memory is written from three hand-written follow-ups, and the opposite and centroid references are hand-written. A practical system would need these references without human input. We test isolated memories only; with many memories in one store, interference may change the picture. The theoretical account in Section~\ref{sec:theory} is an interpretation that fits the results, not a proof.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-\nocite{*} % TODO remove once the text cites
+A gated activation memory beside a frozen model can carry broad leanings into a later session, selectively and only within a narrow strength window. It cannot carry facts or premises: a stored fact is the word to say, present only at the end of the network. And the way the memory is written determines what it means: unless the opposite experience is subtracted, a stored dislike is recalled as a like. We read all three results as consequences of one fact: a stored shift is a fixed average of an effect that attention recomputes, in context, for each question. Activation memory is therefore a natural home for dispositions, while facts need weights or retrieval. A practical next step is to store the concept and its sign separately, so that the direction of a preference no longer depends on a hand-written opposite.
+
 \bibliography{refs}
 
 \appendix
-\section{Items, prompts and judge rubrics}
-\section{Judge panel and sanity check}
+
+\section{Items and prompts}
+\label{app:items}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}lp{0.68\columnwidth}@{}}
+\toprule
+Group & Items \\
+\midrule
+Leanings (15) & vegetarian, vegan, lactose intolerant, celiac, diabetes, loves hiking, tight budget, early riser, prefers quiet, eco-conscious, has young kids, loves cooking, loves cold, bookworm, history buff \\
+Dislikes (8) & jazz, alcohol, horror films, spicy food, hiking, seafood, the beach, sweet food \\
+One-of-many (6) & loves jazz, lives in Norway, lives in Singapore, Japanese food, tennis, horror movies \\
+Facts (12) & dog's, cat's, sister's, brother's, grandmother's, best friend's and boss's names; job; favourite colour; home town; first language; university \\
+\bottomrule
+\end{tabular}
+\caption{The 41 items. Each has an experience sentence (e.g.\ \textit{``I can't stand jazz music.''}), an opposite (\textit{``I'm a huge jazz fan.''}), three follow-up turns and its probes; preferences also have eight same-frame alternatives for the centroid. The pre-registered inclusion rule removed one item (\textit{hates horror}) on the 2B.}
+\end{table}
+
+\section{Judges}
+\label{app:judge}
+
+\paragraph{Rubrics.} The preference rubric asks whether the reply's recommendations fit the user's trait (\emph{toward}), go against it (\emph{away}) or neither (\emph{neutral}), explicitly judging what is recommended rather than which words are mentioned; whether the reply is coherent; and whether the assistant claims the trait as its own. The fact rubric asks whether the reply uses the correct value as a fact about the user (a mention inside garbled or repetitive text does not count), whether it is coherent, whether the assistant claims the fact as its own, and whether it asserts a wrong value. Full prompts are in the repository.
+
+\paragraph{Panel.} All 34{,}200 replies were re-labelled by gpt-oss-20B, Gemma-4-12B, Llama-3.1-8B and Qwen3.6-35B-A3B (same family; reported, not voting), with the same prompts, temperature 0 and JSON-constrained output; fewer than 0.1\% of outputs failed to parse. Table~\ref{tab:panel} gives each claim's verdict under each judge.
+
+\begin{table*}[t]
+\centering\small
+\begin{tabular}{@{}llccccccc@{}}
+\toprule
+Claim & Model & Original & gpt-oss & Gemma & Llama$^\dagger$ & Qwen3.6$^\ddagger$ & Maj.\ (orig.+3) & Maj.\ (3 cross) \\
+\midrule
+C2 leanings & 2B & no & no & no & no & yes & yes & yes \\
+            & 9B & no & no & no & no & no & yes & yes \\
+C3 facts    & 2B & yes & yes & yes & no & yes & yes & yes \\
+            & 9B & yes & yes & yes & no & yes & yes & yes \\
+C5 dislikes & 2B & yes & yes & yes & no & no & yes & yes \\
+            & 9B & yes & yes & yes & no & no & yes & yes \\
+\bottomrule
+\end{tabular}
+\caption{Does each pre-registered claim hold under each judge? $^\dagger$Fails the sanity check below and is excluded from our conclusions. $^\ddagger$Same family as the original judge; its C5 signs all agree, but its \emph{without} interval touches zero.}
+\label{tab:panel}
+\end{table*}
+
+\paragraph{Sanity check.} A reply cannot use a name it does not contain. Among replies a judge labelled as using the fact, the target string was absent in 1\% for Qwen3.6, Gemma and gpt-oss, but in 48\% for Llama-3.1-8B, which labels 92\% of all fact replies as using the fact (others: 16--26\%) and agrees with the other judges on this label at chance level ($\kappa \approx 0.05$). We therefore exclude it. Among the remaining judges, agreement on coherence is high (Fleiss' $\kappa = 0.90$ on facts) and the original judge agrees with Gemma on fact use at $\kappa = 0.93$.
+
 \section{Preliminary experiments}
 \label{app:prelim}
+
+The design choices were fixed in earlier, smaller experiments that were not pre-registered. On Qwen2.5-1.5B, unwhitened per-token keys made the memory fire on unrelated prompts; whitened pooled keys with a calibrated threshold made unrelated replies identical to no memory. Selecting which tokens to write by attention, by entropy or at random made no difference. On Qwen3.5-2B, a sweep over layers 4--23 found fact-specific effects only in the last five layers, and three late layers together carried much more than any single one. An earlier version of the reference comparison (11 preference items) first showed the dislike reversal that core experiment C5 tests.
+
 \section{Additional figures}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\columnwidth]{figures/paper/fig_c1_selectivity.pdf}
+  \caption{Unrelated replies identical to no memory, at $\alpha{=}2$, with the gate and with the gate forced open.}
+  \label{fig:sel}
+\end{figure}
+
+\begin{figure*}[h]
+  \centering
+  \includegraphics[width=0.92\textwidth]{figures/paper/fig_c5_lens_dislikes.pdf}
+  \caption{Logit lens of the stored dislike shifts at every block: mean logit of words on the liked side minus the disliked side (positive: avoids the disliked thing). The centroid and \emph{without} shifts point at the disliked thing in the late layers.}
+  \label{fig:lensdis}
+\end{figure*}
+
 \section{Pre-registration and reproduction}
+\label{app:prereg}
+
+The claims (C1 selectivity, C2 leanings, C3 facts, C4 no premises, C5 reference, C6 a late word), the primary measures, the decision rules, the item-inclusion rule and the bootstrap were committed before any run (\texttt{experiments/core\_v1/PREREG.md}). Results against the pre-registered rules: C1, C3, C5 and C6 hold on both models; C2 fails on both; C4 holds on the 9B and fails on the 2B (a decrease in accuracy, not a gain). Deviations: the judge panel and the exclusion of Llama-3.1-8B were added after the pre-registered analysis; the pre-registered human audit of the judge was not carried out. All code, configurations, seeds and the commands that regenerate every table and figure from the saved outputs are in the repository.
 
 \end{document}

@@ -52,7 +52,15 @@ def pick(rs, **kw):
     return out[0]
 
 
-def save(fig, out, name):
+PAPER = False  # --paper: drop the headline titles (the paper's captions carry them)
+
+
+def save(fig, out, name, headline_ax=None):
+    if PAPER:
+        if fig._suptitle is not None:
+            fig._suptitle.set_visible(False)
+        if headline_ax is not None:
+            headline_ax.set_title("", loc="left")
     for ext in ("pdf", "png"):
         fig.savefig(os.path.join(out, f"{name}.{ext}"))
     plt.close(fig)
@@ -83,7 +91,7 @@ def fig_lens_facts(run, out):
     ax.set_ylabel("rank of the fact's word (median, log)")
     ax.set_title("A stored fact is the word to say, only at the end", loc="left")
     ax.legend(loc="center left", bbox_to_anchor=(0.0, 0.62))
-    save(fig, out, "fig_c6_lens_facts")
+    save(fig, out, "fig_c6_lens_facts", headline_ax=ax)
 
 
 # ---------------------------------------------------------------- C3: facts are not used
@@ -231,14 +239,17 @@ def fig_selectivity(run, out):
                        plt.Line2D([], [], marker="s", ls="", color=ORANGE, mec="white", ms=6, label="gate forced open")],
               loc="upper center", bbox_to_anchor=(0.45, -0.3), ncol=2)
     ax.set_title("The gate keeps the memory out of unrelated answers", loc="left")
-    save(fig, out, "fig_c1_selectivity")
+    save(fig, out, "fig_c1_selectivity", headline_ax=ax)
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--run", required=True)
     p.add_argument("--out", required=True)
+    p.add_argument("--paper", action="store_true", help="no headline titles")
     a = p.parse_args()
+    global PAPER
+    PAPER = a.paper
     os.makedirs(a.out, exist_ok=True)
     fig_lens_facts(a.run, a.out)
     fig_facts(a.run, a.out)
