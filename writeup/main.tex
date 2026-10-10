@@ -45,15 +45,58 @@
 
 \section{Introduction}
 \label{sec:intro}
-% TODO: personalisation needs memory; three homes (weights, context, activations).
-% NPM (2026) shows steering works as procedural memory and assumes declarative content needs text. We test it.
-% Contributions: (1) a gated activation memory for user content; (2) the fixed-average account and its predictions;
-% (3) pre-registered evidence on two scales with a cross-family judge panel; (4) the reference effect (dislikes flip).
+
+An assistant that is told \textit{``I can't stand jazz''} on Monday should not suggest a jazz playlist on Friday. Language models keep such information in one of two places. They keep it in their weights, which change only through training or model editing \citep{meng2022rome,meng2023memit}, or in their context, which is exact but is lost when the session ends unless it is retrieved and re-inserted \citep{lewis2020rag}. A third place has recently been proposed: the model's \emph{activations}. Activation steering adds a vector to the residual stream at inference time and reliably shifts dispositions such as honesty, refusal or persona \citep{rimsky2024caa,lee2025cast,cao2024bipo}. \citet{zhao2026npm} go one step further and store an agent's past experience as retrieved steering vectors, which works well as \emph{procedural} memory, i.e.\ for skills. They explicitly leave \emph{declarative} content (facts and preferences about the user) to text retrieval, on the assumption that it does not belong in activations.
+
+That assumption has not been tested, and it matters for personalisation. Steering-based personalisation either keeps the user's context in the prompt \citep{he2025cos,liu2024icv} or trains a vector for a behaviour chosen in advance \citep{cao2024bipo}. Neither shows what happens when what a user said in one conversation is stored as an activation change and replayed in a later conversation that no longer contains it.
+
+We build such a memory and measure what survives. It is training-free and sits beside a frozen model (Figure~\ref{fig:main}a). When an experience occurs, the change it causes in late-layer states is stored as a \emph{shift}, filed under a whitened \emph{key} for the gist of the conversation. In a later session the shift is added back only where the current gist matches a stored key. Mathematically, the store is the linear associative memory that ROME and MEMIT write into MLP weights \citep{meng2022rome,meng2023memit}, kept in the activations instead, and the gate is a training-free variant of conditional steering \citep{lee2025cast}.
+
+Our account of what this memory can hold is simple. In context, attention recomputes an experience's effect for each new question \citep{liu2024icv,geva2023dissecting}. A stored shift is one \emph{fixed average} of that effect, so only the part of the experience that is the same for every later question can survive. This yields three predictions, which we test in a pre-registered study on Qwen3.5-2B and Qwen3.5-9B, with labels from a panel of LLM judges from different model families:
+\begin{itemize}
+  \item \textbf{Facts fail.} A fact matters for one question, so its averaged shift reduces to ``say the word''. The stored shift ranks the fact's word in the top~10 of the vocabulary only in the last sixth of the network. Replies that use the fact cleanly stay at or below 15\% at every strength, against 96--98\% with the fact in context. Recall appears instead as loops and garbled text, and the memory never serves as a premise for yes/no questions.
+  \item \textbf{Leanings survive only in a narrow window.} Broad preferences shift open-ended replies at moderate strength, but coherence collapses as strength grows. This claim failed its pre-registered test and is sensitive to the choice of judge.
+  \item \textbf{What the shift subtracts decides what is stored.} A shift is the state with the experience minus a reference state. Subtracting the opposite experience keeps the preference's \emph{direction}. Subtracting a set of alternatives, or nothing, keeps its \emph{concept}. Because negation is weakly encoded \citep{jang2023negated}, a stored dislike is then recalled as a like: with the alternatives subtracted, the memory pushed every dislike item toward the thing the user dislikes (original judge), and the average effect pointed the wrong way on both models under every judge that passed a sanity check (Figure~\ref{fig:main}b).
+\end{itemize}
+The memory is nevertheless selective: about 98\% of unrelated replies are token-for-token identical to those with no memory, against 6--10\% when the gate is forced open.
+
+Our contributions are: (1) a gated, training-free activation memory for user content, and its link to associative-memory model editing; (2) the fixed-average account and the three predictions it makes; (3) a pre-registered test of these predictions on two model scales, with controls and a cross-family judge panel; and (4) the reference effect, a concrete way in which a naive activation memory inverts what the user said. Together, the results support the procedural/declarative split assumed by \citet{zhao2026npm} and explain it: activation memory suits dispositions, while facts need weights or retrieval.
 
 \section{Method}
 \label{sec:method}
-% Write (shift, references: opposite / centroid / without), key (whitened pooled gist), store (delta / least squares;
-% the ROME/MEMIT associative memory, in activations), read (gate as in CAST; h <- h + alpha M q at 3 late layers).
+
+We read and modify the residual stream $h^{\ell}_t \in \mathbb{R}^d$ at the output of a few late decoder blocks $\ell$ of a frozen model. Everything below is done separately at each of these layers.
+
+\paragraph{Experiences and moments.} An experience $e$ (e.g.\ \textit{``I can't stand jazz music.''}) is presented with a few ordinary follow-up turns $f$ (e.g.\ \textit{``I want to discover some new music.''}). Each follow-up is one \emph{moment}. We run each moment twice, once as $e$ followed by $f$ (\emph{with}) and once with a reference text in place of $e$, and we compare the states over the tokens of $f$. Tokens of the chat template that follow the user's text are excluded. In preliminary experiments, the choice of tokens to write did not matter (tokens selected by attention, by entropy or at random worked equally well), so a moment is stored as one pooled vector.
+
+\paragraph{Shift and reference.} The shift of moment $j$ is a weighted mean over the follow-up's tokens,
+\begin{equation}
+  \Delta_j = \sum_{t \in f} w_t \bigl(h^{\text{with}}_t - h^{\text{ref}}_t\bigr), \qquad w_t \propto H_t,
+\end{equation}
+where $H_t$ is the model's next-token entropy at position $t$ in the run without the experience, and the weights sum to one. The \emph{reference} decides what $\Delta_j$ measures. We compare three:
+\begin{itemize}
+  \item \textbf{without}: the follow-up alone, so $\Delta$ is everything the experience added;
+  \item \textbf{opposite}: the opposite experience (\textit{``I'm a huge jazz fan.''}), which cancels the shared topic and keeps the attitude;
+  \item \textbf{centroid}: the mean state over eight same-frame alternatives (\textit{``I can't stand rock music.''}, \textit{``\ldots{} classical music.''}, \ldots), which cancels the frame and keeps what is specific to this experience. This is the construction used for concept vectors by \citet{lindsey2026introspection}.
+\end{itemize}
+Facts use \textit{without}. Preferences use \textit{opposite} unless stated otherwise.
+
+\paragraph{Key.} Let $\mu$ be the mean state on 100 generic prompts and their continuations, and let $W = U_r(\Lambda_r + \epsilon \bar\lambda I)^{-1/2}$ whiten the top $r{=}256$ principal directions of those states ($\epsilon{=}0.01$, $\bar\lambda$ the mean eigenvalue). The key of moment $j$ is the normalised running mean of the whitened states over the follow-up's user tokens in the run without the experience,
+\begin{equation}
+  k_j = \operatorname{normalize}\Bigl(\tfrac{1}{|f|}\sum_{t\in f} W^{\top}(h_t - \mu)\Bigr) \in \mathbb{R}^{r}.
+\end{equation}
+The key thus describes the \emph{situation} the experience was filed under, not the experience itself. Whitening suppresses the components that all states share; without it, keys of unrelated situations were nearly as similar as keys of related ones.
+
+\paragraph{Store.} A memory is a matrix $M \in \mathbb{R}^{d\times r}$ that maps keys to shifts. Its moments are written with the delta rule $M \leftarrow M + (\Delta_j - M k_j)\,k_j^{\top}$, so each moment's own key recalls its shift exactly. When several memories share one store we use the least-squares solution (recursive least squares with ridge $\lambda{=}0.1$), which removes the dependence on write order. This is the closed-form key--value update of ROME and MEMIT \citep{meng2022rome,meng2023memit}, applied to activations rather than weights. In this paper each item has its own memory.
+
+\paragraph{Read.} In a later session, the read key $q_t$ is the same pooled, whitened, normalised quantity over the user text seen so far. The gate opens when the best match with the stored keys exceeds a threshold $\theta$,
+\begin{align}
+  g_t &= \bigl[\max\nolimits_j \cos(q_t, k_j) > \theta\bigr], \\
+  h_t &\leftarrow h_t + \alpha\, g_t\, M q_t ,
+\end{align}
+where $[\cdot]$ is 1 if true and 0 otherwise, $\theta$ is the 95th percentile of the match on the generic prompts, set per item and layer. The gate is never open on the system prompt or the template head. Keys and gates are computed in a first, memory-free pass, so an injection cannot change its own gate; the second pass adds the recalled shift at each layer. The gate is a conditional-steering rule in the sense of \citet{lee2025cast}, except that the condition is written from a single experience rather than learned from labelled prompts, and its threshold is calibrated on ordinary text rather than tuned. $\alpha$ is the only free strength parameter, applied equally at each layer.
+
+\paragraph{Layers.} On Qwen3.5-2B (24 blocks) we read and write at block outputs 20, 21 and 23, chosen in a preliminary sweep over layers 4--23 on a subset of the items, in which three late layers together carried much more than any single layer (Appendix~\ref{app:prelim}). On Qwen3.5-9B (32 blocks) we use the same relative depths (27, 28, 31).
 
 \section{Why a stored shift keeps some content and not other}
 \label{sec:theory}
@@ -88,6 +131,8 @@
 \appendix
 \section{Items, prompts and judge rubrics}
 \section{Judge panel and sanity check}
+\section{Preliminary experiments}
+\label{app:prelim}
 \section{Additional figures}
 \section{Pre-registration and reproduction}
 
