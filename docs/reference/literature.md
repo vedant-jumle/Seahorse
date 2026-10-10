@@ -1,13 +1,13 @@
 # Seahorse: what other work says about our results
 
-*Twelve papers that bear directly on our results, read during and after the Qwen3.5 experiments (think_v1, ref_v1, xlayer_v1, core_v1). For each: what it found, in plain words, and where it touches our results. At the end: the theory they give us, and a table of what is prior work and what is ours. The older background (complementary learning systems, steering in general, fast weights, neuromodulation) is in [core-idea.md](core-idea.md) and [where-we-are.md §2](../where-we-are.md#2-what-was-already-out-there). Written 2026-10-07; extended 2026-10-08.*
+*Fourteen papers that bear directly on our results, read during and after the Qwen3.5 experiments (think_v1, ref_v1, xlayer_v1, core_v1). For each: what it found, in plain words, and where it touches our results. At the end: the theory they give us, and a table of what is prior work and what is ours. The older background (complementary learning systems, steering in general, fast weights, neuromodulation) is in [core-idea.md](core-idea.md) and [where-we-are.md §2](../where-we-are.md#2-what-was-already-out-there). Written 2026-10-07; extended 2026-10-08.*
 
 The PDFs are in the parent folder's `papers/`.
 
 | Group | Papers | Why they matter |
 |---|---|---|
 | A. How reliable steering is | Tan et al.; Braun; Subbiah et al.; Lindsey | Our failures are mostly normal steering behaviour |
-| B. Steering with conditions, context and users | CAST; In-Context Vectors; BiPO; Context Steering (CoS) | The closest prior work to our method and setting |
+| B. Steering with conditions, context and users | CAST; In-Context Vectors; BiPO; Context Steering (CoS); Neural Procedural Memory (NPM); Suri et al. | The closest prior work to our method and setting (NPM is the closest of all) |
 | C. Where facts live and how they're recalled | Geva et al.; ROME; MEMIT | Why a stored vector can't carry a usable fact |
 | D. Negation | Jang et al. | Why dislikes flip into likes |
 
@@ -26,7 +26,7 @@ The PDFs are in the parent folder's `papers/`.
   - turning context into an added vector (In-Context Vectors)
   - personalising by steering (BiPO, CoS)
 
-  None of them stores what a user said in one conversation and brings it back, unprompted, in a later one. That setting is ours.
+  NPM (2026) goes further and stores *procedural* skills as retrieved steering vectors, assuming declarative content needs text. Nobody has tested whether *declarative or user* content (facts, preferences, dislikes) survives as activation memory. That's ours, and it explains why the procedural/declarative split holds.
 - **Why facts fail has an explanation in the fact-recall literature** (group C):
   - a fact is fetched by attention, driven by the question
   - the places where facts can be written usably are middle-layer weights at the subject's position, with optimised values
@@ -192,6 +192,38 @@ It also suggests that models carry a **"this doesn't fit the context" signal**: 
 - **C5's core idea isn't new as an observation.** CoS states it in a sentence and uses contrast pairs as a practical fix. We must cite it.
 - CoS **needs the context present** at inference (two passes, with the context in the prompt). It *amplifies* context; it doesn't *remember* it. Our setting removes the context entirely.
 
+## 8b. Zhao et al. (Institute of Automation, CAS), "Neural Procedural Memory: Empowering LLM Agents with Implicit Activation Steering" (NPM, arXiv 2606.29824, June 2026)
+
+**What they did.** A training-free memory for LLM agents, stored as steering vectors:
+- **Write:** contrast successful vs failed attempts, either whole trajectories (last-token states) or effective vs degenerate steps within one trajectory (mean-pooled).
+- **Store:** contrast pairs per historical task.
+- **Read:** retrieve the top-K most similar past tasks with a dense retriever, combine their pairs into one vector, and add it at one layer: h ← h + α·v.
+
+**What they found.**
+- On ALFWorld, WebShop, ScienceWorld and BabyAI (MiniCPM-4B, Qwen3-4B, Qwen3-8B), it performs about as well as text memory, and best combined with text workflows.
+- It beats CAA and a fixed mean-difference shift (Mass-Mean), because retrieval makes the vector task-specific.
+- The vectors separate cleanly (success vs failure) and cluster by task type.
+
+**Where it touches us.** This is the **closest prior work**.
+- "Activation steering as a persistent, retrieved memory" is **not new**: NPM does it, with retrieval playing the role of our gate.
+- **But NPM is explicitly *procedural* memory (skills).** Following Squire, they treat procedural memory as non-verbal and held in neural activity. **Declarative facts are assumed to belong in text (RAG):** their Figure 1 handles a user's peanut allergy as text, and they write that "declarative recall is straightforward".
+- **Nobody had tested whether steering can carry declarative or user content.** We do, and our results *confirm and explain* their assumption: a fact's shift is "the word to say", it exists only at the end of the model, and it never transfers as clean use or as a premise.
+- Their limitation ("a single representation applied constantly", unable to adapt within a task) is our fixed-average mechanism, stated as a limitation rather than explained.
+- Their success − failure contrast is an *opposite*-type reference. That's consistent with our finding that contrasting pairs carry direction (C5).
+
+## 8c. Suri, Anand, Bhaskar (UMD), "Mitigating Memorization in LLMs using Activation Steering" (arXiv 2503.06040, 2025)
+
+**What they did.** Steered Gemma-2-9B with randomly chosen sparse-autoencoder features, at random layers and strengths, then measured verbatim recall of famous books' opening lines, fluency (BERTScore, METEOR, perplexity) and benchmarks.
+
+**What they found.**
+- At high strength (|β| > 50), *any* feature reduces verbatim recall; no specific feature is responsible.
+- Steering later layers costs less fluency and less benchmark accuracy than earlier layers.
+
+**Where it touches us.**
+- Tangential: it *removes* memorised text rather than adding memory.
+- It supports the strength-vs-coherence trade-off.
+- It's a caution that heavy steering disrupts exact recall in general.
+
 ---
 
 # C. Where facts live and how they're recalled
@@ -332,7 +364,7 @@ These are judge-labelled numbers, provisional until the hand audit.
 
 | Claim | Prior work | What's ours |
 |---|---|---|
-| **The setting:** a memory written from one conversation and used, unprompted, in later sessions | ICV, BiPO and CoS steer or personalise, but need the context present (CoS, ICV) or a trained vector from a dataset (BiPO) | A persistent activation memory with no context and no training |
+| **The setting:** a memory written from one conversation and used, unprompted, in later sessions | **NPM (2026) already stores *procedural* skills as retrieved steering vectors**, and assumes declarative content needs text. ICV, BiPO and CoS steer or personalise, but need the context present (CoS, ICV) or a trained vector (BiPO) | The **declarative and user** counterpart: the first test of whether facts, preferences and dislikes survive as activation memory, and why the procedural/declarative split holds |
 | **The store** | ROME/MEMIT's linear associative memory (least squares with key covariance) | The same maths, in activations instead of weights, with observed instead of optimised values |
 | **C1 selectivity** | CAST (conditional steering with a cosine threshold) | Keys written from one experience; whitening; a many-memory store |
 | **C2 leanings transfer** | ICV, CAA, BiPO, CoS; the whole-answer-trait finding (Subbiah) | Nothing new. It also failed its pre-registered rule: there's a narrow dose window, and coherence collapses at α = 2 |
