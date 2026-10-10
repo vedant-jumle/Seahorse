@@ -119,7 +119,7 @@ A stored shift removes the recomputation. It is one vector per moment, averaged 
 \section{Experimental setup}
 \label{sec:setup}
 
-\paragraph{Models.} Qwen3.5-2B (24 blocks) and Qwen3.5-9B (32 blocks), text path only, in fp32, with thinking disabled. Like the rest of the Qwen3.5 family \citep{qwen2026omni}, both interleave linear-attention (Gated DeltaNet) and full-attention blocks.
+\paragraph{Models.} Qwen3.5-2B (24 blocks) and Qwen3.5-9B (32 blocks), text path only, in fp32, with thinking disabled. The 2B ran on NVIDIA V100 (32\,GB) and the 9B on A100 (80\,GB) GPUs\ifdefined\REVIEW\else{} of the DelftBlue supercomputer \citep{DHPC2024}\fi. Like the rest of the Qwen3.5 family \citep{qwen2026omni}, both interleave linear-attention (Gated DeltaNet) and full-attention blocks.
 
 \paragraph{Items.} 41 items in four groups, each with one experience sentence, three follow-up turns that write the memory, and later prompts (Appendix~\ref{app:items}):
 \begin{itemize}
@@ -220,7 +220,7 @@ The memory studied here stores information about users inside a model's activati
 
 \ifdefined\REVIEW\else
 \section*{Acknowledgements}
-Experiment code, analysis scripts and the drafting of this paper were assisted by Claude (Anthropic). The author designed the study and the pre-registration, and checked all reported results.
+Experiment code, analysis scripts and the drafting of this paper were assisted by Claude (Anthropic). The author designed the study and the pre-registration, and checked all reported results. The author acknowledges the use of computational resources of the DelftBlue supercomputer, provided by Delft High Performance Computing Centre (\url{https://www.tudelft.nl/dhpc}).
 \fi
 
 \bibliography{refs}
