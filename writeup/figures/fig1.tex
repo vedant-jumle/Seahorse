@@ -1,0 +1,73 @@
+% Figure 1: method (a) and what survives (b). Quotes in (b) are real Qwen3.5-9B outputs from core_v1
+% (hates_jazz related prompt, alpha = 1; dog_name related prompt, alpha = 2), see results/core_v1_20261007_1820.
+\definecolor{sBlue}{HTML}{2A78D6}
+\definecolor{sOrange}{HTML}{EB6834}
+\definecolor{sInk}{HTML}{0B0B0B}
+\definecolor{sInk2}{HTML}{52514E}
+\definecolor{sMuted}{HTML}{8A8984}
+\definecolor{sFill}{HTML}{F3F2EE}
+\definecolor{sBlueBg}{HTML}{EAF2FC}
+\definecolor{sOrangeBg}{HTML}{FDEFE9}
+\begin{tikzpicture}[
+  font=\sffamily\scriptsize, text=sInk,
+  box/.style={draw=sMuted, rounded corners=2pt, fill=white, inner sep=3pt, align=left, line width=0.4pt},
+  model/.style={draw=sInk2, rounded corners=2pt, fill=sFill, inner sep=3pt, align=center, line width=0.5pt},
+  store/.style={draw=sInk2, rounded corners=2pt, fill=sFill, inner sep=4pt, align=center, line width=0.7pt},
+  arr/.style={-{Stealth[length=4pt]}, line width=0.6pt, draw=sInk2},
+  lbl/.style={font=\sffamily\tiny, text=sInk2, align=center},
+  head/.style={font=\sffamily\bfseries\footnotesize, anchor=west},
+]
+% ------------------------------------------------------------------ (a) method
+\node[head] at (0, 3.15) {(a) Writing and reading the memory};
+
+% session 1
+\node[box, text width=3.1cm] (exp) at (1.65, 2.25)
+  {\textbf{Session 1}\\[1pt]\textit{``I can't stand jazz music. I want to discover some new music.''}};
+\node[model, text width=2.0cm] (m1) at (5.0, 2.25) {frozen LLM\\{\tiny states at late layers}};
+\node[box, text width=3.35cm] (shift) at (8.9, 2.62)
+  {\textbf{shift} $=h(\text{with}) - h(\text{reference})$};
+\node[box, text width=3.35cm] (key) at (8.9, 1.88)
+  {\textbf{key} $=$ whitened gist};
+\node[store, text width=2.05cm] (st) at (12.35, 2.25) {\textbf{store} $M$\\key $\to$ shift\\{\tiny least-squares writes}};
+\draw[arr] (exp) -- (m1);
+\draw[arr] (m1.east) -- ++(0.25,0) |- (shift.west);
+\draw[arr] (m1.east) -- ++(0.25,0) |- (key.west);
+\draw[arr] (shift.east) -- ++(0.2,0) |- ([yshift=3pt]st.west);
+\draw[arr] (key.east) -- ++(0.2,0) |- ([yshift=-3pt]st.west);
+
+% session 2
+\node[box, text width=3.1cm] (q) at (1.65, 0.55)
+  {\textbf{Session 2} {\tiny (new conversation, no context)}\\[1pt]\textit{``What should I listen to while I cook dinner?''}};
+\node[model, text width=2.0cm] (m2) at (5.0, 0.55) {frozen LLM};
+\node[box, text width=3.35cm, align=center] (gate) at (8.9, 0.55)
+  {\textbf{gate}\\{\tiny current gist matches a stored key}\\{\tiny above a calibrated threshold?}};
+\node[box, text width=2.05cm, align=center, draw=sInk2] (add) at (12.35, 0.85) {$h \leftarrow h + \alpha\, M q$\\{\tiny at 3 late layers}};
+\node[box, text width=2.05cm, align=center] (none) at (12.35, -0.05) {add nothing\\{\tiny unrelated turns unchanged}};
+\draw[arr] (q) -- (m2);
+\draw[arr] (m2) -- node[lbl, above] {key $q$} (gate);
+\draw[arr] (gate.east) -- ++(0.2,0) |- node[lbl, pos=0.75, above] {yes} (add.west);
+\draw[arr] (gate.east) -- ++(0.2,0) |- node[lbl, pos=0.75, below] {no} (none.west);
+\draw[arr, densely dashed] (st.south) -- (add.north);
+
+% ------------------------------------------------------------------ (b) what survives
+\node[head] at (0, -0.85) {(b) What survives depends on what the shift subtracts};
+\node[lbl, anchor=west, font=\sffamily\tiny\bfseries] at (0.0, -1.25) {shift $=$ \textit{``I can't stand jazz music.''} minus\ldots};
+\node[lbl, anchor=west, font=\sffamily\tiny\bfseries] at (5.05, -1.25) {what the stored shift points at};
+\node[lbl, anchor=west, font=\sffamily\tiny\bfseries] at (8.25, -1.25) {reply in session 2 (Qwen3.5-9B)};
+
+\newcommand{\brow}[6]{% y, colorBg, reference text, points-at text, mark, reply
+  \fill[#2] (0,#1-0.34) rectangle (14.3,#1+0.34);
+  \node[anchor=west, text width=4.85cm] at (0.05,#1) {#3};
+  \node[anchor=west, text width=2.65cm] at (5.05,#1) {#4};
+  \node[anchor=center] at (7.95,#1) {#5};
+  \node[anchor=west, text width=5.95cm] at (8.25,#1) {\textit{#6}};
+}
+\brow{-1.72}{sBlueBg}{\textbf{opposite}: \textit{``I'm a huge jazz fan.''}}
+     {away from jazz}{\textcolor{sBlue}{\ding{51}}}{``Lo-Fi Beats: Perfect for\ldots''}
+\brow{-2.46}{sOrangeBg}{\textbf{centroid}: mean of \textit{``I can't stand rock / pop / \ldots''}}
+     {\textbf{jazz}}{\textcolor{sOrange}{\ding{55}}}{``Jazz Classics: Miles Davis, Bill Evans, or Chet Baker.''}
+\brow{-3.20}{sOrangeBg}{\textbf{without}: nothing}
+     {\textbf{jazz}}{\textcolor{sOrange}{\ding{55}}}{``Try upbeat jazz, funk, or classic rock.''}
+\brow{-3.94}{sFill}{\textbf{a fact}: \textit{``My dog's name is Pepper.''} minus nothing}
+     {the word \textit{Pepper}\\{\tiny (last layers only)}}{\textcolor{sOrange}{\ding{55}}}{``I Pepper Pepper Pepper Pepper Pepper\ldots''\\{\upshape\tiny with the fact in context: ``Your dog's name is Pepper.''}}
+\end{tikzpicture}

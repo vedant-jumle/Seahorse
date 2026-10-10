@@ -1,0 +1,94 @@
+% Seahorse write-up: ACL format (arXiv preprint; switch to [review] for anonymous submission).
+\documentclass[11pt]{article}
+\usepackage[]{acl}
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+% \usepackage{inconsolata} % not installed locally; ACL recommends it for the camera-ready
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{pifont}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc}
+
+\title{What Survives When Activation Steering Is Used as Memory:\\Leanings Partly, Facts Not, and Dislikes Turn into Likes}
+
+\author{Vedant Jumle \\
+  Independent researcher \\
+  \texttt{vedantjumle@gmail.com}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+% TODO (~180 words): gap (procedural steering memory exists; declarative/user content assumed to need text);
+% method (training-free activation memory, gated); mechanism (fixed average vs per-question recomputation);
+% findings P1--P3 with headline numbers; two scales, pre-registered, cross-family judges.
+\end{abstract}
+
+\begin{figure*}[t]
+  \centering
+  \resizebox{\textwidth}{!}{\input{figures/fig1.tex}}
+  \caption{\textbf{(a)} A training-free activation memory beside a frozen LLM. In session~1 the change an experience
+  causes in late-layer states is stored as a \emph{shift}, filed under a whitened \emph{key} for the conversation's gist.
+  In a later session the shift is added back only where the current gist matches a stored key.
+  \textbf{(b)} What the stored shift carries depends on the reference subtracted when writing it. Subtracting the
+  opposite keeps the \emph{direction}; subtracting alternatives or nothing keeps the \emph{concept}, so a dislike is
+  recalled as a like. A fact is stored as the word to say. Replies are single real samples from Qwen3.5-9B (preferences
+  $\alpha{=}1$, fact $\alpha{=}2$); quantitative results are in \S\ref{sec:results}.}
+  \label{fig:main}
+\end{figure*}
+
+\section{Introduction}
+\label{sec:intro}
+% TODO: personalisation needs memory; three homes (weights, context, activations).
+% NPM (2026) shows steering works as procedural memory and assumes declarative content needs text. We test it.
+% Contributions: (1) a gated activation memory for user content; (2) the fixed-average account and its predictions;
+% (3) pre-registered evidence on two scales with a cross-family judge panel; (4) the reference effect (dislikes flip).
+
+\section{Method}
+\label{sec:method}
+% Write (shift, references: opposite / centroid / without), key (whitened pooled gist), store (delta / least squares;
+% the ROME/MEMIT associative memory, in activations), read (gate as in CAST; h <- h + alpha M q at 3 late layers).
+
+\section{Why a stored shift keeps some content and not other}
+\label{sec:theory}
+% In context, attention recomputes the experience's effect per question (ICV; Geva et al.).
+% A stored shift is one fixed average: only question-independent content survives.
+% P1 facts fail (word-to-say, late only); P2 leanings in a dose window; P3 the reference decides concept vs direction.
+
+\section{Experimental setup}
+\label{sec:setup}
+% Qwen3.5-2B and 9B (fp32), thinking off; items (15 leanings, 8 dislikes, 6 one-of-many, 12 facts);
+% doses, controls (random, swapped, placebo, gate forced on); pre-registration; judge + cross-family panel; bootstrap CIs.
+
+\section{Results}
+\label{sec:results}
+\subsection{The memory is selective}
+\subsection{Facts are stored as a late word and are not used}
+\subsection{Leanings transfer only in a narrow dose window}
+\subsection{What the shift subtracts decides concept vs direction}
+
+\section{Related work}
+\label{sec:related}
+
+\section{Limitations}
+\label{sec:limits}
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+\nocite{*} % TODO remove once the text cites
+\bibliography{refs}
+
+\appendix
+\section{Items, prompts and judge rubrics}
+\section{Judge panel and sanity check}
+\section{Additional figures}
+\section{Pre-registration and reproduction}
+
+\end{document}
