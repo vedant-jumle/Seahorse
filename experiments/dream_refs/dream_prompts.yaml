@@ -8,21 +8,28 @@
 #
 #   kind single  greedy (T = 0) answer, plus n samples at T = 0.7 kept as fallbacks (refs.select_*)
 #   kind list    n samples at T = 0.7, deduplicated and ranked by how many samples propose a candidate
-version: 1
+#
+# v2 (2026-10-12, a pre-outcome amendment; see PREREG.md "Amendments"). v1 let the dreamer put only a detail in
+# the slot ("I'm a huge bookworm and read {X}." -> "every day"), so the alternatives varied the detail and the
+# generated centroid subtracted the trait itself; and "the same kind as" was read loosely ("I really can't stand
+# {X}." -> loud noises, sticky floors). v2 asks for the whole distinctive part as the value, and for a CATEGORY
+# that the alternatives (and the null values, by contrast) are tied to. The changes are prompt-wide, not per item.
+version: 2
 
 frame:
   kind: single
-  max_new: 120
+  max_new: 160
   template: |-
     Here is a sentence a user said about themselves:
     "{sentence}"
 
-    1. VALUE: the specific thing, kind or quality the sentence is about, copied exactly as it appears in the sentence. For "I'm a big fan of opera." the value is "opera"; for "I always take the stairs." it is "the stairs".
-    2. FRAME: the whole sentence copied exactly, with the value replaced by {X}. For the examples: "I'm a big fan of {X}." and "I always take {X}."
-    3. KEY WORDS: the one to three words of the value that name it (for the examples: ["opera"] and ["stairs"]).
+    1. VALUE: the part of the sentence that says what is particular about this user, copied exactly as it appears in the sentence. It is everything another user would have to change to describe themselves differently. If the sentence names a trait and then a detail of it, the value is the trait together with its detail, not the detail alone. Test: a different user, with a different value, must be able to say the frame truthfully. For "I'm a big fan of opera." the value is "opera"; for "I always take the stairs." it is "the stairs"; for "I'm a keen birdwatcher and go out every weekend." it is "a keen birdwatcher and go out every weekend" (not "every weekend").
+    2. FRAME: the whole sentence copied exactly, with the value replaced by {X}. For the examples: "I'm a big fan of {X}.", "I always take {X}." and "I'm {X}."
+    3. KEY WORDS: the one to three words of the value that name it (for the examples: ["opera"], ["stairs"] and ["birdwatcher"]).
+    4. CATEGORY: what kind of thing the value is, in a few words, broad enough that many different users would fill it differently (for the examples: "a kind of music", "a way of getting upstairs", "a hobby and how often one does it").
 
     Reply with only this JSON object and nothing else:
-    {"value": "...", "frame": "...", "key_words": ["..."]}
+    {"value": "...", "frame": "...", "key_words": ["..."], "category": "..."}
 
 opposite:
   kind: single
@@ -44,7 +51,7 @@ alternatives:
     Sentence: "{sentence}"
     Frame: "{frame}"
 
-    List 12 other things the speaker could have said in exactly this frame, each a different value of the same kind as "{value}". Write each as the complete sentence with the frame unchanged and only {X} replaced.
+    The value "{value}" is {category}. List 12 other things the speaker could have said in exactly this frame, each a different value that is also {category}, the way other users might fill it. Stay within {category}; do not switch to other kinds of things. Write each as the complete sentence with the frame unchanged and only {X} replaced.
 
     Reply with only the 12 sentences, one per line, numbered 1 to 12.
   # used only if no valid frame could be obtained for the item (refs.select_frame returned None)
@@ -74,7 +81,7 @@ null_values:
     Here is a sentence frame with a slot {X}:
     "{frame}"
 
-    Give 8 different values for {X} that make a natural, grammatical sentence in this frame but come from a completely different area of life than "{value}" (not the same kind of thing, and not related to it).
+    Give 8 different values for {X} that make a natural, grammatical sentence in this frame but come from a completely different area of life than "{value}" (not {category}, and not related to it).
 
     Reply with only a JSON list of 8 strings and nothing else.
 

@@ -151,7 +151,8 @@ class MockDreamer:
         if step == "frame":
             kw = max(refs.content_words(e) or {"x"}, key=len)
             words = [w for w in e.split() if refs.stem(w.lower().strip(",.'")) == kw]
-            out = json.dumps({"value": e, "frame": "{X}.", "key_words": [words[0].strip(",.") if words else e]})
+            out = json.dumps({"value": e, "frame": "{X}.", "key_words": [words[0].strip(",.") if words else e],
+                              "category": "a thing about the user"})
         elif step == "opposite":
             out = "Honestly, " + e[:1].lower() + e[1:] + " - or the reverse."
         elif step == "alternatives":
@@ -197,12 +198,14 @@ def run(cfg, A, dreamer, items, out):
         fr, tried = refs.select_frame(r["greedy"], r["samples"], e)
         d["frame_used"], d["frame_tried"] = fr, tried
         d["opposite_raw"] = ask("opposite", it["id"], True, sentence=e)
+        cat = (fr.get("category") or f'the same kind of thing as "{fr["value"]}"') if fr else None
         d["alternatives_raw"] = ask("alternatives", it["id"], False, sentence=e,
-                                    frame=fr["frame"] if fr else None, value=fr["value"] if fr else None)
+                                    frame=fr["frame"] if fr else None, value=fr["value"] if fr else None,
+                                    category=cat)
         d["paraphrases_raw"] = ask("paraphrases", it["id"], False, sentence=e)
         if fr:
             d["null_values_raw"] = ask("null_values", it["id"], True, frame=fr["frame"], value=fr["value"],
-                                       sentence=e)
+                                       category=cat, sentence=e)
         else:
             d["null_values_raw"] = None
         by_item[it["id"]] = d

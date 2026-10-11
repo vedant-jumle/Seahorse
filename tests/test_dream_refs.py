@@ -100,6 +100,19 @@ def test_alternatives_selection():
     kept3, _ = refs.select_alternatives(["I love Mexican food.\nI love Thai food."], "I love Japanese food.", fr,
                                         "I love Mexican food.", keep=8)
     assert [a["text"] for a in kept3] == ["I love Thai food."]
+    # a multi-word value whose category word is shared by every alternative ("food"): the category is not
+    # held against the candidates, the distinctive word ("Japanese") still is
+    fr4 = {"value": "Japanese food", "frame": "I love {X}.", "key_words": ["Japanese food"]}
+    kept4, info4 = refs.select_alternatives(["1. I love Italian food.\n2. I love Thai food.\n"
+                                             "3. I love Japanese street food.\n4. I love sushi."],
+                                            "I love Japanese food.", fr4, "I hate Japanese food.", keep=8)
+    assert [a["text"] for a in kept4] == ["I love Italian food.", "I love Thai food.", "I love sushi."]
+    assert info4["category_stems"] == [refs.stem("food")]
+    # a single key word is never treated as a category, even if most candidates repeat it
+    fr5 = {"value": "jazz", "frame": "I love {X}.", "key_words": ["jazz"]}
+    kept5, info5 = refs.select_alternatives(["I love smooth jazz.\nI love jazz fusion.\nI love rock."],
+                                            "I love jazz.", fr5, "I hate jazz.", keep=8)
+    assert [a["text"] for a in kept5] == ["I love rock."] and info5["category_stems"] == []
 
 
 def test_paraphrases_and_null_values():

@@ -46,8 +46,10 @@ value and key words). It never sees a hand-written opposite, alternative, lexico
 the prompts are about things no item is about. (A test asserts no hand reference appears in any prompt.)
 
 Per item, in this order:
-1. **Frame** (single): JSON `{value, frame, key_words}`: the value, the sentence with the value replaced by
-   `{X}`, and the 1–3 words that name the value. **Valid** iff exactly one slot, frame(value) reproduces the
+1. **Frame** (single): JSON `{value, frame, key_words, category}` (category from prompts v2, see Amendments):
+   the value (the whole part of the sentence that is particular to this user, trait plus detail, not the detail
+   alone), the sentence with the value replaced by `{X}`, the 1–3 words that name the value, and what kind of
+   thing the value is. **Valid** iff exactly one slot, frame(value) reproduces the
    experience (case, whitespace and final punctuation ignored), and every key word is inside the value. The
    greedy output if valid, else the first valid of 12 T = 0.7 samples, else none.
 2. **Opposite** (single): the spec's prompt (*"Rewrite the sentence so the speaker states the opposite
@@ -59,16 +61,19 @@ Per item, in this order:
    same frame (fits the frame or shares ≥ half its fixed words), keeps the topic (a key word), negation kept, one
    sentence. The frame is soft for the opposite because a sentiment flip ("I can't stand jazz music." → "I love
    jazz music.") changes the frame, not the value.
-3. **Alternatives** (list; 12 samples, each asked for 12, given the sentence and its frame): candidates are
+3. **Alternatives** (list; 12 samples, each asked for 12, given the sentence, its frame and its category, and
+   told to stay within the category): candidates are
    deduplicated by value and ranked by how many samples propose them, then by first appearance. **Hard checks:**
    fits the frame; value ≠ the experience's and ≠ the opposite's; the value contains no key word ("the
-   original's lexicon words"); not the experience or the opposite; no new negation. **Keep the 8 best-ranked
+   original's lexicon words"), except key-word stems that are the category (present in ≥ half of all
+   candidates' values, and never every key stem, so a single key word is always checked); not the experience or
+   the opposite; no new negation. **Keep the 8 best-ranked
    that pass**; if fewer pass, fill with the best-ranked that fail only the frame check (flagged).
 4. **Paraphrases** (list; 12 samples, each asked for 4): not the experience, no new negation, ≤ 40 words; those
    keeping every key word first, then by count. Keep 4. Used only for `gen:para` (lens and cosine).
 5. **Frame template** = step 1; it drives steps 3 and 6.
 6. **null_frame values** (single, JSON list of 8 fillers for the frame "from a completely different area of
-   life"): greedy list first, then the samples by count. Hard: not the value, no key word, not one of the kept
+   life", not the item's category): greedy list first, then the samples by count. Hard: not the value, no key word, not one of the kept
    alternatives' values, no new negation. Up to 8.
 
 Every generated reference is written before the follow-up as a sentence ending in . ! or ? (a full stop is added
@@ -287,3 +292,31 @@ token-identical to core_v1's (same prompts and streams, different batch composit
 - **Valence pairs** are the spec's frames filled mechanically with the dreamer's topics; the topic exclusion
   also removes any item lexicon entry (stricter than "none of our items' values").
 - **cs:concept_x_sign** applies the sign per layer (s_ℓ read at layer ℓ).
+
+## Amendments (dated; made before any outcome)
+
+**2026-10-12, after the first dream job (952002) and before any S1, S3 or generation result existed.** The
+validate job (952003) stopped on two items with no alternatives; prep + lens (952004) never ran. Reading the
+dreamer's raw outputs showed one validator bug and two dreamer-prompt flaws. All three fixes are generic (no
+item-specific rule, nothing tuned toward the hand references), and the dream, validate and prep + lens jobs are
+rerun from scratch in a new run directory. The first run (`dream_refs_20261011_2331`) is kept, not used.
+
+1. **Validator bug (key-word check on alternatives).** The check split a multi-word key phrase into words, so the
+   category noun counted as a key word: for japanese_food ("Japanese food") every alternative ("I love Italian
+   food.") was rejected for "food", and likewise horror ("movies"). Items whose key words include a category word
+   (hates_jazz "music", hates_sweets "food", …) were silently restricted to alternatives without it. Fix: a
+   key-word stem present in ≥ half of all candidates' values is the category and is not held against a candidate;
+   never every key stem, so a single key word ("jazz") is always checked (`refs.category_stems`, tested).
+2. **Frame left the trait outside the slot (prompts v1 → v2).** The dreamer chose frames such as "I'm a huge
+   bookworm and read {X}." (value "every day"), "I'm an early riser and love getting up at {X}." ("dawn"),
+   "I have celiac disease, so I can't eat {X}." ("gluten"), "… so I have to watch my {X}." ("sugar"). Their
+   alternatives vary the detail only, so the trait is in every alternative and the generated centroid would
+   subtract the very concept it is meant to keep. v2 asks for the whole distinctive part as the value (trait plus
+   detail), with the test "a different user, with a different value, must be able to say the frame truthfully",
+   and a generic example (a birdwatcher) about no item.
+3. **"Same kind" read loosely (prompts v1 → v2).** For frames like "I really can't stand {X}." the alternatives
+   left the category (hates_spicy → "loud noises", "sticky floors"; tight_budget → "a strict diet", "a packed
+   schedule"; prefers_quiet → a mix of weather, food and cities). v2 has the dreamer name a CATEGORY in the frame
+   step; the alternatives prompt is tied to it, and the null-value prompt excludes it.
+
+The S1 rule, the nulls' construction, the grid and every decision rule are unchanged.

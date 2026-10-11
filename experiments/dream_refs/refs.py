@@ -150,8 +150,10 @@ def fits(frame, s):
 
 
 def check_frame(obj, sentence):
-    """The dreamer's {"value", "frame", "key_words"} -> (frame dict, problems). Valid iff no problems:
-    one slot, the frame with the value reproduces the sentence, key words present and inside the value."""
+    """The dreamer's {"value", "frame", "key_words", "category"} -> (frame dict, problems). Valid iff no
+    problems: one slot, the frame with the value reproduces the sentence, key words present and inside the value.
+    The category (prompts v2) is optional: "" when absent, and then the alternatives prompt falls back to "the
+    same kind of thing as <value>"."""
     probs = []
     if not isinstance(obj, dict):
         return None, ["no JSON object"]
@@ -169,7 +171,7 @@ def check_frame(obj, sentence):
         probs.append("no key words")
     elif any(not has_phrase(value, k) for k in kw):
         probs.append("a key word is not in the value")
-    return {"value": value, "frame": frame, "key_words": kw}, probs
+    return {"value": value, "frame": frame, "key_words": kw, "category": norm(str(obj.get("category") or ""))}, probs
 
 
 def select_frame(greedy, samples, sentence):
@@ -189,8 +191,21 @@ def key_word_stems(key_words):
     return set().union(*[content_words(k) for k in key_words]) if key_words else set()
 
 
-def mentions_key(text, key_words):
-    return bool(content_words(text) & key_word_stems(key_words))
+def mentions_key(text, key_words, ignore=frozenset()):
+    return bool(content_words(text) & (key_word_stems(key_words) - set(ignore)))
+
+
+def category_stems(fillers, key_words, share=0.5):
+    """Key-word stems that are the value's category, not the value itself: present in >= `share` of the
+    candidate fillers (e.g. "food" in "Japanese food" when the candidates are "Italian food", "Thai food", ...).
+    Never all of them: if every key stem qualifies, none is ignored, so a single key word ("jazz") is always
+    checked."""
+    stems = key_word_stems(key_words)
+    fills = [content_words(f) for f in fillers if f]
+    if not stems or not fills:
+        return set()
+    cat = {s for s in stems if sum(s in f for f in fills) >= share * len(fills)}
+    return cat if cat != stems else set()
 
 
 # -------------------------------------------------------------------------------------------- opposite
@@ -256,9 +271,10 @@ def _rank(sample_texts, parse=parse_lines, keyfn=ckey):
     return sorted(out, key=lambda c: (-c["count"], c["first"]))
 
 
-def check_alternative(alt, sentence, frame, opposite):
+def check_alternative(alt, sentence, frame, opposite, ignore=frozenset()):
     """Hard checks: fits the frame; its value differs from the experience's and from the opposite's; the value
-    contains none of the experience's key words; not the experience or the opposite; no new negation."""
+    contains none of the experience's key words (except `ignore`, the category stems); not the experience or the
+    opposite; no new negation."""
     a = norm(alt)
     f = fits(frame["frame"], a) if frame else None
     opp_f = fits(frame["frame"], opposite) if (frame and opposite) else None
@@ -267,7 +283,7 @@ def check_alternative(alt, sentence, frame, opposite):
             "not_experience": ckey(a) != ckey(sentence),
             "not_opposite": ckey(a) != ckey(opposite or "") and (f is None or opp_f is None or ckey(f) != ckey(opp_f)),
             "different_value": f is None or ckey(f) != ckey(frame["value"]),
-            "no_key_word": not mentions_key(f if f is not None else a, kw),
+            "no_key_word": not mentions_key(f if f is not None else a, kw, ignore),
             "no_new_negation": neg_count(a) <= neg_count(sentence)}
     return {"text": a, "filler": f, "ok": all(hard.values()), "hard": hard}
 
@@ -275,11 +291,14 @@ def check_alternative(alt, sentence, frame, opposite):
 def select_alternatives(sample_texts, sentence, frame, opposite, keep=8):
     """The `keep` best-ranked candidates that pass every hard check (deduplicated by their value). If fewer
     pass, the list is filled with the best-ranked candidates that fail ONLY the frame check (flag
-    frame_miss). Returns (kept, info)."""
+    frame_miss). Key-word stems shared by most candidates' fillers are the category, not the value, and are not
+    held against a candidate (category_stems). Returns (kept, info)."""
     ranked = _rank(sample_texts)
+    fillers = [fits(frame["frame"], norm(c["text"])) for c in ranked] if frame else []
+    ignore = category_stems(fillers, frame["key_words"]) if frame else set()
     valid, near, seen = [], [], set()
     for c in ranked:
-        chk = check_alternative(c["text"], sentence, frame, opposite)
+        chk = check_alternative(c["text"], sentence, frame, opposite, ignore)
         k = ckey(chk["filler"]) if chk["filler"] is not None else c["key"]
         if k in seen:
             continue
@@ -297,7 +316,8 @@ def select_alternatives(sample_texts, sentence, frame, opposite, keep=8):
             seen.add(k)
             kept.append(dict(rec, frame_miss=True))
     return kept, {"n_candidates": len(ranked), "n_valid": len(valid), "n_kept": len(kept),
-                  "n_frame_miss": sum(bool(r.get("frame_miss")) for r in kept)}
+                  "n_frame_miss": sum(bool(r.get("frame_miss")) for r in kept),
+                  "category_stems": sorted(ignore)}
 
 
 def select_paraphrases(sample_texts, sentence, key_words, keep=4, max_words=40):
