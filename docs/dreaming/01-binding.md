@@ -1,6 +1,6 @@
 # Experiment 1: dreaming as binding (the subject-position write)
 
-*Can a fact be used if the model's own representation of it is written at the subject's position, rather than pushed at the answer? Exact process. Written 2026-10-11; revised the same day after review (stage 0 knockout pre-test, H2 fixed, gated reinstatement, item tiers, a `subj` arm on Qwen2.5).*
+*Can a fact be used if the model's own representation of it is written at the subject's position, rather than pushed at the answer? Exact process. Written 2026-10-11; revised the same day after review (stage 0 knockout pre-test, H2 fixed, gated reinstatement, item tiers, a `subj` arm on Qwen2.5), and again before stage 0 ran (the sufficiency safeguard in §2).*
 
 ---
 
@@ -24,6 +24,12 @@ One cheap job, no generation, in the `ctx` condition (experience + question in o
 - **Fact lives at its own position (pointer at the subject):** patching the subject flips **< 25%** at every block (CI excludes 50%) while patching the attribute position flips **≥ 50%**, and, on Qwen2.5, blocking the attribute costs **≥ 50%**. Then the subject write is dead on arrival; the content channel is **gated reinstatement** (§7, arm R) or a trained read, and the generation budget goes there instead.
 - **Both / in between:** anything else. Proceed, but expect H1 to work only partly and R to win; report the flipped share per block as the result.
 - **If the two models disagree** (e.g. Qwen2.5 says "subject", Qwen3.5-2B patching says "pointer"): each model's result decides its own grid (the 2B result decides the 2B generation grid, the Qwen2.5 result decides the Qwen2.5 arms), and the disagreement is reported as a finding about the hybrid architecture, not averaged away.
+
+**Sufficiency safeguard** *(revised 2026-10-11, before stage 0 ran)*. The subject patch above can under-read. In the counter run, "Rocky" still sits at its own position, and the answer can still read it there. So a patched "dog" that carries "Pepper" has to *outvote* an intact Rocky route, and a small flip could mean "the subject state is outvoted", not "the subject state is empty". That would wrongly declare "pointer". Two changes guard against it:
+- **An extra cell on Qwen2.5-1.5B, "subject alone".** In the target (counter) run, block attention to the attribute position ("Rocky") from every query position after the experience sentence, at all layers. Then patch the question-subject state from the source run, as above (same blocks and bands). This asks the session-2 question: *is the subject state enough on its own, when the answer can't look up the attribute?* Report the flipped share, as for every patch.
+  - **Sanity check:** with the attribute blocked and no patch, the flipped share should be about 0. Report it beside the cell. If it isn't about 0 (blocking Rocky alone moves the margin), the read-out is the patch's gain over that blocked baseline, and the sanity value is reported.
+  - **How it is read:** if the subject-alone share is **≥ 50%** at its best block or band (CI excludes 25%), Qwen2.5 is *not* flagged pointer-suspected, whatever the ordinary subject patch shows. It goes to "both / in between", reported as "the subject state is sufficient but outvoted by the intact attribute".
+- **Rule change: stage 0 alone can only flag "pointer-suspected".** A pointer verdict skips the `subj` generation grid (§9) only if the later analytic pre-pass (§6: the subject write in session 2, teacher-forced Δ log P(target)) *also* shows no gain. If the pre-pass shows a gain, the `subj` arm runs as planned.
 
 Also run the **analytic pre-pass** (§6) before generation; it is the second early warning.
 
@@ -134,7 +140,7 @@ Generation settings as core_v1: 1 greedy + 4 samples, T=1, top-p 0.95, top-k 20,
 - **Push in disguise:** B1 holds but B3 fails (wrong position works as well). Then position isn't what mattered; report as a stronger push, not binding.
 - **Orphaned:** nothing beats the push at any layer or α, while the analytic pre-pass shows `Δ log P(target)` rising. The representation is there but not readable out of context. Go to full reinstatement / the trained read path.
 - **Reinstatement wins:** `reinst` beats `subj` on Qwen2.5, **both arms run on the same model**. Then the content channel is attention-based and the subject write is a shortcut that doesn't hold.
-- **Stage 0 says pointer:** skip the `subj` generation grid; run only `reinst` (gated) and the controls, and treat the result as the upper bound for a training-free content channel.
+- **Stage 0 says pointer:** skip the `subj` generation grid; run only `reinst` (gated) and the controls, and treat the result as the upper bound for a training-free content channel. *(Revised 2026-10-11: only if the analytic pre-pass also shows no gain from the subject write; stage 0 alone gives "pointer-suspected". See the sufficiency safeguard in §2.)*
 
 ## 10. Job plan
 
