@@ -259,7 +259,11 @@ Word lists and loop checks missed two things: mentions vs recommendations (§1),
 - **ctx rule:** a preference item whose in-context answers don't lean at least 0.3 more than no memory is flagged and set aside. If the model can't show the preference even when told, the item can't test memory.
 - **Pre-registration:** the pass/fail rule for each claim was written before the run (PREREG.md). A claim that fails its rule is reported as failed, even if a different rule would have passed it.
 
-**What the judge can't tell you:** whether it's right. It's a model too, and the larger of the two under test. 200 answers are set aside for a hand check. Until that's done, judged numbers are provisional.
+**What the judge can't tell you:** whether it's right. It's a model too, and the larger of the two under test. The planned hand check of 200 answers was not done; on 2026-10-10 it was replaced by re-judging all 34,200 core_v1 answers with a panel of other model families (gpt-oss-20B, Gemma-4-12B, Llama-3.1-8B, Qwen3.6-35B-A3B; `results/core_v1_20261007_1820/panel/panel_report.md`). Two things to know when reading a judged number:
+- **How much judges agree depends on what you ask.** Agreement on coherence is high (Fleiss κ 0.90 on facts); agreement on direction is moderate (pairwise κ 0.45–0.69 among competent judges). Our judge is the strictest on coherence (62% of answers coherent, against 72–76% for the others), which is why conclusions that hinge on coherence (the leanings claim C2, and the "narrow window around α=1") are judge-sensitive, while C3 and C5 hold under every competent judge.
+- **A judge can fail an objective check.** Llama-3.1-8B labelled 92% of fact answers as "uses the fact" although the target string was absent in 48% of those (for the other judges, about 1%), so it was excluded.
+
+No human labels were collected, so a judged number is still a model's opinion, now one that other models mostly share.
 
 ---
 

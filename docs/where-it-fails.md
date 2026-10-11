@@ -1,6 +1,6 @@
 # Seahorse: where it fails, and why
 
-*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01. Updated 2026-10-07 with the Qwen3.5 results (think_v1, ref_v1): failures 13–16, plus updates to 1, 2, 4 and 7. Updated 2026-10-08 with cross-layer injection (xlayer_v1) and the pre-registered run on Qwen3.5-2B and 9B (core_v1): updates to 1, 2, 4, 10, 11, 12 and 13. Related papers: [literature.md](reference/literature.md).*
+*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01. Updated 2026-10-07 with the Qwen3.5 results (think_v1, ref_v1): failures 13–16, plus updates to 1, 2, 4 and 7. Updated 2026-10-08 with cross-layer injection (xlayer_v1) and the pre-registered run on Qwen3.5-2B and 9B (core_v1): updates to 1, 2, 4, 10, 11, 12 and 13. Updated 2026-10-11: failure 11's judge check was done by a cross-family panel instead of by hand (note at the end of failure 11). Related papers: [literature.md](reference/literature.md).*
 
 ---
 
@@ -282,7 +282,9 @@ This is the least glamorous failure and the most important lesson.
 - **The loop trap** (think_v1). "Names the fact" counted *"Petra Petra Petra…"*. Loops are now counted separately.
 - **The coherence trap** (xlayer_v1, core_v1). "Not a loop" still isn't "makes sense". Garbled answers like *"It's a very Leeds."* passed the loop check.
 
-The pre-registered run (core_v1) therefore judges every answer for direction *and* coherence with a judge model, fixes its pass/fail rules in advance (`experiments/core_v1/PREREG.md`), and puts confidence intervals on every number. The judge still needs a hand check on 200 set-aside answers.
+The pre-registered run (core_v1) therefore judges every answer for direction *and* coherence with a judge model, fixes its pass/fail rules in advance (`experiments/core_v1/PREREG.md`), and puts confidence intervals on every number. 
+
+**Update (2026-10-11):** the planned hand check of 200 answers was replaced by a cross-family judge panel (gpt-oss-20B, Gemma-4-12B, Llama-3.1-8B, Qwen3.6-35B-A3B re-judged all 34,200 answers; `results/core_v1_20261007_1820/panel/panel_report.md`). The fact and dislike-direction verdicts (C3, C5) hold under every competent judge. The leanings verdict (C2) is judge-sensitive: it fails under each single judge but holds under majority votes, and our judge is the strictest on coherence (62% coherent vs 72–76%). Under gpt-oss and Gemma the 2B's leaning gain at α=2 (+0.36, +0.42) exceeds the gain at α=1 (+0.29, +0.24), so the "narrow window around α=1" is judge-sensitive too. Llama-3.1-8B was excluded after it labelled 92% of fact answers as "uses the fact" with the target string missing in 48% of them. No human labels exist.
 
 ---
 

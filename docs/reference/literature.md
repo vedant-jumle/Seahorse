@@ -419,7 +419,7 @@ A stored preference has parts, and what you subtract when writing it decides whi
 | centroid | wrong way, −0.38, every item | wrong way, −0.37, every item |
 | `without` | wrong way, −0.25 | wrong way, −0.31 |
 
-These are judge-labelled numbers, provisional until the hand audit.
+These are judge-labelled numbers. The planned hand audit was replaced (2026-10-10) by a cross-family judge panel, and C5 holds under every competent judge; gpt-oss and Gemma give larger effects (centroid −0.42 to −0.53). No human labels were collected.
 
 **Prior work and what's ours:**
 - CoS notes the effect informally (a single context carries its topic; a contrasting pair isolates the attribute). BiPO argues raw activation differences miss the intended behaviour. Jang and Lindsey show negation is weak.

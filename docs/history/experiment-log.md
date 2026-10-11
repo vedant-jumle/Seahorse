@@ -767,3 +767,9 @@ The best cell's "clean" hits are mostly garbled or identity-confused text, not l
 3. Scale (2B → 9B) changes coherence at strong doses, not the pattern.
 
 **Pending:** the hand audit of the judge (`analysis/audit_sample.jsonl`, 200 answers). Until then, the judge numbers are provisional.
+
+**Update (2026-10-11):** the hand audit was not done. It was replaced (2026-10-10) by a cross-family judge panel: all 34,200 answers re-judged by gpt-oss-20B, Gemma-4-12B, Llama-3.1-8B and Qwen3.6-35B-A3B (same family as our judge, reference only); report in `results/core_v1_20261007_1820/panel/panel_report.md`, code in `tools/audit/`.
+- C3 and C5 hold under every competent judge and both majority votes; gpt-oss and Gemma give larger C5 effects (centroid −0.42 to −0.53).
+- C2 fails under every single judge but holds under majority votes. Our judge is the strictest on coherence (62% coherent vs 72–76%). Under gpt-oss and Gemma the 2B's leaning gain at α=2 (+0.36, +0.42) exceeds that at α=1 (+0.29, +0.24), so conclusion 2 above ("narrow window around α 1") rests on the strictest judge and is judge-sensitive.
+- Llama-3.1-8B is excluded: it labels 92% of fact answers as "uses the fact" with the target string absent in 48% of those (others about 1%).
+- Coherence agreement is high (Fleiss κ 0.90 on facts), direction agreement moderate (pairwise κ 0.45–0.69). No human labels were collected.

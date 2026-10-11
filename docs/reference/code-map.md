@@ -3,49 +3,59 @@
 ```
 Seahorse/
 ├── README.md                     project overview + index of these docs
-├── environment.yml               the `seahorse` conda env (python 3.11, torch 2.6 cu126, transformers 4.x)
+├── HANDOVER.md                   the live handover: state, pending work, conventions
+├── environment.yml               the `seahorse` conda env (python 3.11, torch 2.6 cu126, transformers >=5.18,<6; needed for Qwen3.5)
 ├── pyproject.toml                makes `seahorse` an installable package (src layout); pytest config
-├── src/seahorse/                 the library: memory, hooks, sessions, metrics
+├── src/seahorse/                 the library: memory, hooks, sessions, metrics, stats
 │   ├── __init__.py
 │   ├── memory.py                 FastWeightMemory: the memory operator M (write / read / key)
 │   ├── residual.py               model loading + forward hooks: capture() and inject()
 │   ├── sessions.py               chat-template sequence builders, write-token alignment
-│   └── metrics.py                teacher-forced log-prob metrics, entropy, greedy decoding
+│   ├── metrics.py                teacher-forced log-prob metrics, entropy, greedy decoding
+│   ├── stats.py                  two-level (items, then prompts) bootstrap confidence intervals
+│   └── bench/                    bench_v1 evaluation items: loader, disposition-rate scoring, validation
+├── data/bench_v1/                the benchmark items (YAML): facts, dispositions, emotional, fact pool, shared schema
 ├── tests/                        CPU unit tests (run at the start of every cluster job)
-│   ├── test_memory.py            delta-rule properties
-│   └── test_hooks.py             hook correctness on a tiny random Qwen2
-├── experiments/
-│   ├── v0/                       first experiment: can the channel carry memory at all?
-│   │   ├── run.py
-│   │   ├── scenarios.yaml
-│   │   └── generic_prompts.txt   ~100 neutral prompts used to estimate the centring mean μ
-│   ├── v0_1/                     follow-up: specificity, relations, write positions, samples
-│   │   ├── run.py
-│   │   └── scenarios.yaml
-│   ├── diag_dose/                diagnostic: how big the steer is, where it lands, what combining does
-│   │   └── run.py
-│   └── diag_order/               diagnostic: does write order decide who survives in a combined memory?
-│       └── run.py
+│   ├── test_memory.py, test_hooks.py        delta-rule properties; hook correctness on a tiny random Qwen2
+│   ├── test_bench.py                        benchmark loader and scoring
+│   ├── test_ref_v1.py, test_xlayer_v1.py    the ref_v1 and xlayer_v1 helpers
+│   └── test_core_v1.py, test_audit.py, test_panel.py   core_v1 machinery, audit tools, judge panel
+├── experiments/                  one folder per experiment, each with its own run.py
+│   ├── v0/, v0_1/                the original experiments (Qwen2.5-1.5B): can the channel carry memory; specificity, relations, samples
+│   ├── diag_dose/, diag_order/   diagnostics: steer size and selectivity; does write order decide who survives
+│   ├── diag_attn/                diagnostic: attention-based write selection (no-go)
+│   ├── diag_keys/                the key / selectivity experiment: the definitive Qwen2.5 implementation
+│   ├── bench_v1_calib/           benchmark calibration with no memory (noise floor, flagged items, the "No" bias)
+│   ├── samples_v2/               real text from the Qwen2.5 design (source of the where-we-are appendix)
+│   ├── think_v1/                 the Qwen3.5-2B port: layer sweep, multi-layer, injection during thinking
+│   ├── ref_v1/                   which reference a preference shift should subtract (opposite, centroid, ...)
+│   ├── xlayer_v1/                read a fact late, inject it earlier (negative); xl.py has the two-pass gating
+│   └── core_v1/                  the pre-registered run on 2B + 9B: PREREG.md, core.py, run.py, analyze.py, judge prompts,
+│                                 and panel_judge.py / analyze_panel.py for the cross-family judge panel
 ├── slurm/                        DelftBlue job scripts
 │   ├── setup_delftblue.sh        one-off env build + model download (login node)
 │   ├── v0.slurm                  the job that ran v0 (kept as the record)
-│   └── run.slurm                 generic job: EXP=<experiment> sbatch slurm/run.slurm
-├── results/                      (untracked) outputs pulled back from the cluster
-│   ├── v0_408770/
-│   ├── v0_1_415909/
-│   ├── diag_dose_577895/
-│   ├── diag_order_577896/
-│   └── seahorse_<jobid>.out      job logs of the two diagnostic runs
+│   ├── run.slurm                 generic job on a 10GB A100 slice: EXP=<experiment> sbatch slurm/run.slurm
+│   ├── run_v100.slurm            generic job on a V100 (fp32), used by the Qwen3.5 experiments
+│   ├── core_v1.slurm             core_v1 chains on a full A100 (9B, judge)
+│   └── panel.slurm               the judge-panel re-labelling job
+├── tools/
+│   ├── audit/                    judge-audit tools for the planned human audit (label.html, compare.py); not used, the panel replaced it
+│   └── manuscript/               build.py + page.html: the public manuscript page
+├── writeup/                      the paper (main.tex, refs.bib, figures/, arxiv/ source bundle) and its build files
+├── results/                      (untracked) outputs pulled back from the cluster, one folder per run
+│                                 (e.g. core_v1_20261007_1820/ with per-model folders, analysis/ and panel/)
 └── docs/                         this documentation
     ├── where-we-are.md           plain-language overview of the whole project (start here)
     ├── how-it-works.md           the current design, end to end
     ├── where-it-fails.md         every failure, its cause and possible fixes
-    ├── reference/                core-idea.md, original-method.md (v0/v0.1), code-map.md (this file)
-    └── history/                  experiment-log.md (v0, v0.1, diagnostics), open-notes.md, next-moves-v0.1.md
+    ├── reference/                core-idea.md, original-method.md (v0/v0.1), code-map.md (this file), metrics.md, literature.md
+    ├── history/                  experiment-log.md, open-notes.md, next-moves-v0.1.md
+    └── dreaming/                 the next phase: README.md plus 01-binding.md, 02-scaffold.md, 03-consolidation.md (specified, not built)
 ```
 
-> **Not yet described here:** `experiments/diag_attn/`, `diag_keys/`, `bench_v1_calib/`,
-> `samples_v2/` and `think_v1/`, `src/seahorse/bench/`, and `slurm/run_v100.slurm`.
+> The tree lists directories and the main files only. Experiment folders other than the original v0/v0.1 are
+> not described file by file below: see each folder's header comments, and `experiments/core_v1/README.md`.
 
 ---
 

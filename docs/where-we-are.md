@@ -1,6 +1,6 @@
 # Seahorse: where we are
 
-*A plain-language report on the project so far: what we set out to do, what others have done, what we believe, how we tested it, and what we found. Written 2026-09-30 to step back and see the whole picture. Updated 2026-10-08 with the move to Qwen3.5 (2B and 9B), thinking-phase injection, what a stored shift actually carries, cross-layer injection and the pre-registered run (stages 7–10).*
+*A plain-language report on the project so far: what we set out to do, what others have done, what we believe, how we tested it, and what we found. Written 2026-09-30 to step back and see the whole picture. Updated 2026-10-08 with the move to Qwen3.5 (2B and 9B), thinking-phase injection, what a stored shift actually carries, cross-layer injection and the pre-registered run (stages 7–10). Updated 2026-10-11: the judge was checked against a cross-family panel (instead of the planned hand audit), the paper is on arXiv, and the next phase is the "dreaming" experiments (stage 10, §7, §8). Stages 1–9 are unchanged.*
 
 *Companions: [how-it-works.md](how-it-works.md) walks through the current design step by step, and [where-it-fails.md](where-it-fails.md) collects every failure with its cause and possible fixes.*
 
@@ -239,7 +239,13 @@ The result, claim by claim:
 - Our earlier word-count wins, like vegetarian at 94% in stage 7, partly counted text that was no longer sensible.
 - The useful dose is a narrow window, and the effect is uneven across items: strong for "early riser", "prefers quiet", "vegan", "vegetarian"; nothing for "celiac", "lactose intolerant", "has young kids".
 
-**The larger model changed nothing.** It was slightly more coherent at the same dose, with the same pattern. The judge itself still needs a hand check: 200 answers are set aside for it.
+**The larger model changed nothing.** It was slightly more coherent at the same dose, with the same pattern. 
+
+**Update (2026-10-11): the judge was checked, by other models rather than by hand.** The planned hand check of 200 answers was replaced by a panel: all 34,200 answers were re-judged by gpt-oss-20B, Gemma-4-12B, Llama-3.1-8B and Qwen3.6-35B-A3B (the last is the same family as our judge, so reference only). Results (`results/core_v1_20261007_1820/panel/panel_report.md`):
+- **Facts (C3) and dislike direction (C5) hold under every competent judge** and under both majority votes. gpt-oss and Gemma find *larger* C5 effects (centroid −0.42 to −0.53, against −0.38 with our judge).
+- **Leanings (C2) fail under every single judge but hold under the majority votes,** so that verdict is judge-sensitive. Our judge is the strictest on coherence (62% coherent, against 72–76% for the others). Under gpt-oss and Gemma the 2B's leaning gain at α=2 (+0.36, +0.42) is even larger than at α=1 (+0.29, +0.24), so "a narrow window around α=1" rests on the strictest judge and is itself judge-sensitive.
+- **Llama-3.1-8B is excluded:** it labels 92% of fact answers as "uses the fact", with the target string absent in 48% of those (the others: about 1%).
+- Coherence agreement is high (Fleiss κ 0.90 on facts); direction agreement is moderate (pairwise κ 0.45–0.69). No human labels were collected.
 
 ---
 
@@ -272,7 +278,7 @@ We should treat these as useful analogies, not proof.
 
 ## 7. Honest limits
 
-- **Small to mid scale.** Three models (1.5B, 2B, 9B), and 12–15 items per group in the largest run. The judge model hasn't yet been checked against human labels.
+- **Small to mid scale.** Three models (1.5B, 2B, 9B), and 12–15 items per group in the largest run. The judge model has been checked against a cross-family panel of other models, not against human labels (none were collected); the leanings verdict (C2) is judge-sensitive.
 - **Leanings are modest.** At the only dose that stays coherent, the effect is small and uneven across items. The pre-registered "leanings transfer" claim failed its rule on both models.
 - **Dislikes need the hand-made opposite,** or they flip into likes. Single-item preferences (countries) don't work at all yet.
 - **The model claims memories as its own** ("my favourite colour is teal"). Nothing stores *whose* a memory is.
@@ -287,7 +293,8 @@ We should treat these as useful analogies, not proof.
 ## 8. Where it could go
 
 **Next (near term)**
-- **Finish the short write-up** of the pre-registered results, and hand-check the judge.
+- **Done (2026-10-11):** the write-up is on arXiv, and the judge was checked by the panel. Still open from the paper: a second model family and human labels on a subset.
+- **The "dreaming" experiments** ([docs/dreaming/](dreaming/README.md)), specified but not yet built. They try to give the model's own binding circuits something to use: (1) write the model's own state at the subject's position, so a fact can be *used*; (2) let the model generate the opposite and alternatives itself, which tests the concept × sign idea without hand-made references; (3) consolidation with many memories. The first two are independent; the third needs the first.
 - **Concept × sign:** store *what* (from alternatives) and *which way* separately, and apply the concept with a sign. The sign could come from a general like/dislike direction, so no hand-made opposite is needed.
 - **A thermostat instead of a push:** set how much of a concept is present to a target level, rather than adding a fixed amount. That should stop floods.
 - **Fair doses** (matched by coherence, around α=1), per-item doses, and a burst at the start of thinking instead of a constant push.
