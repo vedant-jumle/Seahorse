@@ -1,6 +1,6 @@
 # Seahorse: handover
 
-*The live handover: the current state, where everything is, what's pending, and how to pick up. Updated 2026-10-08. For the story and the reasoning, read [README.md](README.md), then the plain-language docs it lists.*
+*The live handover: the current state, where everything is, what's pending, and how to pick up. Updated 2026-10-11. For the story and the reasoning, read [README.md](README.md), then the plain-language docs it lists.*
 
 ---
 
@@ -28,7 +28,11 @@ The latest results come from **core_v1**, a pre-registered run on both Qwen3.5 s
 - **Ownership.** The model claims memories as its own ("Teal is my favourite colour!").
 - **Self-driven writing.** It still needs hand-made with/without/opposite comparisons.
 
-**In progress:** the short write-up (separate chat), and a hand audit of the judge (§4).
+**Where the project is now (2026-10-11):**
+- **The paper is on arXiv**: *"What Survives When Activation Steering Is Used as Memory"* (`writeup/main.tex`, `main.pdf`). It commits the project to one reading: **the steer channel is a push, not a store.** A stored shift is a fixed average of an effect attention recomputes per question, so only question-independent content survives.
+- **The judge was validated by a cross-family panel** (gpt-oss, Gemma-4, Llama-3.1, Qwen3.6) instead of the human audit: C3 and C5 are robust; C2 is judge-sensitive; Llama-3.1 fails a sanity check and is excluded (§4).
+- **The episodic channel does not exist in code.** It was always a design (`docs/history/next-moves-v0.1.md` §A2). Nothing from the "other session" is in this repo.
+- **The next phase is "dreaming"**: an offline phase that gives the model's own binding circuits the material they need. Three experiments, specified in `docs/dreaming/` (§4b).
 
 ## 2. Read first
 1. [README.md](README.md): the overview and reading order
@@ -38,6 +42,7 @@ The latest results come from **core_v1**, a pre-registered run on both Qwen3.5 s
 5. [docs/reference/metrics.md](docs/reference/metrics.md): **what every number in the reports means**, with traps. Read it before trusting any table.
 6. [docs/reference/literature.md](docs/reference/literature.md): the steering-reliability and introspection papers, and how they line up with our results
 7. [experiments/core_v1/PREREG.md](experiments/core_v1/PREREG.md) and [README.md](experiments/core_v1/README.md): the pre-registered claims behind the write-up, and how to reproduce them
+8. [docs/dreaming/README.md](docs/dreaming/README.md): what comes next, and the exact reading list for building it (§4b)
 
 ## 3. The current best design
 | Piece | Qwen2.5-1.5B (original) | Qwen3.5-2B (current) |
@@ -96,9 +101,40 @@ Code:
 - strong for early_riser, prefers_quiet, vegan, vegetarian
 - nothing for celiac, lactose_intolerant, has_young_kids
 
-**Pending:**
-- **The hand audit of the judge.** 200 answers are in `analysis/audit_sample.jsonl`, with the automatic labels kept separately in `audit_key.jsonl` so the audit is blind. Until they're labelled, judge numbers are provisional (as PREREG says).
-- **The write-up** is being drafted in a separate chat. C2 and C4 must be reported as pre-registered failures. The α=1 vs α=2 explanation must be labelled post hoc, not used to redefine the claims.
+**Judge validation (done 2026-10-10, replaces the planned hand audit):** all 34,200 answers re-judged by gpt-oss-20B, Gemma-4-12B, Llama-3.1-8B and Qwen3.6-35B-A3B (`results/core_v1_20261007_1820/panel/panel_report.md`, code `tools/audit/`).
+- **C3 and C5 hold under every competent judge** and both majority votes; gpt-oss and Gemma give *larger* C5 effects (centroid −0.42 to −0.53).
+- **C2 fails under every single judge but holds under majority votes**: the original judge is the strictest on coherence (62% vs 72–76%). Reported as judge-sensitive.
+- **Llama-3.1-8B is excluded** by an objective check: it labels 92% of fact answers as "uses the fact", with the target string absent in 48% of those (others ≈ 1%).
+- Coherence agreement is high (Fleiss κ 0.90 on facts); direction agreement moderate (κ 0.45–0.69). No human labels were collected; the paper says so.
+
+## 4b. Next: the dreaming experiments (specified, not yet built)
+
+The paper settled that facts, premises and ownership fail because a push at the answer position has nothing the model's **binding** circuits can use. The binding literature (`docs/reference/literature.md`, group E) says binding is positional: in context, a shared order tag at entity and attribute positions resolved by position-finding attention heads (Feng & Steinhardt; Dai; Prakash); from weights, the attribute loaded onto the subject's own position and extracted by attention (Geva). So the fix is not a better vector: it is to put stored content at a *position* the model's circuits treat as context. That work happens offline, hence "dreaming".
+
+| # | Doc | Question | Status |
+|---|---|---|---|
+| 1 | `docs/dreaming/01-binding.md` | Write the model's own subject-enriched state at the subject token (early-middle layers); compare with segment reinstatement. Does a fact get *used*? Does balanced yes/no move? | specified; **run first** |
+| 2 | `docs/dreaming/02-scaffold.md` | Let the model generate opposite / alternatives / a general valence direction. Does C5 replicate without human references? Does concept × sign fix the dislike flip? | specified; independent of 1 |
+| 3 | `docs/dreaming/03-consolidation.md` | With many memories: abstraction of leanings from episodes, reconsolidation, surprise-gated pruning vs write-everything, re-filing | design; depends on 1 and the capacity curve |
+
+**To be fully equipped to build and run them, a new session should read, in this order:**
+1. `HANDOVER.md` (this file), all of it.
+2. `docs/where-it-fails.md`: the 16 failures and the root-cause section at the end. The dreaming experiments target failures 1, 2, 7, 9, 13, 15.
+3. `docs/reference/literature.md`, **group E** and the theory subsection *"Why a push can't bind, and what would"*: the mechanism the experiments rely on. Then group C (Geva, ROME, MEMIT).
+4. `docs/dreaming/README.md`, then `01-binding.md` and `02-scaffold.md` in full: the exact processes, predictions, controls and decision rules.
+5. `docs/reference/metrics.md`: every measure, the traps, and §7b (judged measures, bootstrap, pre-registration).
+6. `experiments/core_v1/README.md`, `PREREG.md`, and the code to build on: `core.py` (layer rule, conditions, batched two-pass hook and generation, judge parser), `run.py` (stages prep / gen / score), `analyze.py` (tables, CIs, claim rules), `items.yaml` + `data/bench_v1/facts.yaml` (the fact items, measure prefixes, foils, balanced yes/no probes, use prompts), `judge_prompts.yaml`.
+7. `experiments/xlayer_v1/xl.py`: the two-pass gating and cross-layer injection code (experiment 1 injects at a *position*, which needs the same no-memory first pass).
+8. `tools/audit/` and `results/core_v1_20261007_1820/panel/panel_report.md`: how the judge panel is run and read.
+9. `docs/how-it-works.md` §2–§7 if the key / whitening / threshold machinery is unfamiliar.
+10. The papers, if the mechanism needs checking: `../papers/Dissecting Factual recall.pdf`, `Binding IDs in LLMs.pdf`, `Entity Tracking Circuit.pdf`, `Representational Analysis of Binding.pdf`.
+
+**Facts a builder needs that aren't obvious from the code:**
+- Qwen3.5-2B has full attention only at blocks **3, 7, 11, 15, 19, 23** (`layer_types` in the model config); the rest are Gated DeltaNet with no KV cache. A residual-stream write works at any block; a KV splice only at those six. Use **Qwen2.5-1.5B** (28 full-attention layers, already calibrated in `diag_keys`) for the reinstatement arm.
+- core_v1's `prep/state.pt` holds every item's with/without/opposite/centroid shifts, keys and thresholds at the three late layers; experiment 2 reuses it. Experiment 1 needs new harvests at early-middle layers (the subject token), so it reads states at all blocks.
+- The fact use prompts don't all contain the subject literally (e.g. *"the place where I grew up"*); `01-binding.md` §3 says how to handle that (aliases, and "no-site" prompts reported separately).
+- The dreamer for experiment 2 is the 9B judge model on an A100 via `slurm/core_v1.slurm`; generation of references takes about half an hour.
+- Both experiments must have a `PREREG.md` committed before any job is submitted, as core_v1 did. The predictions and rules are already written in the docs; copy them.
 
 ## 5. Recently finished and reviewed
 
@@ -163,7 +199,7 @@ Code:
 | `think_v1_20261003_0004` | the Qwen3.5 port: layer sweep, single vs multi-layer, strength during thinking vs answer; plus `raw_outputs.md` (readable, loops collapsed) |
 | `ref_v1_20261005_2347` | five references for preference shifts (`main/report.txt`, `main/vocab.txt` for the logit lens) |
 | `xlayer_v1_20261007_1311` | cross-layer injection for facts (`stageA/report.txt` grid, `stageB/report.txt` generation) |
-| `core_v1_20261007_1820` | **the pre-registered run on 2B + 9B**: `qwen35_2b/` and `qwen35_9b/` (prep, gen, score, analysis/report.md); `analysis/` (C7.md, claims_all.json, the audit sample) |
+| `core_v1_20261007_1820` | **the pre-registered run on 2B + 9B**: `qwen35_2b/` and `qwen35_9b/` (prep, gen, score, analysis/report.md); `analysis/` (C7.md, claims_all.json, the audit sample); `panel/` (the cross-family judge re-labelling and its report) |
 
 ## 7. Key findings to remember
 - **Selectivity, not strength, was the original problem.** The fix was the **key**: the whitened gist plus a threshold.
@@ -192,30 +228,20 @@ Code:
   See `docs/reference/metrics.md`.
 
 ## 8. Next steps and ideas (in rough priority)
-1. **Finish the write-up** (separate chat) and **hand-audit the judge**: 200 answers, `results/core_v1_20261007_1820/analysis/audit_sample.jsonl`.
-2. **Concept × sign.** Store *what* (centroid) and *which way* separately, and apply sign × gain × concept, so we do the binding.
-   - Read the sign off a **general like/dislike direction**: average "I love X" − "I hate X" over many X. That removes the per-memory hand-made opposite.
-   - Check first with the logit lens, then one generation run.
-   - Simply *adding* opposite + centroid probably fails for dislikes, because a sum carries "jazz" and "hate" side by side but can't say "hate *about* jazz".
-3. **A thermostat instead of a push.** *Set* the concept to a target level rather than adding to it. That should stop floods, and "away" memories become "keep it low".
-4. **Fair doses:** match strength by loop rate *and* coherence, not vector length. core_v1 swept α {0.5, 1, 2, 3}; the window is around 1. A finer sweep (0.75–1.5) and per-item doses are open.
-5. **Thinking:** a burst at the start of thinking that then fades (phasic), instead of a constant push; a much larger thinking cap.
-6. **Remove the scaffold:**
-   - get *what* from the average of other disclosures or of already-stored memories (the latter is also a novelty signal)
-   - get "without" by leave-one-out
-7. **Neuromodulation:**
-   - write strength from surprise (the model may already compute a "doesn't fit" signal)
-   - confidence from agreement across a memory's moments
-   - fading and read gain; a slow global mood state
-8. **The capacity curve** on bench_v1's 60-fact pool, including several memories firing on one prompt.
-9. **Measurement upgrades:** an LLM judge for preferences (mention vs recommendation); report the share of prompts moved the wrong way.
-10. **Route facts to the episodic channel** (the other session). xlayer_v1 and core_v1 C3/C6 now point there firmly. Going from 2B to 9B changed nothing for facts or premises; a much larger model is untested.
-11. **Fallback:** a small trained read adapter (frozen backbone), if training-free stalls.
+1. **Experiment 1, dreaming as binding** (`docs/dreaming/01-binding.md`): the subject-position write with the model's own harvested state, plus segment reinstatement on Qwen2.5-1.5B. The first experiment that could make a fact *used*.
+2. **Experiment 2, scaffold removal and concept × sign** (`docs/dreaming/02-scaffold.md`): model-generated opposite / alternatives, a general valence direction, and the signed-concept write. Independent of 1; can run in parallel.
+3. **Experiment 3, consolidation** (`docs/dreaming/03-consolidation.md`): start with 2c, the surprise-predicts-need test, which decides whether the modulator idea survives. Then abstraction, re-filing, reconsolidation. Needs 1 and the capacity curve.
+4. **The workshop version of the paper** (ICLR 2027 workshops, list out 29 Nov; NAACL SRW as the alternative): a 4-page cut from `writeup/main.tex`. Fix the empty Appendix D header and the float placement first.
+5. **Paper debts a follow-up inherits:** a second model family (non-hybrid), human labels on a subset, isolated memories only.
+6. Still open from before, now subsumed by the above: a thermostat instead of a push (dose), phasic injection during thinking, finer dose sweeps, the capacity curve, a trained read adapter as the fallback.
+
+**Do not** spend more time improving the steer vector itself. The paper says that channel carries a push, not content; it keeps that job (the abstracted leaning of experiment 3) and nothing else.
 
 ## 9. Open decisions for the user
 - `experiments/v0/run.py` used to point to the parent-folder `Idea.md`; it now points to `docs/reference/original-method.md`. OK?
 - The parent folder `/home/vedantjumle/projects/memories/docs/` still holds the original copies of the three reports. Delete them so the repo is the single source?
-- A note for the **other session** (the episodic "ladder" work): relation probes must be **balanced Yes/No** and **exclude the chat template tail**, or a general "No" drift fakes gains. It hasn't been sent; it's unknown whether that session already knows.
+- The episodic "ladder" work from the other session never reached this repo. The content channel is now specified here as `docs/dreaming/01-binding.md`. If that session has code, it should be merged against this spec; otherwise treat the spec as the single source.
+- `docs/reference/glossary.md` sits uncommitted in the working tree (from the write-up chat). Commit or remove it.
 
 ## 10. Working conventions
 **Framing:** Seahorse is an **independent side project**, not a thesis or supervised research. In the docs, "thesis" only ever means the project's central hypothesis. Never describe it as MSc or thesis work in anything written for others.
