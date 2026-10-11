@@ -69,7 +69,7 @@ gen:
   max_batch: 48
   analytic_gain_qwen25: true   # the pre-registered analytic read-out on Qwen2.5 said GAIN (2026-10-12)
   splice_tol: 0.01         # check: R-full logits == the "sentence as a prior user turn" text run (max |dlogit|)
-  nll_tokens: 16000
+  nll_tokens: 6000         # tokens per coherence batch (keeps the 10 GB slice's peak low; the 4060 smoke peaked at 8.7 GB with 16000)
 judge:                     # the original judge (core_v1's judge_prompts.yaml and parser)
   model: Qwen/Qwen3.5-9B
   dtype: bfloat16
