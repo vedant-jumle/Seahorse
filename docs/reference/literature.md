@@ -1,6 +1,6 @@
 # Seahorse: what other work says about our results
 
-*Fourteen papers that bear directly on our results, read during and after the Qwen3.5 experiments (think_v1, ref_v1, xlayer_v1, core_v1). For each: what it found, in plain words, and where it touches our results. At the end: the theory they give us, and a table of what is prior work and what is ours. The older background (complementary learning systems, steering in general, fast weights, neuromodulation) is in [core-idea.md](core-idea.md) and [where-we-are.md §2](../where-we-are.md#2-what-was-already-out-there). Written 2026-10-07; extended 2026-10-08.*
+*Seventeen papers that bear directly on our results, read during and after the Qwen3.5 experiments (think_v1, ref_v1, xlayer_v1, core_v1). For each: what it found, in plain words, and where it touches our results. At the end: the theory they give us, and a table of what is prior work and what is ours. The older background (complementary learning systems, steering in general, fast weights, neuromodulation) is in [core-idea.md](core-idea.md) and [where-we-are.md §2](../where-we-are.md#2-what-was-already-out-there). Written 2026-10-07; extended 2026-10-08; group E (how models bind entities to attributes) added 2026-10-11, after the paper went to arXiv.*
 
 The PDFs are in the parent folder's `papers/`.
 
@@ -10,6 +10,7 @@ The PDFs are in the parent folder's `papers/`.
 | B. Steering with conditions, context and users | CAST; In-Context Vectors; BiPO; Context Steering (CoS); Neural Procedural Memory (NPM); Suri et al. | The closest prior work to our method and setting (NPM is the closest of all) |
 | C. Where facts live and how they're recalled | Geva et al.; ROME; MEMIT | Why a stored vector can't carry a usable fact |
 | D. Negation | Jang et al. | Why dislikes flip into likes |
+| E. How models bind entities to attributes | Feng & Steinhardt; Dai et al.; Prakash et al. (+ Geva from C) | Why a vector at the answer position can't be bound to a subject, a question or an owner; what the episodic channel has to reinstate |
 
 ---
 
@@ -37,6 +38,11 @@ The PDFs are in the parent folder's `papers/`.
   - a single context carries its topic, while a contrasting pair isolates the attribute (CoS, in one sentence)
 
   We show this systematically in a memory, where it turns dislikes into likes.
+- **Binding is positional and runs through attention** (group E):
+  - in context, an attribute is tied to its entity by an **order tag** added at both positions, and a chain of attention heads finds the attribute's *position* and copies from it
+  - from weights, the attribute is loaded onto the *subject's own position* and extracted by attention from the question
+
+  Both routes need the content to sit at a position the fetching heads can reach. Our push supplies content at the *query* position with no position to fetch from. That's the mechanistic reason it can't bind to a subject, a question or an owner.
 
 ---
 
@@ -307,6 +313,59 @@ The evidence:
 
 ---
 
+# E. How models bind entities to attributes
+
+*Read after the paper, for the next step: the three "binding" failures (to the question, to the subject, to the owner) and what the episodic channel has to supply. Together with Geva (§9) these are the mechanistic basis for the two-channel design.*
+
+## 13. Feng & Steinhardt (UC Berkeley), "How do Language Models Bind Entities in Context?" (arXiv 2310.17191, ICLR 2024)
+
+**What they did.** Gave models contexts like *"Alice lives in Paris. Bob lives in London."* and asked *"Where does Bob live?"*, then intervened on the residual stream to find how "Bob" is tied to "London" rather than "Paris".
+
+**What they found.**
+- The model attaches an abstract **binding ID vector** to the residual at the entity's position (and the token after it) *and* at the attribute's position. Entity and attribute that belong together carry the same ID.
+- It's causal: replacing the IDs by mean intervention flips which attribute the model reports (accuracy 0.99 → 0.00 on LLaMA-30B, n = 2 entities). Random vectors of the same size do nothing.
+- The IDs are independent of the specific entity and attribute. They form a low-rank continuous subspace; linear combinations of IDs are valid IDs, and IDs that sit close together get confused.
+- Found in every sufficiently large Pythia and LLaMA model; fidelity grows with scale.
+- **What they do not show:** how attention uses the IDs. Their words: *"we speculate that certain attention heads might be responsible for comparing binding ID vectors."* The query mechanism is left open. They also don't test capacity beyond three entities or whether IDs persist across contexts.
+
+**Where it touches us.**
+- Binding in context is a **shared tag at two positions**, not a sum of concept vectors at one position. "Add dog + Pepper + user together before storing" would be a superposition, which is exactly what failed for hate + jazz (C5). Binding needs a partner position.
+- A fixed vector at the answer position has no partner, so nothing can bind to it. That's failure 15 (self-attribution) and part of failure 1 (no premises).
+
+## 14. Dai, Hu, et al., "Representational Analysis of Binding in Language Models" (arXiv 2409.05448, 2024)
+
+**What they did.** Followed up on binding IDs with dimension reduction and patching on contexts like *"Box Z contains the stone, Box M contains the map…"*.
+
+**What they found.** The binding-ID subspace is an **ordering ID**: a low-rank direction that primarily encodes the *order* in which entity–attribute pairs appear in the context. Patching along it changes binding causally (the model can be made to say Box Z contains the map).
+
+**Where it touches us.**
+- The tag is **context-relative**: it says "the second pair in this context", not "Pepper". A tag written in session 1 means nothing in session 2. So a stored moment can't carry its own binding; it has to be reinstated as part of the new context so the model re-assigns tags itself.
+
+## 15. Prakash, Shaham, Haklay, Belinkov, Bau, "Fine-Tuning Enhances Existing Mechanisms: A Case Study on Entity Tracking" (arXiv 2402.14811, ICLR 2024)
+
+**What they did.** Found the circuit that answers *"The apple is in Box A, the stone is in Box B… What is in Box A?"* in Llama-7B, and checked it in three fine-tuned versions (Vicuna, Goat, FLoat).
+
+**What they found.** A circuit of 72 attention heads (MLPs not analysed), in four groups:
+1. **Structure readers** (at the query's box label): attend within their own segment of the context.
+2. **Position detectors** (at the query label): work out *where* the queried entity's content sits.
+3. **Position transmitters** (at the last token): carry that position into the queries of…
+4. **Value fetchers** (40 heads, at the last token): attend to the right token and copy its value.
+
+Their conclusion: *"entity tracking is performed by identifying and transporting the position of the queried entity in the context."* The same circuit survives fine-tuning (faithfulness 0.88–1.00), and fine-tuning mainly improves the value fetchers.
+
+**Where it touches us.**
+- This pins the mechanism Feng & Steinhardt left open: binding is resolved through **position**, composed into the fetcher heads' queries. Dot products, but what's matched is "where", not "what".
+- A memory that puts the content at the query position gives the position detectors nothing to detect and the value fetchers nothing to fetch. Reinstating the experience as a **short contiguous segment** (the sentence, in order) gives the structure readers a segment, the detectors a position, and the fetchers a source.
+- **"Whose" is positional too:** which speaker said something is read from the turn structure, so a sentence reinstated inside a user turn carries its owner; a vector never will.
+
+## Geva (§9), re-read for binding
+
+For facts in the weights the route differs: early-middle MLPs load the attributes *onto the subject's own position* (knocking them out drops the attribute rate ~88%), the relation travels to the last position, and upper attention heads at the last position attend to the enriched subject and extract the attribute the question asks for. No cross-position tag is needed, because the content already sits at the subject.
+
+**Where it touches us.** It gives a second route for the episodic channel: write the attribute *at the subject token* ("my dog"), at early-middle layers, in session 2, and let the model's own extraction heads fetch it when the question comes. The risk is specific: the added vector must land in the subspace those heads read, which MLP enrichment normally produces. This is the "subject-position write" experiment.
+
+---
+
 # The theory these give us
 
 ## Why a stored shift can carry a leaning but not a fact
@@ -323,6 +382,20 @@ The evidence:
 - **A premise doesn't either.** Using a fact as a premise means looking it up and combining it with the question, which is attention's job. A fixed push can't do it (C4: no gain at 2B or 9B).
 
 **4. Usable facts live somewhere else.** Either in the weights, at the subject's position in middle layers, with an optimised value (ROME/MEMIT), or in the context, where attention can retrieve them (Seahorse's planned episodic channel). Our store uses ROME/MEMIT's maths in the activations, without optimisation. That keeps it selective and reversible, and gives up usable facts.
+
+## Why a push can't bind, and what would (group E)
+
+"Binding" is three separate things, and each fails for its own reason:
+
+| Binding | What the model uses (group E) | Why the push fails | What would work |
+|---|---|---|---|
+| **to the question** (which slot) | value-fetcher heads attend to the attribute's *position*, guided by position detectors and transmitters (Prakash) | the content is at the query position; there is no position to fetch from | reinstate the experience's states as positions attention can reach |
+| **to the subject** ("Pepper" ↔ "my dog") | in context: a shared order tag at entity and attribute positions (Feng; Dai). From weights: attributes loaded onto the subject's own position, extracted by attention (Geva) | the shift is pooled over follow-up tokens, not tied to the subject; tags are context-relative and can't be stored | reinstate a contiguous segment so tags are re-assigned; or write at the subject token in early-middle layers |
+| **to the owner** (user vs assistant) | speaker is read from the turn structure, i.e. position again | a vector has no "I"; injected states read as the model's own (Lindsey) | reinstate inside a user turn |
+
+Two consequences for the design:
+- **Composition by addition doesn't bind.** Extracted concept vectors (centroid-style, SAE features) are fine as *keys* and *tags*, not as summands. Store (key = subject concept → value = fact), tag the owner, let the model's circuits do the rest.
+- **The partner position is the thing to supply.** Both documented routes need the content at a position the heads can attend to. That is the mechanistic argument for the episodic channel, and for the subject-position write as its cheapest test.
 
 ## Concept vs direction
 
@@ -371,3 +444,4 @@ These are judge-labelled numbers, provisional until the hand audit.
 | **C3/C4/C6 facts and premises fail** | Explained by Geva (question-driven attention retrieval), ROME/MEMIT (facts in middle-layer weights, optimised values), ICV (the in-context effect is recomputed per query) | The direct demonstration, on 2 scales, with use prompts, balanced yes/no and a per-layer logit lens |
 | **C5 concept vs direction** | Noted informally by CoS; BiPO's critique of raw differences; weak negation (Jang, Lindsey) | The systematic demonstration in a memory; dislikes flip; matched doses; two scales |
 | **Failure modes** | Overdose, identity loss, countries hardest (Lindsey); regurgitation and repetition (ROME, MEMIT); expression vs coherence (Subbiah) | The same failures, measured with coherence scores and a judge, in a memory setting |
+| **Binding** (next step, nothing published yet) | In-context binding is a shared order tag at two positions, resolved by position-finding attention heads (Feng; Dai; Prakash); parametric facts are loaded at the subject and extracted by attention (Geva) | Untested: whether a reinstated segment or a subject-position write lets a frozen model bind a *stored* fact across sessions |
