@@ -169,6 +169,37 @@ means the cell (block or band; for knockout, window) with the highest mean.
 - The logit lens of the stored subject deltas is reported per block. It should *not* rank the target top
   at early layers; if it does, that is reported as "a late-layer 'say Pepper' was harvested again".
 
+### Addendum: implementation details fixed before the harvest + analytic run (2026-10-11)
+
+*Written after stage 0 and before any harvest or analytic-pass number existed. The spec leaves these open.*
+- **H1:** subject = the first alias occurrence in the follow-up (after the experience); delta at its last token,
+  every block; the item's H1 = the mean over its harvest follow-ups. A secondary follow-up without an alias
+  ("Work has been really exhausting this week.") is skipped and reported; a primary one fails the job.
+- **H2:** per item `config.yaml: h2`, the spec's pattern: "<experience> My dog is lovely." vs "I have a dog. My
+  dog is lovely." (every item: "I have a <subject>." / "My <subject> is lovely."; university: "I went to a
+  university."). Delta at the second mention's last token.
+- **H3** ("added at reduced strength"): H2's raw `with` state, rescaled per block to the norm of H2's delta;
+  then α as for every variant.
+- **Sites:** main = the last token of every alias occurrence in the user turn (G-match). +1 = also the next
+  token. gen = also the subject inside the teacher-forced assistant prefix ("Your dog"); on the yes/no probes
+  (no prefix) gen = main.
+- **Controls:** `wrongpos` = per main site, one user-text token counted back from the end of the user text,
+  skipping subject and +1 tokens (usually the question mark or final full stop). `rand` = a fixed random
+  direction per item and block, scaled to the variant's vector norm at that block. `swap` = core_v1's swap
+  partner's vector of the same variant. `push@1` = core_v1's saved mem@1 numbers on the same prompts (2B only).
+- **Measures:** Δlog P(target) and Δspec (log P(target) − the mean log P of the foils) vs nomem at the measure
+  prefix; on the balanced verify probes, dmY, dmN and Δbal = (dmY + dmN)/2 of the consistent-signed
+  first-token margin, plus the balanced-accuracy gain (margin > 0).
+- **Pick pool:** the per-variant pools are re-scored jointly with the same formula before taking ≤ 8 cells.
+- **G-key (reported):** key layers = the single write blocks. Whitening (mu + PCA-256, eps 0.01) and the
+  q0.95 threshold come from the 100 generic prompts (prompt tokens only, no continuations). The stored keys are
+  the subject-span keys of the H1 without runs. Reported: the gate opens at the question's subject, and the
+  fire rate on the 50 unrelated prompts.
+- **Harvest checks (fail the job):** subject found (primary); same token with and without; every delta
+  finite; |delta| ≤ 10 × the median residual norm (generic prompt tokens) at every block (H1 per follow-up
+  and mean, H2).
+- **Logit-lens flag:** target rank ≤ 10 at any block of the write range (2B blocks 4–16; Qwen2.5 mapped).
+
 ## Statistics
 
 - **Stage 0:** one value per item per cell (one prompt per item). The statistic is the **macro mean over
