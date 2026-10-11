@@ -113,9 +113,9 @@ The paper settled that facts, premises and ownership fail because a push at the 
 
 | # | Doc | Question | Status |
 |---|---|---|---|
-| 1 | `docs/dreaming/01-binding.md` | Write the model's own subject-enriched state at the subject token (early-middle layers); compare with segment reinstatement. Does a fact get *used*? Does balanced yes/no move? | specified; **run first** |
-| 2 | `docs/dreaming/02-scaffold.md` | Let the model generate opposite / alternatives / a general valence direction. Does C5 replicate without human references? Does concept × sign fix the dislike flip? | specified; independent of 1 |
-| 3 | `docs/dreaming/03-consolidation.md` | With many memories: abstraction of leanings from episodes, reconsolidation, surprise-gated pruning vs write-everything, re-filing | design; depends on 1 and the capacity curve |
+| 1 | `docs/dreaming/01-binding.md` | **Stage 0 first:** attention knockout in `ctx` to learn whether an in-context fact sits at the subject or only at its own position (if the latter, the subject write is dead on arrival). Then: write the model's own subject-enriched state at the subject token; compare with *gated* segment reinstatement (an upper bound by P1). 7 clean-subject facts primary, 5 user-subject secondary. | specified; **run stage 0 first** |
+| 2 | `docs/dreaming/02-scaffold.md` | Let a model (the 9B dreams for the 2B; the 9B end-to-end for the literal claim) generate opposite / alternatives / a general valence direction. Does C5 replicate without human references, beyond two null references? Does concept × sign fix the dislike flip? | specified; independent of 1 |
+| 3 | `docs/dreaming/03-consolidation.md` | With many memories: abstraction of leanings from episodes, reconsolidation, surprise-gated pruning vs write-everything (ground truth = *content-dependent* later need, not a random split), re-filing | design; depends on 1 and the capacity curve |
 
 **To be fully equipped to build and run them, a new session should read, in this order:**
 1. `HANDOVER.md` (this file), all of it.
@@ -135,6 +135,7 @@ The paper settled that facts, premises and ownership fail because a push at the 
 - The fact use prompts don't all contain the subject literally (e.g. *"the place where I grew up"*); `01-binding.md` §3 says how to handle that (aliases, and "no-site" prompts reported separately).
 - The dreamer for experiment 2 is the 9B judge model on an A100 via `slurm/core_v1.slurm`; generation of references takes about half an hour.
 - Both experiments must have a `PREREG.md` committed before any job is submitted, as core_v1 did. The predictions and rules are already written in the docs; copy them.
+- The specs were reviewed once (2026-10-11) and revised: stage 0 knockout, the H2 causal-mask bug, gated reinstatement, item tiers, S1 nulls, §2c ground truth. Read the revised versions, not any earlier copy.
 
 ## 5. Recently finished and reviewed
 

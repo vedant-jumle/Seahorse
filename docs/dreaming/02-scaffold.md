@@ -1,6 +1,6 @@
 # Experiment 2: dreaming as scaffold removal (model-generated references, and concept × sign)
 
-*Can the model generate the counterfactuals that writing needs, so no human writes an opposite, a set of alternatives or a "without"? And does separating concept from sign fix the dislike flip? Exact process. Written 2026-10-11.*
+*Can the model generate the counterfactuals that writing needs, so no human writes an opposite, a set of alternatives or a "without"? And does separating concept from sign fix the dislike flip? Exact process. Written 2026-10-11; revised after review (S1 null baselines; the dreamer framing).*
 
 ---
 
@@ -13,7 +13,7 @@ Dreaming can supply the references: the model, offline, paraphrases, negates and
 ## 2. What is tested
 
 **Predictions (PREREG.md):**
-- **S1.** Model-generated references produce shifts close to the hand-written ones: per item and layer, cosine(shift_gen, shift_hand) ≥ 0.8 for `opposite` and for `centroid`, on ≥ 80% of the 29 preference items.
+- **S1.** Model-generated references produce shifts close to the hand-written ones, **beyond what the shared "with" state gives for free.** Both shifts are `with − something`, so they share a term and their cosine is inflated by construction. The rule is therefore relative to two nulls, computed the same way: `null_swap` = with − *another item's* hand-written opposite (or alternatives), and `null_frame` = with − a random sentence in the same frame with an unrelated value. S1 holds if, per item and layer, cosine(gen, hand) exceeds both nulls' cosine with hand by ≥ 0.2 on ≥ 80% of the 29 items, and the absolute cosine is ≥ 0.8. Report all three cosines.
 - **S2.** C5 replicates with generated references only: on the dislikes, the generated-opposite shift moves replies the right way (CI > 0) and the generated-centroid shift moves them the wrong way (CI < 0), at the loop-matched dose.
 - **S3.** A **general valence direction**, built from generated like/hate pairs over many topics, reads the sign of each preference item from its *plain* shift (with − without) with accuracy ≥ 0.9 over the 23 signed items (15 leanings + 8 dislikes). No per-item opposite is used.
 - **S4 (concept × sign).** Storing the generated-centroid concept and applying it with the sign from S3 moves the dislikes the **right** way (CI > 0), i.e. it fixes the flip without a hand-written opposite, and keeps the leanings' gain within the CI of the opposite-reference memory.
@@ -25,7 +25,9 @@ All 29 preference items of core_v1 (15 leanings, 8 dislikes, 6 one-of-many), wit
 
 ## 4. The dreaming pass (generation)
 
-**Dreamer model.** Qwen3.5-9B (the judge model), bf16, thinking off, temperature 0 for the single-output prompts and T = 0.7 with n = 12 for list prompts, deduplicated. Everything is produced from the experience sentence alone; the dreamer never sees the hand-written references. Prompts live in `experiments/dream_refs/dream_prompts.yaml`.
+**Dreamer model.** Qwen3.5-9B, bf16, thinking off, temperature 0 for the single-output prompts and T = 0.7 with n = 12 for list prompts, deduplicated. Everything is produced from the experience sentence alone; the dreamer never sees the hand-written references. Prompts live in `experiments/dream_refs/dream_prompts.yaml`.
+
+**Framing, stated honestly.** The 9B dreams for the 2B. So on the 2B run the claim is "*a* model generates the references, no human does"; "the model writes its own references" is literally true only on the 9B run. Both are run: the 2B for the main grid (cheap), and the 9B end-to-end for the winning variants, which is also the confirmation run core_v1 did. A 2B-as-its-own-dreamer variant is worth one pass to see whether reference quality drops with size.
 
 For each item's experience sentence `e`:
 
