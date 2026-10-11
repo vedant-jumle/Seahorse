@@ -1,0 +1,84 @@
+# dream_bind (experiment 1, docs/dreaming/01-binding.md): models, precision, seeds, items and the subject
+# aliases per item. Stage 0 (--stage patch | knockout) uses the facts' experience, counter, related probe
+# and measure prefix / target from data/bench_v1/facts.yaml; the subject blocks below are this
+# experiment's own (spec section 3).
+bench: data/bench_v1
+items: experiments/core_v1/items.yaml      # the 12 core_v1 facts (validated by core_v1's loader)
+
+models:
+  qwen35_2b:
+    model: Qwen/Qwen3.5-2B
+    n_blocks: 24          # full attention at 3, 7, 11, 15, 19, 23; Gated DeltaNet elsewhere
+    thinking_template: true   # enable_thinking=False forced; the template tail is asserted
+    text_only: true       # load the text decoder + tied lm_head only (no vision tower): fits a 10 GB slice in fp32
+    eager: false          # no knockout on this model (spec section 2)
+    stages: [patch]
+  qwen25_15b:
+    model: Qwen/Qwen2.5-1.5B-Instruct
+    n_blocks: 28          # full attention everywhere
+    thinking_template: false
+    text_only: false
+    eager: true           # knockout and the subject-alone cell edit the eager attention mask
+    stages: [patch, knockout]
+
+dtype: fp32               # both models (Qwen2.5: RTX 4060 locally; Qwen3.5-2B: A100 MIG 10 GB slice)
+band: 5                   # bands and knockout windows: 5 consecutive blocks
+max_batch: 64             # rows per forward
+check_tol: {fp32: 0.01, bf16: 0.5}   # max |logit| difference allowed in the identity checks
+seeds:
+  bootstrap: 7            # 2000 replicates, items resampled
+  random_model: 0         # --random-model only (CPU dry runs)
+n_boot: 2000
+
+primary: [dog_name, cat_name, sister_name, brother_name, grandmother_name, best_friend_name, boss_name]
+secondary: [job, hometown, first_language, university, favourite_colour]
+
+# counter sentences replaced where the bench_v1 counter value is not a single token on both tokenizers
+# (spec section 2: "if not, pick a single-token counter"). " carpenter" is 2 tokens; " plumber" is 1 on
+# Qwen2.5 and Qwen3.5 and is not one of the item's foils (teacher, nurse, lawyer).
+counter_override:
+  job: "I work as a plumber."
+
+# Subject aliases per item (spec section 3). The first alias is canonical; the others are how the subject
+# appears in the use prompts and the model's answers. Matching: whole words, case-insensitive, first alias
+# in list order wins. Stage 0 looks for them in the QUESTION only. harvest_followups: the 2 follow-ups that
+# mention the subject (the third, generic one is excluded from this experiment's writes).
+subjects:
+  dog_name:
+    subject: ["my dog", "your dog", "the dog", "dog"]
+    harvest_followups: ["I need to take my dog to the vet tomorrow.", "My dog has been really energetic lately."]
+  cat_name:
+    subject: ["my cat", "your cat", "the cat", "cat"]
+    harvest_followups: ["My cat keeps scratching the sofa.", "I'm buying a new bed for my cat."]
+  sister_name:
+    subject: ["my sister", "your sister", "sister"]
+    harvest_followups: ["I want to get my sister a birthday present.", "My sister is visiting me next weekend."]
+  brother_name:
+    subject: ["my brother", "your brother", "brother"]
+    harvest_followups: ["My brother is moving into a new flat.", "I want to plan a surprise for my brother."]
+  grandmother_name:
+    subject: ["my grandmother", "your grandmother", "grandmother", "my grandma"]
+    harvest_followups: ["I'm calling my grandmother this evening.", "My grandmother is turning ninety soon."]
+  best_friend_name:
+    subject: ["my best friend", "your best friend", "best friend"]
+    harvest_followups: ["My best friend is getting married in June.", "I want to plan a trip with my best friend."]
+  boss_name:
+    subject: ["my boss", "your boss", "boss"]
+    harvest_followups: ["I have a meeting with my boss tomorrow.", "My boss wants a report by Friday."]
+  # secondary: the entity is the user ("I"); topic aliases instead
+  job:
+    subject: ["my job", "my work", "your job", "your work"]
+    harvest_followups: ["I'm thinking about asking for a raise at my job.", "Work has been really exhausting this week."]
+  hometown:
+    subject: ["my hometown", "the place where I grew up", "your hometown"]
+    harvest_followups: ["I'm going back to visit my hometown next month.", "I miss the place where I grew up."]
+  first_language:
+    subject: ["my native language", "my first language", "your native language", "your first language"]
+    harvest_followups: ["I want to read more books in my native language.", "I'm teaching my kids my first language."]
+  university:
+    subject: ["my university", "my old university", "your university", "university"]
+    harvest_followups: ["My university is holding an alumni reunion.", "I'm thinking of doing a master's at my old university."]
+  favourite_colour:
+    no_site: true         # no usable site in the use prompts (spec section 3); excluded from primary numbers
+    subject: ["my favourite colour", "your favourite colour", "favourite colour"]
+    harvest_followups: []
