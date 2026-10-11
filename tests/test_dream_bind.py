@@ -377,3 +377,83 @@ def test_config_harvest_blocks():
         if iid in CFG["primary"]:
             for fu in sub["harvest_followups"]:
                 assert bind.find_alias(fu, sub["subject"]) is not None, (iid, fu)
+
+
+# ================================================================ arm R: splice and gating
+
+
+def test_splice_keep():
+    keep, start = bind.splice_keep("R-full", 5, 8, 6)
+    assert keep == list(range(13)) and start == 13
+    keep, start = bind.splice_keep("R-min", 5, 8, 6)
+    assert keep == [0, 1, 2, 3, 4, 11, 12] and start == 13                    # head + attribute + next token
+    keep, start = bind.splice_keep("R-orphan", 5, 8, 6, n_unrel=10)
+    assert keep == list(range(5)) + list(range(15, 23)) and start == 23        # the exchange is dropped
+    with pytest.raises(AssertionError):
+        bind.splice_keep("R-min", 5, 8, 7)                                     # no token after the attribute
+    assert bind.gate_open("Write a poem about my dog.", ["my dog"]) and not bind.gate_open("Hello", ["my dog"])
+
+
+def test_majority_yn_and_rules():
+    assert bind.majority([True, True, False]) is True and bind.majority([True, None, False], tie=False) is False
+    assert bind.majority([None, None], tie=True) is True and bind.majority([False, False, True]) is False
+    assert bind.balanced_yn([("Yes", "yes"), ("Yes", "no"), ("No", "no"), ("No", None)]) == pytest.approx(0.5)
+    c = lambda m, lo, hi: {"mean": m, "lo": lo, "hi": hi, "n": 7}
+    base = {"subj": c(0.4, 0.2, 0.6), "subj_m_wrong": c(0.3, 0.1, 0.5), "bal_gain_subj": c(0.2, 0.05, 0.3),
+            "bal_subj": c(0.7, 0.6, 0.8), "wrong_gain": c(0.0, -0.1, 0.1), "leak_gain": c(0.0, -0.05, 0.05),
+            "unrel_same": {"subj1": 1.0, "R-full": 0.97}, "reinst_m_subj": c(-0.1, -0.3, 0.1), "analytic_gain": True}
+    V = bind.gen_rules(base)
+    assert V["labels"] == ["holds (binding works)"] and all(V["B"][k] for k in ("B1", "B2", "B3", "B4", "B6"))
+    assert not V["B"]["B5_qwen25"]
+    V = bind.gen_rules({**base, "wrong_gain": c(0.3, 0.1, 0.5)})
+    assert "push in disguise" in V["labels"] and not V["B"]["B3"]
+    V = bind.gen_rules({**base, "subj": c(0.1, 0.0, 0.2), "subj_all": [c(0.1, 0.0, 0.2)], "reinst_m_subj": c(0.4, 0.2, 0.6)})
+    assert "orphaned" in V["labels"] and "reinstatement wins" in V["labels"]
+    assert not bind.gen_rules({**base, "unrel_same": {"R-full": 0.9}})["B"]["B6"]
+    nan = c(float("nan"), float("nan"), float("nan"))
+    assert bind.gen_rules({**base, "subj": nan})["labels"][0].startswith("undetermined")
+
+
+@pytest.fixture(scope="module")
+def tiny_real_tok():
+    tok = _qwen25_tok()
+    if tok is None:
+        pytest.skip("Qwen2.5 tokenizer not in the local cache")
+    torch.manual_seed(0)
+    cfg = Qwen2Config(vocab_size=len(tok), hidden_size=32, intermediate_size=64, num_hidden_layers=3, num_attention_heads=4,
+                      num_key_value_heads=2, max_position_embeddings=512, attn_implementation="eager")
+    model = Qwen2ForCausalLM(cfg).eval()
+    C = SimpleNamespace(model=model, body=model.model, lm_head=model.lm_head, blocks=model.model.layers, n=3, d=32,
+                        dev="cpu", tok=tok, cfg=CFG, A=SimpleNamespace(tiny=True, random_model="qwen2"))
+    run.gen_context(C, CFG)
+    return C
+
+
+def test_turn_pieces_and_R_full_equals_prior_turn(tiny_real_tok):
+    C = tiny_real_tok
+    it = next(i for i in run.load_items(CFG) if i["id"] == "dog_name")
+    P = run.turn_pieces(C.tok, it["experience"], CFG["gen"]["orphan_exchange"])
+    assert C.tok.decode(P.Seg).startswith("<|im_start|>user\nMy dog's name is Pepper.") and len(P.U) > 10
+    with torch.no_grad():
+        R, info = run.harvest_R(C, it, CFG["gen"]["orphan_exchange"])
+        assert info["min_tokens"] == [" Pepper", "."] and info["kept"]["R-min"] == info["n_head"] + 2
+        assert info["starts"]["R-orphan"] == info["starts"]["R-full"] + info["n_unrel"]
+        q = it["question"]
+        _, prior = run.render_ids(C.tok, [{"role": "user", "content": it["experience"]}, {"role": "user", "content": q}])
+        a = run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R["R-full"], max_new=12)
+        b = run.gen_batch(C, torch.tensor(prior), [(True, None)], max_new=12)
+        assert a[0]["ids"] == b[0]["ids"]                                       # R-full == sentence as a prior turn
+        m = run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R["R-min"], max_new=12)
+        o = run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R["R-orphan"], max_new=12)
+        assert len(m[0]["ids"]) > 0 and len(o[0]["ids"]) > 0
+        # gate closed (no alias in the prompt): no segment, the row is nomem's by construction
+        M = SimpleNamespace(add={}, R={"R-full": R["R-full"]})
+        streams = {1: (7, 3), 2: (8, 3)}
+        kw = dict(S=2, cap=8, streams=streams)
+        res, gi = run.run_prompt(C, CFG, it, M, ["nomem", "R-full"], "How do airplanes stay in the air?", **kw)
+        assert not gi["gate"] and all(o is None for _, _, o in res["R-full"])
+        res, gi = run.run_prompt(C, CFG, it, M, ["nomem", "R-full"], q, **kw)
+        assert gi["gate"] and all(o is not None for _, _, o in res["R-full"])
+        # the same random streams in every condition: a sampled nomem row equals a solo run of that row
+        solo = run.gen_batch(C, run.chat_ids(C.tok, q), [(False, (1, 2))], max_new=8, streams=streams)
+        assert next(o for s, j, o in res["nomem"] if (s, j) == (1, 2))["ids"] == solo[0]["ids"]

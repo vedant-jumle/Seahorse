@@ -9,16 +9,15 @@
 #SBATCH --output=/scratch/%u/logs/dream_bind_%j.out
 #SBATCH --error=/scratch/%u/logs/dream_bind_%j.err
 
-# dream_bind stage 0 (experiments/dream_bind/run.py). gpu-a100-small = one 10 GB A100 MIG slice (<= 2 CPUs,
-# <= 8000 MB per CPU, 4 h). Qwen3.5-2B fits in fp32 only as the text decoder (run.py loads it without the
-# vision tower, ~7.5 GB of weights, cast on the CPU and copied in place). Host RAM: the largest single tensor
-# (embeddings, 1 GB bf16 -> 2 GB fp32) plus the Python / CUDA runtime, well under 12 GB. From the repo root:
-#   MODEL=qwen35_2b STAGES=patch OUT=/scratch/$USER/seahorse_runs/dream_bind_stage0_<ts>/qwen35_2b sbatch slurm/dream_bind.slurm
-# No internet on compute nodes: the model must already be in HF_HOME.
+# dream_bind GPU job (experiments/dream_bind/run.py). Defaults: gpu-a100-small = one 10 GB A100 MIG slice (<= 2
+# CPUs, <= 8000 MB per CPU, 4 h); sbatch flags override them (the judge stage runs on gpu-a100). Qwen3.5-2B fits
+# in fp32 only as the text decoder (run.py loads it without the vision tower). From the repo root:
+#   MODEL=qwen35_2b STAGES=patch OUT=/scratch/$USER/seahorse_runs/<run>/qwen35_2b sbatch slurm/dream_bind.slurm
+#   EXTRA: extra run.py arguments. No internet on compute nodes: models must already be in HF_HOME.
 set -eo pipefail
 
 MODEL=${MODEL:?set MODEL (qwen35_2b | qwen25_15b)}
-STAGES=${STAGES:?set STAGES (patch | knockout | "patch knockout")}
+STAGES=${STAGES:?set STAGES (patch | knockout | prefix | analytic | gen | judge | ...)}
 OUT=${OUT:?set OUT}
 REPO=${REPO:-/scratch/$USER/Seahorse}
 
@@ -35,9 +34,9 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True   # less fragmentation o
 
 cd "$REPO"
 echo "dream_bind MODEL=$MODEL STAGES=$STAGES OUT=$OUT commit=$(git log -1 --oneline) node=$(hostname) job=$SLURM_JOB_ID"
-python -c "import torch, transformers; print(torch.__version__, transformers.__version__, torch.cuda.get_device_name(0))"
+python -c "import torch, transformers; print(torch.__version__, transformers.__version__, torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
 command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=name,memory.total --format=csv || true
 pytest -q tests
 echo "pytest passed"
-python experiments/dream_bind/run.py --model "$MODEL" --stage $STAGES --out "$OUT" --device cuda --dtype fp32
+python experiments/dream_bind/run.py --model "$MODEL" --stage $STAGES --out "$OUT" --device cuda --dtype fp32 ${EXTRA:-}
 echo "Done: $OUT"

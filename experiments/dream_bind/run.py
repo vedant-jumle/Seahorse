@@ -35,6 +35,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import resource
 import subprocess
 import time
@@ -75,7 +76,7 @@ def log(msg):
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--stage", nargs="+", required=True, choices=["patch", "knockout", "prefix", "analytic", "report"])
+    p.add_argument("--stage", nargs="+", required=True, choices=["patch", "knockout", "prefix", "analytic", "gen", "judge", "analyze", "report"])
     p.add_argument("--model", required=True, choices=["qwen35_2b", "qwen25_15b"])
     p.add_argument("--out", required=True, help="the model's run dir, e.g. <run>/qwen25_15b")
     p.add_argument("--config", default=str(HERE / "config.yaml"))
@@ -108,6 +109,7 @@ def load_items(cfg, tiny=False):
                     "foils": list(it["measure"]["foils"]), "swap": it["swap"],
                     "relation_probes": [{"text": r["text"], "a": r["a"]} for r in it["relation_probes"]],
                     "harvest_followups": list(sub.get("harvest_followups", [])), "h2": sub.get("h2"),
+                    "use": list(it["use"]),
                     "aliases": sub["subject"], "no_site": bool(sub.get("no_site", False))})
     return out
 
@@ -1250,6 +1252,644 @@ def report_analytic(out, cfg, model_key):
     return v
 
 
+# =============================================================== arm R + generation (Qwen2.5; PREREG addendum)
+
+TAG = "dream_bind"
+RESID = ("subj1", "subj2", "ctrl:wrongpos", "ctrl:rand", "ctrl:swap", "ctrl:placebo")
+RCONDS = ("R-full", "R-min", "R-orphan", "R-swap")
+PRIMARY_CONDS = ("nomem", "ctx") + RCONDS + RESID
+SECONDARY_CONDS = ("nomem", "ctx", "R-full", "subj1")
+PAIRS = (("dog_name", "cat_name"), ("sister_name", "brother_name"), ("best_friend_name", "boss_name"))
+
+
+def render_ids(tok, msgs):
+    s = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+    return s, tok(s, add_special_tokens=False).input_ids
+
+
+def turn_pieces(tok, exp, exchange=None):
+    """Token pieces of the conversation [head][unrelated exchange U][experience user turn Seg][question turn]:
+    head = everything before the first user turn (the system block), Seg = '<|im_start|>user\\n{exp}<|im_end|>\\n'.
+    Asserts that head + U + Seg + question turn tokenises exactly as the whole rendered conversation, and that
+    head + question turn is the plain (nomem) prompt."""
+    q = "What is two plus two?"
+    s_nm, ids_nm = render_ids(tok, [{"role": "user", "content": q}])
+    msgs = ([{"role": "user", "content": exchange["user"]}, {"role": "assistant", "content": exchange["assistant"]}]
+            if exchange else []) + [{"role": "user", "content": exp}, {"role": "user", "content": q}]
+    s_all, ids_all = render_ids(tok, msgs)
+    k = s_nm.index("<|im_start|>user")
+    head, qt = s_nm[:k], s_nm[k:]
+    assert s_all.startswith(head) and s_all.endswith(qt)
+    mid = s_all[len(head):len(s_all) - len(qt)]
+    seg = f"<|im_start|>user\n{exp}<|im_end|>\n"
+    assert mid.endswith(seg), repr(mid[-80:])
+    u = mid[:len(mid) - len(seg)]
+    enc = lambda s: tok(s, add_special_tokens=False).input_ids if s else []
+    H, U, Seg, Qt = enc(head), enc(u), enc(seg), enc(qt)
+    assert H + U + Seg + Qt == list(ids_all), "turn pieces do not tokenise like the whole conversation"
+    assert H + Qt == list(ids_nm), "head + question turn != the plain prompt"
+    return SimpleNamespace(H=H, U=U, Seg=Seg)
+
+
+def qt_ids(C, text):
+    """The question turn of a plain prompt (the plain chat ids minus the head)."""
+    ids = chat_ids(C.tok, text)
+    assert ids[:len(C.head)].tolist() == C.head, "the prompt does not start with the template head"
+    return ids[len(C.head):]
+
+
+def harvest_R(C, it, exchange):
+    """The item's reinstatement caches: {variant: ([(K, V)] per layer, question start position)} for R-full,
+    R-min and R-orphan (bind.splice_keep), harvested from the frozen model."""
+    P, Po = turn_pieces(C.tok, it["experience"]), turn_pieces(C.tok, it["experience"], exchange)
+    assert P.H == Po.H and P.Seg == Po.Seg
+    t = int(text_ids(C.tok, it["target"])[0])
+    a = [i for i, x in enumerate(P.Seg) if x == t]
+    assert len(a) == 1, f"{it['id']}: attribute token found {len(a)} times in the experience turn"
+    run = lambda ids: bind.kv_list(C.body(input_ids=torch.tensor(ids)[None].to(C.dev), use_cache=True).past_key_values)
+    kv, kvo = run(P.H + P.Seg), run(Po.H + Po.U + Po.Seg)
+    out = {}
+    for var, src, nu in (("R-full", kv, 0), ("R-min", kv, 0), ("R-orphan", kvo, len(Po.U))):
+        keep, start = bind.splice_keep(var, len(P.H), len(P.Seg), a[0], nu)
+        ki = torch.tensor(keep, device=C.dev)
+        out[var] = ([(k[:, :, ki].clone(), v[:, :, ki].clone()) for k, v in src], start)
+    dec = lambda i: C.tok.decode([i])
+    info = {"n_head": len(P.H), "n_seg": len(P.Seg), "n_unrel": len(Po.U), "attr_in_seg": a[0],
+            "min_tokens": [dec(P.Seg[a[0]]), dec(P.Seg[a[0] + 1])],
+            "starts": {v: s for v, (_, s) in out.items()}, "kept": {v: k[0][0].shape[2] for v, (k, _) in out.items()}}
+    return out, info
+
+
+def gen_batch(C, ids, rows, *, prefix=None, add=None, max_new, streams=None, first_ids=None):
+    """KV-cached generation of B rows (core_v1.core.generate_batch's sampling and random-stream layout), with an
+    optional reinstatement prefix (prefix = ([(K, V)] per layer, start position): the cache starts with the stored
+    entries and the prompt's positions start at `start`) and an optional prefill injection plan (add = {layer:
+    [(row, positions, vec)]}, applied to the prompt only; later tokens see it through the cache)."""
+    from contextlib import nullcontext
+    dev = C.dev
+    B, T = len(rows), len(ids)
+    start = prefix[1] if prefix else 0
+    cache = bind.make_cache(prefix[0] if prefix else [], B)
+    x = ids[None].expand(B, -1).to(dev).contiguous()
+    streams = streams or {}
+    gens = {}
+    for s, (seed, n_draw) in streams.items():
+        g = torch.Generator(device=dev)
+        g.manual_seed(int(seed))
+        gens[s] = (g, n_draw)
+    greedy = torch.tensor([bool(r[0]) for r in rows], device=dev)
+    by_stream = {}
+    for b, (gr, st) in enumerate(rows):
+        if not gr:
+            assert st is not None and st[0] in gens and 1 <= st[1] < gens[st[0]][1], f"row {b}: bad stream {st}"
+            by_stream.setdefault(st[0], ([], []))
+            by_stream[st[0]][0].append(b)
+            by_stream[st[0]][1].append(st[1])
+    by_stream = {s: (torch.tensor(bs, device=dev), torch.tensor(js, device=dev)) for s, (bs, js) in by_stream.items()}
+    eos_t = torch.tensor(C.eos_list, device=dev)
+    done = torch.zeros(B, dtype=torch.bool, device=dev)
+    seen = torch.zeros(B, C.vocab, dtype=torch.bool, device=dev) if C.sampler.presence else None
+    ar = torch.arange(B, device=dev)
+    steps, first = [], None
+    for t in range(max_new):
+        pos = (torch.arange(start, start + T) if t == 0 else torch.tensor([start + T + t - 1]))[None].expand(B, -1).to(dev)
+        with (bind.adding(C.blocks, add) if (t == 0 and add) else nullcontext()):
+            o = C.body(input_ids=x, past_key_values=cache, position_ids=pos, use_cache=True)
+        cache = o.past_key_values
+        logits = C.lm_head(o.last_hidden_state[:, -1]).float()
+        if not bool(torch.isfinite(logits[~done]).all()):
+            raise FloatingPointError(f"non-finite logits at step {t}")
+        if t == 0 and first_ids is not None:
+            first = torch.log_softmax(logits, -1)[:, first_ids].cpu()
+        u = torch.zeros(B, 1, dtype=torch.float64, device=dev)
+        draws = {s: torch.rand(n, 1, generator=g, device=dev, dtype=torch.float64) for s, (g, n) in gens.items()}
+        for s, (bs, js) in by_stream.items():
+            u[bs] = draws[s][js]
+        nxt = logits.argmax(-1)
+        if not bool(greedy.all()):
+            nxt = torch.where(greedy, nxt, C.sampler(logits, u, seen))
+        active = ~done
+        nxt = torch.where(done, eos_t[0], nxt)
+        steps.append(nxt)
+        if seen is not None:
+            seen[ar, nxt] |= active
+        done = done | (active & torch.isin(nxt, eos_t))
+        if bool(done.all()):
+            break
+        x = nxt[:, None]
+    toks = torch.stack(steps, 1).cpu().tolist()
+    eset = set(C.eos_list)
+    out = []
+    for b, row in enumerate(toks):
+        k = next((i for i, tk in enumerate(row) if tk in eset), None)
+        ids_ = row if k is None else row[:k]
+        out.append({"ids": ids_, "n_tok": len(ids_), "capped": k is None,
+                    "first": None if first is None else first[b].tolist()})
+    return out
+
+
+def gen_context(C, cfg):
+    """Generation settings on the stage-0 context: eos ids, sampler, head tokens."""
+    g = cfg["gen"]
+    eos = {C.tok.eos_token_id}
+    for t in ("<|im_end|>", "<|endoftext|>"):
+        i = C.tok.convert_tokens_to_ids(t)
+        if isinstance(i, int) and i != C.tok.unk_token_id:
+            eos.add(i)
+    ge = getattr(C.model.generation_config, "eos_token_id", None)
+    eos |= set(ge if isinstance(ge, (list, tuple)) else [ge])
+    C.eos_list = sorted(e for e in eos if e is not None)
+    C.vocab = C.lm_head.out_features
+    s = g["sampler"]
+    C.sampler = cv1.qwen_sampler(s["temp"], s["top_k"], s["top_p"], s["presence"])
+    C.head = turn_pieces(C.tok, "x").H
+    C.yes, C.no = int(text_ids(C.tok, "Yes")[0]), int(text_ids(C.tok, "No")[0])
+
+
+def item_memory(C, cfg, it, V, Vp, Vplac, U, R, Rp):
+    """Per-condition specs of one item: residual conditions -> (site key, {layer: vec}); R conditions ->
+    (cache, start)."""
+    cells = {c["name"]: {**c, "layers": [l for l in c["layers"] if l < C.n]} for c in cfg["gen"]["subj_cells"]}
+    if not C.A.random_model:
+        assert all(len(c["layers"]) == len(c0["layers"]) for c, c0 in zip(cells.values(), cfg["gen"]["subj_cells"]))
+    c1 = cells["subj1"]
+    vec = lambda VV, c: {l: c["alpha"] * VV[c["variant"]][l] for l in c["layers"]} if VV and c["variant"] in VV else None
+    add = {"subj1": ("main", vec(V, c1)), "subj2": ("main", vec(V, cells["subj2"])),
+           "ctrl:wrongpos": ("wrongpos", vec(V, c1)),
+           "ctrl:rand": ("main", {l: c1["alpha"] * U[l] * V[c1["variant"]][l].norm() for l in c1["layers"]}
+                         if c1["variant"] in V else None),
+           "ctrl:swap": ("main", vec(Vp, c1)), "ctrl:placebo": ("main", vec(Vplac, c1))}
+    rr = {"R-full": R["R-full"], "R-min": R["R-min"], "R-orphan": R["R-orphan"], "R-swap": Rp["R-full"] if Rp else None}
+    return SimpleNamespace(add={k: v for k, v in add.items() if v[1] is not None}, R={k: v for k, v in rr.items() if v})
+
+
+def row_layout(conds, seed2, S):
+    """[(cond, seedset, j)]: 1 greedy + S samples (seed set 1), + S samples (seed set 2) for seed2 conditions."""
+    out = []
+    for c in conds:
+        out += [(c, 1, j) for j in range(S + 1)]
+        if c in seed2:
+            out += [(c, 2, j) for j in range(1, S + 1)]
+    return out
+
+
+def run_prompt(C, cfg, it, M, conds, text, *, S, cap, streams, first_ids=None):
+    """Every condition of one prompt (same random streams). Returns {cond: [(seedset, j, out | None)]} where
+    None = gate closed (the answer is nomem's by construction) and the gate info."""
+    tok, g = C.tok, cfg["gen"]
+    ids = chat_ids(tok, text)
+    site = bind.subject_sites(tok, ids, text, it["aliases"])
+    gate = bool(site["main"])
+    lay = row_layout(conds, g["seed2"], S)
+    res = defaultdict(list)
+    rows_of = lambda specs: [(j == 0, None if j == 0 else (s, j)) for _, s, j in specs]
+    # batch A: nomem + residual conditions (same prompt ids, per-row injection plans)
+    A = [x for x in lay if x[0] == "nomem" or (x[0] in RESID and x[0] in M.add and gate)]
+    for i in range(0, len(A), g["max_batch"]):
+        ch = A[i:i + g["max_batch"]]
+        plan = defaultdict(list)
+        for r, (c, _, _) in enumerate(ch):
+            if c != "nomem":
+                key, vecs = M.add[c]
+                for l, v in vecs.items():
+                    plan[l].append((r, site[key], v))
+        outs = gen_batch(C, ids, rows_of(ch), add=dict(plan), max_new=cap, streams=streams, first_ids=first_ids)
+        for (c, s, j), o in zip(ch, outs):
+            res[c].append((s, j, o))
+    for c in conds:
+        specs = [x for x in lay if x[0] == c]
+        if c == "ctx":
+            outs = gen_batch(C, chat_ids(tok, f"{it['experience']} {text}"), rows_of(specs), max_new=cap, streams=streams,
+                             first_ids=first_ids)
+            res[c] += [(s, j, o) for (_, s, j), o in zip(specs, outs)]
+        elif c in RCONDS and c in M.R:
+            if gate:
+                outs = gen_batch(C, qt_ids(C, text), rows_of(specs), prefix=M.R[c], max_new=cap, streams=streams,
+                                 first_ids=first_ids)
+                res[c] += [(s, j, o) for (_, s, j), o in zip(specs, outs)]
+            else:
+                res[c] += [(s, j, None) for _, s, j in specs]
+        elif c in RESID and (not gate) and c in M.add:
+            res[c] += [(s, j, None) for _, s, j in specs]
+    return res, {"gate": gate, "sites": site["main"], "wrongpos": site["wrongpos"]}
+
+
+def stage_gen(C, items, out, all_items):
+    """Arm R + subj + controls generation on Qwen2.5 (PREREG addendum): main prompts (direct question + 2 use
+    prompts), balanced yes/no probes, 50 unrelated prompts (+ the ungated R-full leak baseline), then coherence."""
+    cfg, g = C.cfg, C.cfg["gen"]
+    gen_context(C, cfg)
+    t0 = time.time()
+    A_cfg = cfg["analytic"]
+    by_id = {it["id"]: it for it in all_items}
+    sel = {it["id"] for it in items}
+    need = sel | {by_id[i]["swap"] for i in sel}
+    V, Vplac, R, Rinfo = {}, {}, {}, {}
+    for iid in [i for i in by_id if i in need]:
+        it = by_id[iid]
+        V[iid], _ = harvest(C, it, [])
+        Vplac[iid], _ = harvest(C, {**it, "experience": g["placebo"]}, [])
+        R[iid], Rinfo[iid] = harvest_R(C, it, g["orphan_exchange"])
+        for d in (V[iid], Vplac[iid]):
+            for k in d:
+                d[k] = d[k].to(C.dev)
+    # checks: R-full == the sentence as a prior user turn; R-min keeps 2 entries + head
+    checks = {"splice": [], "R_info": Rinfo}
+    for it in items:
+        kvs, start = R[it["id"]]["R-full"]
+        qt = qt_ids(C, it["question"])
+        cache = bind.make_cache(kvs, 1)
+        pos = torch.arange(start, start + len(qt))[None].to(C.dev)
+        a = C.lm_head(C.body(input_ids=qt[None].to(C.dev), past_key_values=cache, position_ids=pos,
+                             use_cache=True).last_hidden_state[:, -1]).float()
+        _, ids_prior = render_ids(C.tok, [{"role": "user", "content": it["experience"]},
+                                          {"role": "user", "content": it["question"]}])
+        b = C.lm_head(C.body(input_ids=torch.tensor(ids_prior)[None].to(C.dev)).last_hidden_state[:, -1]).float()
+        d = maxdiff(a, b)
+        checks["splice"].append({"item": it["id"], "max_abs_logit_diff": d, "same_argmax": int(a.argmax()) == int(b.argmax())})
+        assert d <= g["splice_tol"], f"{it['id']}: R-full != prior-turn text ({d})"
+        assert Rinfo[it["id"]]["kept"]["R-min"] == Rinfo[it["id"]]["n_head"] + 2
+    log(f"gen: harvest + splice checks done in {(time.time() - t0) / 60:.1f} min; max splice diff "
+        f"{max(c['max_abs_logit_diff'] for c in checks['splice']):.2e}")
+    U = {iid: rand_dirs(C, iid, A_cfg["rand_seed"]) for iid in sel}
+    Ms = {iid: item_memory(C, cfg, by_id[iid], V[iid], V.get(by_id[iid]["swap"]), Vplac[iid], U[iid], R[iid],
+                           R.get(by_id[iid]["swap"])) for iid in sel}
+    (out / "items").mkdir(parents=True, exist_ok=True)
+    (out / "unrel").mkdir(parents=True, exist_ok=True)
+    S, cap = g["samples"], g["answer_cap"]
+    seeds = g["seeds"]
+    n_rows = 0
+    for k, it in enumerate(items):
+        f = out / "items" / f"{it['id']}.jsonl.gz"
+        if f.exists():
+            log(f"gen: {it['id']} already done, skipped")
+            continue
+        t1 = time.time()
+        conds = PRIMARY_CONDS if it["tier"] == "primary" else SECONDARY_CONDS
+        M = Ms[it["id"]]
+        rows = []
+        prompts = [("related", it["question"])] + [("use", u) for u in it["use"]]
+        prompts = prompts[:2] if C.A.tiny else prompts
+        for pi, (kind, text) in enumerate(prompts):
+            streams = {1: (cv1.seed_of(TAG, text, seeds["base"]), S + 1), 2: (cv1.seed_of(TAG, text, seeds["second"]), S + 1)}
+            res, gi = run_prompt(C, cfg, it, M, conds, text, S=S, cap=cap, streams=streams)
+            nm = {(s, j): o for s, j, o in res["nomem"]}
+            for c, lst in res.items():
+                for s, j, o in lst:
+                    shortcut = o is None
+                    o = nm.get((s, j)) if shortcut else o
+                    if o is None:   # seed-set-2 rows of a non-seed2 condition never exist; nothing to copy
+                        continue
+                    rep = cv1.rep_rate(o["ids"], g["loop"]["n"])
+                    rows.append({"sec": "gen", "key": f"{it['id']}|{kind}|{pi}|{c}|{s}|{j}", "item": it["id"],
+                                 "group": "facts", "tier": it["tier"], "kind": kind, "pi": pi, "prompt": text, "cond": c,
+                                 "seedset": s, "j": j, "ids": o["ids"],
+                                 "answer": C.tok.decode(o["ids"], skip_special_tokens=True).strip(),
+                                 "n_tok": o["n_tok"], "capped": o["capped"], "rep": round(rep, 4),
+                                 "loop": rep >= g["loop"]["thr"], "gate": gi["gate"], "shortcut": shortcut,
+                                 "no_site": not gi["gate"]})
+        for rp in it["relation_probes"]:
+            text = rp["text"]
+            res, gi = run_prompt(C, cfg, it, M, conds, text, S=0, cap=g["yn_cap"], streams={},
+                                 first_ids=[C.yes, C.no])
+            nm = res["nomem"][0][2]
+            for c, lst in res.items():
+                s, j, o = lst[0]
+                o = nm if o is None else o
+                ans = C.tok.decode(o["ids"], skip_special_tokens=True).strip()
+                lpy, lpn = o["first"]
+                rows.append({"sec": "yn", "item": it["id"], "group": "facts", "tier": it["tier"], "prompt": text,
+                             "consistent": rp["a"], "cond": c, "answer": ans, "yn": xr_parse_yn(ans),
+                             "margin": (lpy - lpn) if rp["a"] == "Yes" else (lpn - lpy), "lp_yes": lpy, "lp_no": lpn,
+                             "gate": gi["gate"], "shortcut": lst[0][2] is None})
+        write_jsonl_gz(f, rows)
+        n_rows += len(rows)
+        el = time.time() - t0
+        log(f"gen: {it['id']} ({it['tier']}) {len(rows)} rows in {(time.time() - t1) / 60:.1f} min | elapsed "
+            f"{el / 60:.1f} min, eta {(time.time() - t1) * (len(items) - k - 1) / 60:.1f} min")
+    # unrelated prompts: nomem; each item's gated conditions (closed gate = nomem by construction); the
+    # ungated R-full leak baseline for every primary item
+    L = itm.load_items(REPO / cfg["items"], REPO / cfg["bench"])
+    unrel = L["unrelated"][:3 if C.A.tiny else len(L["unrelated"])]
+    Us = g["unrel_samples"]
+    t2 = time.time()
+    for uk, text in enumerate(unrel):
+        f = out / "unrel" / f"u{uk:02d}.jsonl.gz"
+        if f.exists():
+            continue
+        streams = {1: (cv1.seed_of(TAG + "/unrel", text, seeds["base"]), Us + 1)}
+        rws = [(j == 0, None if j == 0 else (1, j)) for j in range(Us + 1)]
+        nm = gen_batch(C, chat_ids(C.tok, text), rws, max_new=cap, streams=streams)
+        rows = [{"sec": "unrel", "uk": uk, "prompt": text, "item": None, "cond": "nomem", "j": j, "same": True,
+                 "shortcut": False, "ids": o["ids"], "answer": C.tok.decode(o["ids"], skip_special_tokens=True).strip()}
+                for j, o in enumerate(nm)]
+        for it in items:
+            conds = [c for c in (PRIMARY_CONDS if it["tier"] == "primary" else SECONDARY_CONDS) if c not in ("nomem", "ctx")]
+            gate = bind.gate_open(text, it["aliases"])
+            if gate:
+                res, _ = run_prompt(C, cfg, it, Ms[it["id"]], ["nomem"] + conds, text, S=Us, cap=cap, streams=streams)
+            for c in conds:
+                for j in range(Us + 1):
+                    o = None
+                    if gate:
+                        o = next((oo for s, jj, oo in res.get(c, []) if s == 1 and jj == j), None)
+                    rows.append({"sec": "unrel", "uk": uk, "prompt": text, "item": it["id"], "cond": c, "j": j,
+                                 "gate": gate, "shortcut": o is None, "same": o is None or o["ids"] == nm[j]["ids"],
+                                 "ids": None if o is None else o["ids"],
+                                 "answer": None if o is None else C.tok.decode(o["ids"], skip_special_tokens=True).strip()})
+            if it["tier"] == "primary":
+                lk = gen_batch(C, qt_ids(C, text), rws, prefix=Ms[it["id"]].R["R-full"], max_new=cap, streams=streams)
+                for j, o in enumerate(lk):
+                    rows.append({"sec": "unrel", "uk": uk, "prompt": text, "item": it["id"], "cond": "R-full:ungated",
+                                 "j": j, "gate": True, "shortcut": False, "same": o["ids"] == nm[j]["ids"], "ids": o["ids"],
+                                 "answer": C.tok.decode(o["ids"], skip_special_tokens=True).strip()})
+        write_jsonl_gz(f, rows)
+        if uk % 10 == 0:
+            el = time.time() - t2
+            log(f"gen: unrelated {uk + 1}/{len(unrel)} | {el / 60:.1f} min, eta {el / (uk + 1) * (len(unrel) - uk - 1) / 60:.1f} min")
+    # the judge's / panel's item file (core_v1 layout) and coherence
+    prep = out.parent / "prep"
+    prep.mkdir(parents=True, exist_ok=True)
+    json.dump({i: L["by_id"][i] for i in by_id}, open(prep / "items.json", "w"), indent=1)
+    nll = coherence_nll(C, out)
+    checks["coherence_unique"] = nll
+    checks["minutes"] = (time.time() - t0) / 60
+    return [], checks, {}
+
+
+def xr_parse_yn(text):
+    m = re.search(r"\b(yes|no)\b", text, re.I)
+    return m.group(1).lower() if m else None
+
+
+def coherence_nll(C, gen_dir):
+    """Mean token NLL of every generated answer under the no-memory model, given the plain prompt (core_v1's
+    coherence); identical (prompt, answer) pairs scored once -> <run>/score/coherence.jsonl.gz."""
+    rows = []
+    for f in sorted((gen_dir / "items").glob("*.jsonl.gz")) + sorted((gen_dir / "unrel").glob("*.jsonl.gz")):
+        rows += [r for r in read_jsonl_gz(f) if r["sec"] in ("gen", "unrel") and r.get("ids") is not None]
+    todo = {}
+    for r in rows:
+        todo.setdefault((r["prompt"], tuple(r["ids"])), None)
+    seqs = sorted([(k, chat_ids(C.tok, k[0]), list(k[1])) for k in todo], key=lambda s: len(s[1]) + len(s[2]))
+    pad = C.tok.pad_token_id if C.tok.pad_token_id is not None else C.eos_list[0]
+    budget = C.cfg["gen"]["nll_tokens"]
+    res, i = {}, 0
+    while i < len(seqs):
+        j = i + 1
+        while j < len(seqs) and (j - i + 1) * (len(seqs[j][1]) + len(seqs[j][2])) <= budget:
+            j += 1
+        batch = seqs[i:j]
+        Tm = max(len(p) + len(a) for _, p, a in batch)
+        X = torch.full((len(batch), Tm), pad, dtype=torch.long)
+        for b, (_, p, a) in enumerate(batch):
+            X[b, :len(p) + len(a)] = torch.cat([p, torch.tensor(a, dtype=torch.long)]) if a else p
+        h = C.body(input_ids=X.to(C.dev)).last_hidden_state
+        for b, (key, p, a) in enumerate(batch):
+            if not a:
+                res[key] = float("nan")
+                continue
+            lp = torch.log_softmax(C.lm_head(h[b, len(p) - 1:len(p) + len(a) - 1]).float(), -1)
+            res[key] = -lp.gather(1, torch.tensor(a, device=C.dev)[:, None]).mean().item()
+        i = j
+    sc = gen_dir.parent / "score"
+    sc.mkdir(parents=True, exist_ok=True)
+    outrows = [{"sec": r["sec"], "key": r.get("key") or f"unrel|{r['uk']}|{r['item']}|{r['cond']}|{r['j']}",
+                "nll": res[(r["prompt"], tuple(r["ids"]))], "n_tok": len(r["ids"])} for r in rows]
+    write_jsonl_gz(sc / "coherence.jsonl.gz", outrows)
+    log(f"coherence: {len(seqs)} unique answers")
+    return len(seqs)
+
+
+def gen_plan(cfg, items, n_unrel=50):
+    """Generation counts (for the budget)."""
+    g = cfg["gen"]
+    S, Us = g["samples"], g["unrel_samples"]
+    per = lambda conds: len(row_layout(conds, g["seed2"], S))
+    main = sum(3 * per(PRIMARY_CONDS if it["tier"] == "primary" else SECONDARY_CONDS) for it in items)
+    yn = sum(len(it["relation_probes"]) * len(PRIMARY_CONDS if it["tier"] == "primary" else SECONDARY_CONDS) for it in items)
+    n_prim = sum(it["tier"] == "primary" for it in items)
+    unrel = n_unrel * (Us + 1) * (1 + n_prim)
+    return {"main_answers_max": main, "yn_answers": yn, "unrel_answers_min": unrel, "total_long_max": main + unrel}
+
+
+# --------------------------------------------------------------------------- judge (original) + analyze
+
+
+def stage_judge(A, cfg, run_dir):
+    """The original judge (Qwen3.5-9B bf16, core_v1's judge_prompts.yaml, prompt filling and parser), through
+    core_v1's own score code -> <run>/score/judge.jsonl.gz."""
+    cvr = _load("dream_bind_core_v1_run", HERE.parent / "core_v1" / "run.py")
+    rows = []
+    for f in sorted((run_dir / "gen" / "items").glob("*.jsonl.gz")):
+        rows += [r for r in read_jsonl_gz(f) if r["sec"] == "gen"]
+    L = {"by_id": json.load(open(run_dir / "prep" / "items.json"))}
+    cfg_j = {"judge": cfg["judge"], "model": "Qwen/Qwen3.5-2B"}   # 'model' only names the random-model tokenizer
+    Aj = SimpleNamespace(random_model=A.random_model, device=A.device)
+    out = run_dir / "score"
+    out.mkdir(parents=True, exist_ok=True)
+    t0 = time.time()
+    res = cvr._score_judge(cfg_j, Aj, L, rows, out, 24 if A.tiny else None)
+    res.update(minutes=(time.time() - t0) / 60, env=env_meta())
+    if torch.cuda.is_available():
+        res["peak_gpu_gb"] = round(torch.cuda.max_memory_allocated() / 2 ** 30, 3)
+    res["peak_host_rss_gb"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2 ** 20, 3)
+    json.dump(res, open(out / "judge_config.json", "w"), indent=2, default=str)
+    log(f"judge: {json.dumps({k: v for k, v in res.items() if k != 'env'})}")
+
+
+def _has_word(text, w):
+    return bool(re.search(rf"(?<![\w-]){re.escape(w.strip())}(?![\w-])", text or "", re.I))
+
+
+def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
+    """Every table and the pre-registered verdicts from the saved files (no GPU). Clean use = the judges'
+    majority (original + gpt-oss + Gemma-4; a tie goes to the original's label) of uses_fact AND coherent; the
+    original judge alone is reported beside it."""
+    from seahorse.stats import boot_ci, paired_diff
+    nb, seed = cfg["n_boot"], cfg["seeds"]["bootstrap"]
+    items = json.load(open(run_dir / "prep" / "items.json"))
+    tier = {i: ("primary" if i in cfg["primary"] else "secondary") for i in items}
+    target = {i: items[i]["measure"]["target"].strip() for i in items}
+    G, YN = [], []
+    for f in sorted((run_dir / "gen" / "items").glob("*.jsonl.gz")):
+        for r in read_jsonl_gz(f):
+            (G if r["sec"] == "gen" else YN).append(r)
+    UN = []
+    for f in sorted((run_dir / "gen" / "unrel").glob("*.jsonl.gz")):
+        UN += read_jsonl_gz(f)
+    sc = run_dir / "score"
+    nll = {r["key"]: r["nll"] for r in read_jsonl_gz(sc / "coherence.jsonl.gz")} if (sc / "coherence.jsonl.gz").exists() else {}
+    orig = {r["key"]: r for r in read_jsonl_gz(sc / "judge.jsonl.gz")} if (sc / "judge.jsonl.gz").exists() else {}
+    panel = {}
+    pdir = run_dir.parent / "panel"
+    for jt in ("gptoss", "gemma4"):
+        p = pdir / f"{jt}.jsonl"
+        if p.exists():
+            for line in open(p):
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                for k in rec["keys"]:
+                    if k.startswith(model_key + ":"):
+                        panel.setdefault(k[len(model_key) + 1:], {})[jt] = rec if rec.get("ok") else None
+    fields = ("uses_fact", "coherent", "self_claim", "wrong_value")
+    for r in G:
+        o = orig.get(r["key"])
+        o = o if o and o.get("ok") else None
+        lab = {}
+        for fld in fields:
+            votes = [o.get(fld) if o else None] + [(panel.get(r["key"], {}).get(jt) or {}).get(fld) for jt in ("gptoss", "gemma4")]
+            lab[fld] = bind.majority(votes, tie=o.get(fld) if o else None)
+        r["maj"] = lab
+        r["clean_maj"] = None if lab["uses_fact"] is None or lab["coherent"] is None else bool(lab["uses_fact"] and lab["coherent"])
+        r["clean_orig"] = None if not o else bool(o["uses_fact"] and o["coherent"])
+        r["regex_clean"] = _has_word(r["answer"], target[r["item"]]) and not r["loop"]
+        r["mention"] = _has_word(r["answer"], target[r["item"]])
+        r["mention_unclean"] = r["mention"] and not bool(r["clean_maj"])
+        r["nll"] = nll.get(r["key"])
+    n_panel = sum(1 for r in G if r["key"] in panel)
+
+    def nested(rows, fn, ss=1):
+        d = defaultdict(dict)
+        acc = defaultdict(list)
+        for r in rows:
+            if r["seedset"] != ss:
+                continue
+            v = fn(r)
+            if v is None:
+                continue
+            acc[(r["item"], r["pi"])].append(float(v))
+        for (i, p), vs in acc.items():
+            d[i][p] = sum(vs) / len(vs)
+        return dict(d)
+
+    def sel(cond, tr, kinds=("use",)):
+        return [r for r in G if r["cond"] == cond and tier[r["item"]] == tr and r["kind"] in kinds]
+
+    def ci(n):
+        p, lo, hi, k = boot_ci(n, nb, seed)
+        return {"mean": p, "lo": lo, "hi": hi, "n": k}
+
+    conds = list(dict.fromkeys(r["cond"] for r in G))
+    measures = {"clean (majority)": lambda r: r["clean_maj"], "clean (orig judge)": lambda r: r["clean_orig"],
+                "regex clean": lambda r: r["regex_clean"], "mention, unclean": lambda r: r["mention_unclean"],
+                "confab (wrong value)": lambda r: r["maj"]["wrong_value"], "self-claim": lambda r: r["maj"]["self_claim"],
+                "loop": lambda r: r["loop"], "incoherent": lambda r: None if r["maj"]["coherent"] is None else not r["maj"]["coherent"],
+                "NLL": lambda r: r["nll"]}
+
+    def yn_bal(cond, tr):
+        per = defaultdict(list)
+        for r in YN:
+            if r["cond"] == cond and tier[r["item"]] == tr:
+                per[r["item"]].append((r["consistent"], r["yn"]))
+        return {i: {0: bind.balanced_yn(v)} for i, v in per.items()}
+
+    T = {}
+    L = [f"# dream_bind: arm R + subj generation on {model_key}", "",
+         f"Pre-registered (PREREG.md addendum 'Arm R and the Qwen2.5 generation run'). Clean use = the majority of the "
+         f"original judge + gpt-oss + Gemma-4 (panel labels for {n_panel}/{len(G)} answers; a tie goes to the original's "
+         f"label). Means over items then prompts, two-level bootstrap ({nb}, seed {seed}); seed set 1.", ""]
+    for tr in ("primary", "secondary"):
+        L += [f"## Use prompts ({tr})", "", "| condition | " + " | ".join(measures) + " | bal yes/no acc | Δ bal acc vs nomem |",
+              "|---|" + "---|" * (len(measures) + 2)]
+        bal_nm = yn_bal("nomem", tr)
+        for c in conds:
+            rows = sel(c, tr)
+            if not rows:
+                continue
+            vals = {m: ci(nested(rows, fn)) for m, fn in measures.items()}
+            T[(tr, c)] = vals
+            b = yn_bal(c, tr)
+            vals["bal"] = ci(b)
+            vals["bal_gain"] = ci(paired_diff(b, bal_nm))
+            L.append(f"| {c} | " + " | ".join(fmt(vals[m]) for m in measures) + f" | {fmt(vals['bal'])} | {fmt(vals['bal_gain'])} |")
+        L.append("")
+        # direct question: regex clean / clean
+        L += [f"**Direct question ({tr})**: clean (majority) / regex clean", ""]
+        for c in conds:
+            rows = sel(c, tr, ("related",))
+            if rows:
+                L.append(f"- {c}: {fmt(ci(nested(rows, measures['clean (majority)'])))} / {fmt(ci(nested(rows, measures['regex clean'])))}")
+        L.append("")
+    # paired comparisons (primary, clean majority, use prompts)
+    cm = lambda c: nested(sel(c, "primary"), measures["clean (majority)"])
+    pd = lambda a, b: ci(paired_diff(cm(a), cm(b)))
+    L += ["## Paired differences in clean use (primary, use prompts)", "", "| comparison | difference [CI] |", "|---|---|"]
+    comps = [("subj1", "nomem"), ("subj1", "ctrl:wrongpos"), ("subj1", "ctrl:rand"), ("subj1", "ctrl:swap"),
+             ("subj1", "ctrl:placebo"), ("ctrl:wrongpos", "nomem"), ("R-full", "subj1"), ("R-full", "nomem"),
+             ("R-min", "nomem"), ("R-min", "R-full"), ("R-min", "subj1"), ("R-orphan", "nomem"), ("R-orphan", "R-full"),
+             ("R-orphan", "subj1"), ("R-swap", "nomem"), ("ctx", "R-full"), ("subj2", "nomem")]
+    PD = {}
+    for a, b in comps:
+        PD[(a, b)] = pd(a, b)
+        L.append(f"| {a} − {b} | {fmt(PD[(a, b)])} |")
+    L.append("")
+    # yes/no balanced accuracy gains (primary)
+    bal = lambda c: yn_bal(c, "primary")
+    L += ["## Balanced yes/no (primary): R-min / R-orphan reported, not decisive", "",
+          "| condition | balanced accuracy | gain vs nomem | − R-full | − subj1 | − ctx |", "|---|---|---|---|---|---|"]
+    for c in ("nomem", "ctx", "R-full", "R-min", "R-orphan", "R-swap", "subj1", "subj2", "ctrl:wrongpos"):
+        b = bal(c)
+        if b:
+            L.append(f"| {c} | {fmt(ci(b))} | {fmt(ci(paired_diff(b, bal('nomem'))))} | {fmt(ci(paired_diff(b, bal('R-full'))))} | "
+                     f"{fmt(ci(paired_diff(b, bal('subj1'))))} | {fmt(ci(paired_diff(b, bal('ctx'))))} |")
+    L.append("")
+    # selectivity
+    us = defaultdict(list)
+    for r in UN:
+        if r["cond"] != "nomem":
+            us[r["cond"]].append(bool(r["same"]))
+    unrel_same = {c: sum(v) / len(v) for c, v in us.items()}
+    L += ["## Unrelated prompts: share token-identical to nomem", ""]
+    L += [f"- {c}: {v:.3f} ({len(us[c])} answers{'; ungated leak baseline' if c == 'R-full:ungated' else ''})"
+          for c, v in sorted(unrel_same.items())]
+    L.append("")
+    # cross-binding: the partner's target in this item's answers
+    leak = {}
+    for c in conds:
+        d = defaultdict(dict)
+        for a, b in PAIRS:
+            for x, y in ((a, b), (b, a)):   # on y's prompts, x's target appearing
+                acc = defaultdict(list)
+                for r in G:
+                    if r["item"] == y and r["cond"] == c and r["seedset"] == 1:
+                        acc[r["pi"]].append(float(_has_word(r["answer"], target[x])))
+                for p, vs in acc.items():
+                    d[f"{x}->{y}"][p] = sum(vs) / len(vs)
+        leak[c] = dict(d)
+    L += ["## Cross-binding leak (the partner's target in the answer; 6 directed pairs, main prompts)", ""]
+    for c in conds:
+        if leak[c]:
+            L.append(f"- {c}: {fmt(ci(leak[c]))}; − nomem {fmt(ci(paired_diff(leak[c], leak['nomem'])))}")
+    L.append("")
+    # seed set 2
+    L += ["## Seed set 2 (robustness): clean use (majority), primary use prompts", ""]
+    for c in cfg["gen"]["seed2"]:
+        L.append(f"- {c}: {fmt(ci(nested(sel(c, 'primary'), measures['clean (majority)'], ss=2)))}")
+    L.append("")
+    # rules
+    s = {"subj": T[("primary", "subj1")]["clean (majority)"], "subj_m_wrong": PD[("subj1", "ctrl:wrongpos")],
+         "bal_gain_subj": T[("primary", "subj1")]["bal_gain"], "bal_subj": T[("primary", "subj1")]["bal"],
+         "wrong_gain": PD[("ctrl:wrongpos", "nomem")], "leak_gain": ci(paired_diff(leak["subj1"], leak["nomem"])),
+         "unrel_same": {c: v for c, v in unrel_same.items() if c in RESID + RCONDS},
+         "reinst_m_subj": PD[("R-full", "subj1")], "analytic_gain": bool(cfg["gen"].get("analytic_gain_qwen25", True)),
+         "subj_all": [T[("primary", c)]["clean (majority)"] for c in ("subj1", "subj2") if ("primary", c) in T]}
+    V = bind.gen_rules(s)
+    L[4:4] = ["## Verdicts (pre-registered)", "", f"**{'; '.join(V['labels'])}**", "",
+              *[f"- {k}: {'holds' if v else 'fails'}" for k, v in V["B"].items()],
+              f"- B1 reference on Qwen2.5: core_v1's push ceiling {bind.PUSH_CEILING} (no push@1 run on this model).",
+              "- B5 is decided with R-full as `reinst`; R-min / R-orphan are reported, not decisive.", ""]
+    out = run_dir / "analysis"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.md").write_text("\n".join(L))
+    json.dump({"verdict": V, "inputs": s, "n_panel_labels": n_panel, "n_answers": len(G)}, open(out / "verdict.json", "w"),
+              indent=2, default=str)
+    log(f"analyze -> {out / 'report.md'}: {V['labels']}")
+    return V
+
+
 # --------------------------------------------------------------------------- main
 
 
@@ -1262,11 +1902,21 @@ def main(argv=None):
     stages = [s for s in A.stage if s != "report"]
     for s in stages:
         assert s in mc["stages"] or A.random_model, f"stage {s} is not run on {A.model} (config stages {mc['stages']})"
+    if "judge" in stages:          # no experiment model: the original judge on the saved answers
+        stage_judge(A, cfg, out)
+    if "analyze" in stages:
+        stage_analyze(cfg, out, A.model)
+    stages = [s for s in stages if s not in ("judge", "analyze")]
+    if not stages and ("judge" in A.stage or "analyze" in A.stage):
+        return
     if stages:
         items = load_items(cfg, A.tiny)
         all_items = load_items(cfg)
         fns = {"patch": stage_patch, "knockout": stage_knockout, "prefix": stage_prefix,
-               "analytic": lambda C_, its, d_: stage_analytic(C_, its, d_, all_items)}
+               "analytic": lambda C_, its, d_: stage_analytic(C_, its, d_, all_items),
+               "gen": lambda C_, its, d_: stage_gen(C_, its, d_, all_items)}
+        if "gen" in stages:
+            log(f"gen plan: {json.dumps(gen_plan(cfg, items))}")
         with torch.inference_mode():
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()

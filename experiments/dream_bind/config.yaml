@@ -19,7 +19,7 @@ models:
     thinking_template: false
     text_only: false
     eager: true           # knockout and the subject-alone cell edit the eager attention mask
-    stages: [patch, knockout, prefix, analytic]
+    stages: [patch, knockout, prefix, analytic, gen, judge, analyze]
 
 dtype: fp32               # both models (Qwen2.5: RTX 4060 locally; Qwen3.5-2B: A100 MIG 10 GB slice)
 band: 5                   # bands and knockout windows: 5 consecutive blocks
@@ -45,6 +45,36 @@ analytic:
   rand_seed: 1234
   push_ref:                 # core_v1's push@1 (teacher-forced, same session-2 prompt) read from its saved run
     qwen35_2b: [/scratch/vvjumle/seahorse_runs/core_v1_20261007_1820/qwen35_2b, results/core_v1_20261007_1820/qwen35_2b]
+
+# Generation on Qwen2.5-1.5B (PREREG addendum "Arm R and the Qwen2.5 generation run"). The subj cells are the
+# top 2 of the pre-registered analytic pick on Qwen2.5 (results/.../qwen25_15b/analytic/verdict.json, 2026-10-12):
+# pick 1 = H1 @ blocks 5-10, alpha 0.5 (the decisive subj cell, "subj1"; its controls); pick 2 = H2 @ 5-10, alpha 2.
+gen:
+  subj_cells:
+    - {name: subj1, variant: H1, layers: [5, 6, 7, 8, 9, 10], alpha: 0.5}
+    - {name: subj2, variant: H2, layers: [5, 6, 7, 8, 9, 10], alpha: 2.0}
+  placebo: "By the way, I had a coffee this morning."
+  # R-orphan: the segment is harvested after this fixed, unrelated exchange (one for every item)
+  orphan_exchange:
+    user: "How do I keep fresh basil from wilting?"
+    assistant: "Stand the stems in a glass of water at room temperature, away from direct sun, and loosely cover the leaves with a plastic bag."
+  samples: 4               # per prompt: 1 greedy + 4 samples (seed set 1)
+  seed2: [nomem, ctx, R-full, subj1]   # 4 more samples (seed set 2)
+  answer_cap: 120
+  yn_cap: 10
+  unrel_samples: 2         # unrelated prompts: greedy + 2 samples
+  sampler: {temp: 1.0, top_p: 0.95, top_k: 20, presence: 1.5}
+  seeds: {base: 0, second: 1}
+  loop: {n: 4, thr: 0.3}
+  max_batch: 48
+  analytic_gain_qwen25: true   # the pre-registered analytic read-out on Qwen2.5 said GAIN (2026-10-12)
+  splice_tol: 0.01         # check: R-full logits == the "sentence as a prior user turn" text run (max |dlogit|)
+  nll_tokens: 16000
+judge:                     # the original judge (core_v1's judge_prompts.yaml and parser)
+  model: Qwen/Qwen3.5-9B
+  dtype: bfloat16
+  max_new: 64
+  batch: 48
 
 primary: [dog_name, cat_name, sister_name, brother_name, grandmother_name, best_friend_name, boss_name]
 secondary: [job, hometown, first_language, university, favourite_colour]

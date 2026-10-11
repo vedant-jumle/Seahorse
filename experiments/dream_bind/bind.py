@@ -459,6 +459,113 @@ def analytic_pick(cells, n_sets=3, n_alpha=2, n_max=8, must="H1"):
     return {"pool": pool, "picks": picks, "rule": PICK_RULE}
 
 
+# =============================================================== arm R: gated reinstatement (KV splice)
+
+
+def kv_list(pkv):
+    """A model's past_key_values (transformers 4.x legacy tuple / DynamicCache.key_cache, or 5.x .layers) ->
+    [(K, V)] per layer, each [B, kv_heads, S, head_dim] (K already rotated at its harvest positions)."""
+    if hasattr(pkv, "layers"):
+        return [(L.keys, L.values) for L in pkv.layers]
+    if hasattr(pkv, "key_cache"):
+        return list(zip(pkv.key_cache, pkv.value_cache))
+    return [(k, v) for k, v in pkv]
+
+
+def make_cache(kv, B=1):
+    """[(K, V)] per layer ([1, h, S, d]) -> a DynamicCache holding them for B rows (empty if kv is empty)."""
+    from transformers import DynamicCache
+    cache = DynamicCache()
+    for l, (k, v) in enumerate(kv):
+        cache.update(k.expand(B, -1, -1, -1).contiguous(), v.expand(B, -1, -1, -1).contiguous(), l)
+    return cache
+
+
+def splice_keep(variant, n_head, n_seg, attr, n_unrel=0):
+    """Which harvested cache entries a reinstatement keeps, and the RoPE position the question turn starts at.
+    The harvest sequence is [head][unrelated exchange (R-orphan only)][experience user turn]; `attr` is the
+    attribute's index inside the experience turn.
+      R-full    head + the whole experience turn (= the sentence as a prior user turn); question at n_head + n_seg
+      R-min     head + the attribute and the next token only, at their stored positions; question as R-full
+      R-orphan  head + the whole experience turn harvested AFTER the unrelated exchange (which is dropped);
+                the stored positions are the harvest ones; question continues after them
+    Returns (keep indices into the harvest sequence, question start position)."""
+    head = list(range(n_head))
+    if variant == "R-full":
+        return head + list(range(n_head, n_head + n_seg)), n_head + n_seg
+    if variant == "R-min":
+        assert 0 <= attr and attr + 1 < n_seg
+        return head + [n_head + attr, n_head + attr + 1], n_head + n_seg
+    if variant == "R-orphan":
+        s0 = n_head + n_unrel
+        return head + list(range(s0, s0 + n_seg)), s0 + n_seg
+    raise ValueError(variant)
+
+
+def gate_open(text, aliases):
+    """G-match: the subject alias occurs (whole words, case-insensitive) in the user text."""
+    return bool(find_all_aliases(text, aliases))
+
+
+# =============================================================== generation analysis
+
+
+def majority(labels, tie=None):
+    """Majority of the non-None booleans; a tie (or no vote) gives `tie` (the original judge's label)."""
+    v = [x for x in labels if x is not None]
+    if not v:
+        return tie
+    t = sum(bool(x) for x in v)
+    if 2 * t == len(v):
+        return tie
+    return 2 * t > len(v)
+
+
+def balanced_yn(pairs):
+    """[(consistent 'Yes'|'No', parsed 'yes'|'no'|None)] -> balanced accuracy (accY + accN) / 2 (unparsed =
+    wrong; nan if a side is missing)."""
+    acc = {}
+    for side in ("Yes", "No"):
+        g = [p == side.lower() for c, p in pairs if c == side]
+        acc[side] = sum(g) / len(g) if g else float("nan")
+    return (acc["Yes"] + acc["No"]) / 2
+
+
+PUSH_CEILING = 0.15   # core_v1's push ceiling on clean use (B1's reference on Qwen2.5, which has no push@1 run)
+
+
+def gen_rules(s):
+    """The pre-registered B1-B6 and section-9 rules for one model from CI dicts ({mean, lo, hi}):
+      subj           subj1 clean use on the use prompts
+      subj_m_wrong   paired subj1 - wrongpos clean use
+      bal_gain_subj  subj1 balanced yes/no accuracy gain vs nomem; bal_subj its accuracy
+      wrong_gain     wrongpos clean-use gain vs nomem
+      leak_gain      cross-binding leak, subj1 - nomem (the partner's target in the partner's answers)
+      unrel_same     {condition: share of unrelated answers token-identical to nomem}
+      reinst_m_subj  paired R-full - subj1 clean use
+      analytic_gain  the pre-registered analytic read-out said GAIN (bool)
+      subj_all       optional: clean-use CIs of every generated subj cell (the 'orphaned' rule: none beats the push)"""
+    if any(math.isnan(s[k]["mean"]) for k in ("subj", "subj_m_wrong", "reinst_m_subj")):
+        return {"B": {}, "labels": ["undetermined (no clean-use labels)"]}
+    B = {}
+    B["B1"] = s["subj"]["lo"] > PUSH_CEILING and s["subj_m_wrong"]["lo"] > 0
+    B["B2"] = s["bal_gain_subj"]["lo"] > 0 and s["bal_subj"]["mean"] > 0.5
+    B["B3"] = not (s["wrong_gain"]["lo"] > 0)
+    B["B4"] = not (s["leak_gain"]["lo"] > 0)
+    B["B5_qwen25"] = s["reinst_m_subj"]["mean"] >= 0 and not (s["reinst_m_subj"]["hi"] < 0)
+    B["B6"] = all(v >= 0.95 for v in s["unrel_same"].values())
+    labels = []
+    if B["B1"] and B["B2"] and B["B3"] and B["B6"]:
+        labels.append("holds (binding works)")
+    if B["B1"] and not B["B3"]:
+        labels.append("push in disguise")
+    if not any(x["lo"] > PUSH_CEILING for x in s.get("subj_all", [s["subj"]])) and s["analytic_gain"]:
+        labels.append("orphaned")
+    if s["reinst_m_subj"]["lo"] > 0:
+        labels.append("reinstatement wins")
+    return {"B": B, "labels": labels or ["none of the section-9 rules fires"]}
+
+
 def no_gain(stats):
     """PREREG: 'no gain' = the best cell's 95% CI of the mean dlog P(target) includes 0 or lies below it."""
     return stats is None or math.isnan(stats["mean"]) or stats["lo"] <= 0
