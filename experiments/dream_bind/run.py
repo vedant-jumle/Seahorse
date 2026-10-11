@@ -38,6 +38,7 @@ import os
 import resource
 import subprocess
 import time
+import zlib
 from collections import defaultdict
 from contextlib import ExitStack
 from pathlib import Path
@@ -65,6 +66,7 @@ def _load(name, path):
 
 bind = _load("dream_bind_bind", HERE / "bind.py")
 itm = _load("dream_bind_core_v1_items", HERE.parent / "core_v1" / "items.py")
+cv1 = _load("dream_bind_core_v1_core", HERE.parent / "core_v1" / "core.py")
 
 
 def log(msg):
@@ -73,7 +75,7 @@ def log(msg):
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--stage", nargs="+", required=True, choices=["patch", "knockout", "report"])
+    p.add_argument("--stage", nargs="+", required=True, choices=["patch", "knockout", "prefix", "analytic", "report"])
     p.add_argument("--model", required=True, choices=["qwen35_2b", "qwen25_15b"])
     p.add_argument("--out", required=True, help="the model's run dir, e.g. <run>/qwen25_15b")
     p.add_argument("--config", default=str(HERE / "config.yaml"))
@@ -103,6 +105,9 @@ def load_items(cfg, tiny=False):
                     "experience": it["experience"], "counter": cfg.get("counter_override", {}).get(iid, it["counter"]),
                     "counter_overridden": iid in cfg.get("counter_override", {}), "question": it["related"],
                     "prefix": it["measure"]["prefix"], "target": it["measure"]["target"],
+                    "foils": list(it["measure"]["foils"]), "swap": it["swap"],
+                    "relation_probes": [{"text": r["text"], "a": r["a"]} for r in it["relation_probes"]],
+                    "harvest_followups": list(sub.get("harvest_followups", [])), "h2": sub.get("h2"),
                     "aliases": sub["subject"], "no_site": bool(sub.get("no_site", False))})
     return out
 
@@ -213,6 +218,7 @@ def context(A, cfg, mc, model, tok):
     C.n = len(C.blocks)
     if not A.random_model:
         assert C.n == mc["n_blocks"], (C.n, mc["n_blocks"])
+    C.d = C.lm_head.in_features
     C.band = cfg["band"]
     C.mb = cfg["max_batch"]
     C.tol = cfg["check_tol"][A.dtype]
@@ -275,11 +281,16 @@ def build(C, it):
     assert len(nomem) < len(src)
     T = len(src)
     dec = lambda i: tok.decode([int(i)])
+    # exploratory (A): the subject mention inside the teacher-forced answer prefix ("Your dog's name is")
+    ps = bind.subject_sites(tok, src, u_src, it["aliases"], prefix=it["prefix"])["prefix_spans"]
+    psubj = ps[0] if ps else []
+    assert not psubj or (min(psubj) > max(ls["subj"], default=-1) and min(psubj) > a)
     return SimpleNamespace(src=src, tgt=tgt, nomem=nomem, T=T, a=a, t_tok=t_ids[0], c_tok=c_tok, q0=ls["q0"],
-                           subj=ls["subj"], alias=ls["alias"],
+                           subj=ls["subj"], alias=ls["alias"], psubj=psubj,
                            info={"T": T, "attr_pos": a, "attr_src": dec(src[a]), "attr_tgt": dec(c_tok), "q0": ls["q0"],
                                  "q0_tok": dec(src[ls["q0"]]), "alias": ls["alias"], "subj": ls["subj"],
                                  "subj_toks": [dec(src[i]) for i in ls["subj"]], "target_multi_token": len(t_ids) > 1,
+                                 "prefix_subj": psubj, "prefix_subj_toks": [dec(src[i]) for i in psubj],
                                  "last_tok": dec(src[-1]), "T_nomem": len(nomem)})
 
 
@@ -295,13 +306,15 @@ def sites(P):
 # --------------------------------------------------------------------------- forward
 
 
-def last_logits(C, X, patch=None, src=None, block=None):
-    """[B, V] fp32 logits at the last position, with optional per-row patching / blocking plans."""
+def last_logits(C, X, patch=None, src=None, block=None, add=None):
+    """[B, V] fp32 logits at the last position, with optional per-row patching / blocking / adding plans."""
     with ExitStack() as es:
         if patch:
             es.enter_context(bind.patching(C.blocks, patch, src))
         if block is not None:
             es.enter_context(bind.blocking(C.blocks, block))
+        if add:
+            es.enter_context(bind.adding(C.blocks, add))
         h = C.body(input_ids=X.to(C.dev), use_cache=False).last_hidden_state[:, -1]
     lg = C.lm_head(h).float()
     if not bool(torch.isfinite(lg).all()):
@@ -316,26 +329,29 @@ def source_run(C, ids):
     return {l: st[l] for l in range(C.n)}, lg[0]
 
 
-def run_rows(C, ids, rows, src=None):
-    """rows: [{patch: [(layers, positions)], block: [(layers, queries, keys)], hook_all: bool, keep: bool}]
-    on copies of `ids`, in batches. Returns per row (logits[t], logits[c] filled by the caller's measure)
-    the full last-position logits for rows with keep=True, else None, plus the measure inputs."""
+def run_rows(C, ids, rows, src=None, reduce=None):
+    """rows: [{patch: [(layers, positions)], block: [(layers, queries, keys)], add: [(layers, positions,
+    {layer: vec})], hook_all: bool}] on copies of `ids`, in batches of C.mb. Returns the last-position
+    logits of every row [len(rows), V], or reduce(logits) per batch, concatenated (keeps memory small)."""
     out = []
     for i in range(0, len(rows), C.mb):
         ch = rows[i:i + C.mb]
-        pp, bp = defaultdict(list), None
+        pp, bp, ap = defaultdict(list), None, defaultdict(list)
         for r, row in enumerate(ch):
             for layers, pos in row.get("patch", []):
                 for l in layers:
                     pp[l].append((r, pos))
+            for layers, pos, vecs in row.get("add", []):
+                for l in layers:
+                    ap[l].append((r, pos, vecs[l]))
             if row.get("block") or row.get("hook_all"):
                 bp = bp if bp is not None else {l: [] for l in range(C.n)}
                 for layers, qs, ks in row.get("block", []):
                     for l in layers:
                         bp[l].append((r, qs, ks))
         X = ids[None].expand(len(ch), -1)
-        lg = last_logits(C, X, patch=dict(pp), src=src, block=bp)
-        out.append(lg)
+        lg = last_logits(C, X, patch=dict(pp), src=src, block=bp, add=dict(ap))
+        out.append(reduce(lg) if reduce else lg)
     return torch.cat(out) if out else torch.empty(0)
 
 
@@ -476,6 +492,325 @@ def stage_knockout(C, items, out):
         log(f"knockout {it['id']}: lp_ctx {lp_ctx:.2f} lp_nomem {lp_nm:.2f} G {G:.2f}; D {D:.2f}; "
             f"blocked-no-patch share {chk['suff_blocked_no_patch_share']:.2f}; {time.time() - t0:.1f}s")
     return rows_out, checks, layouts
+
+
+# ------------------------------------------------- (A) EXPLORATORY: the prefix subject mention
+
+
+def stage_prefix(C, items, out):
+    """EXPLORATORY, NOT PRE-REGISTERED. The teacher-forced answer prefix "Your dog's name is" has its own
+    subject mention; stage 0 only tested the question's. Same measures as stage 0 at site subj_prefix (last
+    token and span): patching source -> target (single blocks and bands, both models) and, on Qwen2.5, the
+    knockout answer -> subj_prefix span (windows of 5 layers). Says whether that token relays the value; it
+    does not change the stage-0 verdict."""
+    rows_out, checks, layouts = [], {"identity": [], "tol": C.tol, "exploratory": True}, {}
+    cells, wins = bind.cells(C.n, C.band), bind.windows(C.n, C.band)
+    do_ko = C.mc["eager"] or C.A.random_model
+    for it in items:
+        t0 = time.time()
+        P = build(C, it)
+        layouts[it["id"]] = P.info
+        if not P.psubj:
+            log(f"prefix {it['id']}: no subject alias in the prefix {it['prefix']!r}; skipped")
+            continue
+        src_st, lg_src = source_run(C, P.src)
+        lg_tgt = last_logits(C, P.tgt[None])[0]
+        (m_src, lp_ctx), (m_tgt, _) = measure(lg_src, P.t_tok, P.c_tok), measure(lg_tgt, P.t_tok, P.c_tok)
+        m_src, m_tgt, lp_ctx = m_src.item(), m_tgt.item(), lp_ctx.item()
+        D = m_src - m_tgt
+        rows, meta = [], []
+        for site, pos in (("subj_prefix_last", [P.psubj[-1]]), ("subj_prefix_span", list(P.psubj))):
+            for kind, start, layers in cells:
+                rows.append({"patch": [(layers, pos)]})
+                meta.append({"site": site, "kind": kind, "start": start, "layers": layers, "positions": pos})
+        n_main = len(rows)
+        rows.append({})
+        tc = [P.t_tok, P.c_tok]
+        lgm = run_rows(C, P.tgt, rows, src_st, reduce=lambda lg: lg[:, tc])
+        m = (lgm[:, 0] - lgm[:, 1]).tolist()
+        chk = {"item": it["id"], "patch_nothing_vs_target_margin": abs(m[n_main] - m_tgt)}
+        assert chk["patch_nothing_vs_target_margin"] <= C.tol, chk
+        base = {"model": C.A.model, "item": it["id"], "tier": it["tier"], "no_site": it["no_site"], "m_src": m_src,
+                "m_tgt": m_tgt, "D": D, "flagged": D < bind.MIN_FLIP, "exploratory": True}
+        for mm, mt in zip(m[:n_main], meta):
+            rows_out.append({**base, "stage": "prefix_patch", **mt, "m": mm, "share": bind.share(mm, m_tgt, m_src)})
+        if do_ko:
+            _, lp_nm = measure(last_logits(C, P.nomem[None])[0], P.t_tok, P.c_tok)
+            G = lp_ctx - lp_nm.item()
+            krows = [{"block": [(layers, [P.T - 1], list(P.psubj))]} for _, layers in wins] + [{"hook_all": True}]
+            lp = run_rows(C, P.src, krows, reduce=lambda lg: torch.log_softmax(lg, -1)[:, P.t_tok]).tolist()
+            chk["empty_knockout_vs_unmodified_lp"] = abs(lp[-1] - lp_ctx)
+            assert chk["empty_knockout_vs_unmodified_lp"] <= C.tol, chk
+            for (s, layers), v in zip(wins, lp[:-1]):
+                rows_out.append({**base, "stage": "prefix_ko", "site": "subj_prefix_span", "kind": "window", "start": s,
+                                 "layers": layers, "positions": list(P.psubj), "lp": v, "lp_ctx": lp_ctx,
+                                 "lp_nomem": lp_nm.item(), "G": G, "flagged": G < bind.MIN_FLIP,
+                                 "share": bind.share(lp_ctx - v, 0.0, G)})
+        checks["identity"].append(chk)
+        log(f"prefix {it['id']}: prefix subject {P.info['prefix_subj_toks']} at {P.psubj}; {len(rows)} patch rows; "
+            f"{time.time() - t0:.1f}s")
+    return rows_out, checks, layouts
+
+
+# ------------------------------------------------- (B) harvest + analytic pre-pass (pre-registered)
+
+
+def analytic_sets(C, A_cfg, tiny=False):
+    ref = A_cfg["ref_blocks"]
+    singles = bind.map_sets([[l] for l in A_cfg["singles"]], ref, C.n, cv1.map_layers)
+    bands = bind.map_sets([list(range(a, b + 1)) for a, b in A_cfg["bands"]], ref, C.n, cv1.map_layers)
+    alphas = list(A_cfg["alphas"])
+    if tiny:
+        singles, bands, alphas = singles[:1], bands[:1], [1.0]
+    write_range = (min(l for s in singles for l in s), max(l for s in singles for l in s))
+    return singles + bands, alphas, write_range
+
+
+def user_mask(T, toks, dev):
+    u = torch.zeros(T, dtype=torch.bool, device=dev)
+    u[toks] = True
+    return u
+
+
+def calibrate_generic(C, A_cfg, key_layers, n_generic):
+    """Generic prompts (no memory): median residual norm of every block over user-text tokens (harvest norm
+    check) and, at the key layers, mu + PCA-256 whitening and the generic read keys (G-key thresholds)."""
+    prompts = [l.strip() for l in open(REPO / A_cfg["generic"]) if l.strip()][:n_generic]
+    norms, X, per = defaultdict(list), defaultdict(list), []
+    for t in prompts:
+        ids = chat_ids(C.tok, t)
+        ut = bind.subject_sites(C.tok, ids, t, [])["user_tokens"]
+        st, _ = source_run(C, ids)
+        for l in range(C.n):
+            norms[l].append(st[l][ut].float().norm(dim=-1).cpu())
+        for l in key_layers:
+            X[l].append(st[l][ut].float())
+        per.append({"user": user_mask(len(ids), ut, C.dev), "first": ut[0], "H": {l: st[l] for l in key_layers}})
+    med = {l: torch.cat(norms[l]).median().item() for l in range(C.n)}
+    w = A_cfg["white"]
+    mu, W, gk = {}, {}, {}
+    for l in key_layers:
+        Xl = torch.cat(X[l])
+        mu[l] = Xl.mean(0)
+        W[l] = bind.whitening(Xl - mu[l], w["r"], w["eps"]).to(C.dev)
+        gk[l] = torch.cat([bind.pooled_keys(p["H"][l], p["user"], mu[l], W[l])[p["first"]:] for p in per])
+    return SimpleNamespace(med=med, mu=mu, W=W, gen_keys=gk, n=len(prompts))
+
+
+def harvest(C, it, key_layers):
+    """H1 (subject delta from the harvest follow-ups, last subject token, every block), H2 (minimal replay,
+    second mention), H3 (H2's raw `with` state, rescaled to H2's delta norm per block). Returns
+    ({variant: [n_blocks, d]}, info) with the without-run subject-span states for G-key."""
+    tok, exp, allL = C.tok, it["experience"], range(C.n)
+    info = {"checks": [], "H1_each": [], "key_states": []}
+    for fu in it["harvest_followups"]:
+        uw = f"{exp} {fu}"
+        ids_w, ids_o = chat_ids(tok, uw), chat_ids(tok, fu)
+        sw = bind.subject_sites(tok, ids_w, uw, it["aliases"], user_from=len(exp) + 1)
+        so = bind.subject_sites(tok, ids_o, fu, it["aliases"])
+        ck = {"variant": "H1", "text": fu, "subject_found": bool(sw["main"] and so["main"])}
+        info["checks"].append(ck)
+        if not ck["subject_found"]:
+            assert it["tier"] != "primary", f"{it['id']}: no subject in harvest follow-up {fu!r}"
+            continue
+        pw, po = sw["main"][0], so["main"][0]
+        ck.update(pos_with=pw, pos_without=po, token=tok.decode([int(ids_w[pw])]), same_token=int(ids_w[pw]) == int(ids_o[po]))
+        assert ck["same_token"], f"{it['id']}: subject token differs with / without {ck}"
+        st_w, _ = source_run(C, ids_w)
+        st_o, _ = source_run(C, ids_o)
+        info["H1_each"].append(torch.stack([st_w[l][pw] - st_o[l][po] for l in allL]).float())
+        info["key_states"].append({l: st_o[l][so["spans"][0]] for l in key_layers})
+    V = {}
+    if info["H1_each"]:
+        V["H1"] = torch.stack(info["H1_each"]).mean(0)
+    if it.get("h2"):
+        wo, mention = it["h2"]["without"], it["h2"]["mention"]
+        uw, uo = f"{exp} {mention}", f"{wo} {mention}"
+        ids_w, ids_o = chat_ids(tok, uw), chat_ids(tok, uo)
+        sw = bind.subject_sites(tok, ids_w, uw, it["aliases"], user_from=len(exp) + 1)
+        so = bind.subject_sites(tok, ids_o, uo, it["aliases"], user_from=len(wo) + 1)
+        ck = {"variant": "H2", "text": uw, "without": uo, "subject_found": bool(sw["main"] and so["main"])}
+        info["checks"].append(ck)
+        assert ck["subject_found"] or it["tier"] != "primary", f"{it['id']}: no second mention in {uw!r}"
+        if ck["subject_found"]:
+            pw, po = sw["main"][0], so["main"][0]
+            ck.update(pos_with=pw, pos_without=po, token=tok.decode([int(ids_w[pw])]),
+                      same_token=int(ids_w[pw]) == int(ids_o[po]))
+            assert ck["same_token"], f"{it['id']}: H2 subject token differs {ck}"
+            st_w, _ = source_run(C, ids_w)
+            st_o, _ = source_run(C, ids_o)
+            V["H2"] = torch.stack([st_w[l][pw] - st_o[l][po] for l in allL]).float()
+            raw = torch.stack([st_w[l][pw] for l in allL]).float()
+            V["H3"] = bind.norm_match(raw, V["H2"])
+            info["H3_raw_norm"] = raw.norm(dim=-1).tolist()
+    return V, info
+
+
+def harvest_checks(it, V, info, med, factor):
+    """Finite, and |delta| <= factor x the median residual norm at every block (H1 per follow-up and mean,
+    H2). Fails the job on violation."""
+    out = []
+    medv = torch.tensor([med[l] for l in range(len(med))])
+    named = [(f"H1[{j}]", d) for j, d in enumerate(info["H1_each"])] + [(k, V[k]) for k in ("H1", "H2") if k in V]
+    for name, d in named:
+        ratio = (d.norm(dim=-1).cpu() / medv)
+        r = {"item": it["id"], "vec": name, "finite": bool(torch.isfinite(d).all()), "max_ratio": ratio.max().item(),
+             "argmax_block": int(ratio.argmax())}
+        out.append(r)
+        assert r["finite"], f"{it['id']} {name}: non-finite delta"
+        assert r["max_ratio"] <= factor, f"{it['id']} {name}: |delta| / median = {r['max_ratio']:.1f} > {factor}"
+    if "H3" in V:
+        assert bool(torch.isfinite(V["H3"]).all()), f"{it['id']} H3: non-finite"
+    return out
+
+
+def lens_ranks(C, X, t):
+    """Logit lens of X [n_blocks, d] (final norm + output layer) -> target rank per block (1 = top)."""
+    lg = C.lm_head(C.body.norm(X.to(device=C.dev, dtype=C.lm_head.weight.dtype)[:, None]))[:, 0].float()
+    return ((lg > lg[:, t:t + 1]).sum(1) + 1).tolist()
+
+
+def rand_dirs(C, iid, seed):
+    g = torch.Generator().manual_seed(seed + zlib.crc32(iid.encode()) % 100000)
+    u = torch.randn(C.n, C.d, generator=g)
+    return (u / u.norm(dim=-1, keepdim=True)).to(C.dev)
+
+
+def analytic_item(C, it, V, Vp, U, lsets, alphas):
+    """Teacher-forced pre-pass for one item: the measure prompt (related question + measure prefix: log P
+    and specificity of the target) and the balanced yes/no probes (first-token log P(Yes), log P(No)), per
+    condition: nomem, ctx (experience in the prompt), and for every (variant, layer set, alpha) the subject
+    write at site main / plus1 / gen (measure prompt only; gen = main on the probes) and the controls
+    wrongpos / rand (matched norm, per block) / swap (the partner item's same-variant vector) at main."""
+    tok = C.tok
+    t = int(text_ids(tok, it["target"])[0])
+    foils = [int(text_ids(tok, f)[0]) for f in it["foils"]]
+    yes, no = int(text_ids(tok, "Yes")[0]), int(text_ids(tok, "No")[0])
+    pre = text_ids(tok, it["prefix"])
+    q, exp = it["question"], it["experience"]
+    prompts = [("m", None, torch.cat([chat_ids(tok, q), pre]), q, it["prefix"], torch.cat([chat_ids(tok, f"{exp} {q}"), pre]))]
+    prompts += [(f"y{j}", rp["a"], chat_ids(tok, rp["text"]), rp["text"], None, chat_ids(tok, f"{exp} {rp['text']}"))
+                for j, rp in enumerate(it["relation_probes"])]
+    red_m = lambda lg: torch.stack([torch.log_softmax(lg, -1)[:, t], torch.log_softmax(lg, -1)[:, foils].mean(-1)], -1)
+    red_y = lambda lg: torch.log_softmax(lg, -1)[:, [yes, no]]
+    rows_out, sites_info = [], {}
+    base = {"item": it["id"], "tier": it["tier"]}
+    for pk, cons, ids, utext, prefix, ctx_ids in prompts:
+        S = bind.subject_sites(tok, ids, utext, it["aliases"], prefix=prefix)
+        sites_info[pk] = {k: S[k] for k in ("main", "plus1", "gen", "wrongpos")}
+        red = red_m if pk == "m" else red_y
+        rows, conds = [{}], [(None, None, None, "nomem")]
+        if S["main"]:
+            for var, vec_all in V.items():
+                for ls in lsets:
+                    for a in alphas:
+                        vec = {l: a * vec_all[l] for l in ls}
+                        sites = [("main", S["main"]), ("plus1", S["plus1"])] + ([("gen", S["gen"])] if prefix else [])
+                        sites += [("wrongpos", S["wrongpos"])]
+                        for sname, pos in sites:
+                            rows.append({"add": [(ls, pos, vec)]})
+                            conds.append((var, ls, a, sname))
+                        nrm = {l: a * U[l] * vec_all[l].norm() for l in ls}
+                        rows.append({"add": [(ls, S["main"], nrm)]})
+                        conds.append((var, ls, a, "rand"))
+                        if var in Vp:
+                            rows.append({"add": [(ls, S["main"], {l: a * Vp[var][l] for l in ls})]})
+                            conds.append((var, ls, a, "swap"))
+        vals = run_rows(C, ids, rows, reduce=red).tolist()
+        ctx = red(last_logits(C, ctx_ids[None]))[0].tolist()
+        for (var, ls, a, site), v in [(c, v) for c, v in zip(conds, vals)] + [((None, None, None, "ctx"), ctx)]:
+            rows_out.append({**base, "pk": pk, "consistent": cons, "variant": var,
+                             "lset": bind.lset_label(ls) if ls else None, "alpha": a, "site": site,
+                             "v0": v[0], "v1": v[1], "no_site": not S["main"]})
+    return rows_out, sites_info
+
+
+def gkey_item(C, it, info, cal, key_layers, thr_q, unrel):
+    """G-key (reported): stored keys = whitened subject-span keys of the H1 without runs; the read key is the
+    pooled running key (core_v1's pooled_w256); threshold = the q0.95 generic match. Does the gate open at the
+    question's subject, and how often on unrelated prompts?"""
+    if not info["key_states"]:
+        return None
+    tok = C.tok
+    ids = torch.cat([chat_ids(tok, it["question"]), text_ids(tok, it["prefix"])])
+    S = bind.subject_sites(tok, ids, it["question"], it["aliases"], prefix=it["prefix"])
+    if not S["main"]:
+        return None
+    st, _ = source_run(C, ids)
+    u = user_mask(len(ids), S["user_tokens"], C.dev)
+    out = {}
+    for l in key_layers:
+        K = torch.stack([bind.subject_key(ks[l], cal.mu[l], cal.W[l]) for ks in info["key_states"]])
+        thr = bind.gate_threshold(cal.gen_keys[l], K, thr_q)
+        rk = bind.pooled_keys(st[l], u, cal.mu[l], cal.W[l])
+        mt = (rk @ K.T).max(-1).values
+        p = S["main"][0]
+        ut = S["user_tokens"]
+        fire = [bool(((ur["keys"][l] @ K.T).max(-1).values > thr).any()) for ur in unrel]
+        out[str(l)] = {"thr": thr, "match_subject": mt[p].item(), "open_subject": bool(mt[p] > thr),
+                       "open_frac_user": (mt[ut] > thr).float().mean().item(),
+                       "unrel_fire_rate": sum(fire) / max(len(fire), 1)}
+    return out
+
+
+def stage_analytic(C, items, out, all_items):
+    """Harvest (H1 / H2 / H3) + the analytic pre-pass (pre-registered; spec sections 4-6, PREREG.md)."""
+    A_cfg = C.cfg["analytic"]
+    lsets, alphas, wr = analytic_sets(C, A_cfg, C.A.tiny)
+    key_layers = sorted({s[0] for s in lsets if len(s) == 1})
+    n_gen = 16 if C.A.tiny else A_cfg["n_generic"]
+    t0 = time.time()
+    cal = calibrate_generic(C, A_cfg, key_layers, n_gen)
+    log(f"analytic: layer sets {[bind.lset_label(s) for s in lsets]}, alphas {alphas}, key layers {key_layers}, "
+        f"write range {wr}; generic calibration over {cal.n} prompts in {time.time() - t0:.0f}s")
+    L = itm.load_items(REPO / C.cfg["items"], REPO / C.cfg["bench"])
+    unrel_txt = L["unrelated"][:5 if C.A.tiny else len(L["unrelated"])]
+    unrel = []
+    for t in unrel_txt:
+        ids = chat_ids(C.tok, t)
+        ut = bind.subject_sites(C.tok, ids, t, [])["user_tokens"]
+        st, _ = source_run(C, ids)
+        u = user_mask(len(ids), ut, C.dev)
+        unrel.append({"keys": {l: bind.pooled_keys(st[l], u, cal.mu[l], cal.W[l])[ut[0]:] for l in key_layers}})
+    by_id = {it["id"]: it for it in all_items}
+    need = {it["id"] for it in items} | {it["swap"] for it in items}
+    V, infos, hchecks, lens = {}, {}, [], []
+    for iid in [i for i in by_id if i in need]:
+        it = by_id[iid]
+        V[iid], infos[iid] = harvest(C, it, key_layers)
+        hchecks += harvest_checks(it, V[iid], infos[iid], cal.med, A_cfg["norm_check"])
+        t = int(text_ids(C.tok, it["target"])[0])
+        for var, X in V[iid].items():
+            rk = lens_ranks(C, X, t)
+            lens.append({"item": iid, "tier": it["tier"], "variant": var, "ranks": rk,
+                         "min_rank_write_range": min(rk[wr[0]:wr[1] + 1]),
+                         "flag": min(rk[wr[0]:wr[1] + 1]) <= A_cfg["lens_topk"]})
+        for k in V[iid]:
+            V[iid][k] = V[iid][k].to(C.dev)
+    log(f"harvest done ({len(V)} items) in {(time.time() - t0) / 60:.1f} min")
+    rows_out, sites, gkey = [], {}, {}
+    for k, it in enumerate(items):
+        t1 = time.time()
+        U = rand_dirs(C, it["id"], A_cfg["rand_seed"])
+        r, sites[it["id"]] = analytic_item(C, it, V[it["id"]], V.get(it["swap"], {}), U, lsets, alphas)
+        rows_out += r
+        gkey[it["id"]] = gkey_item(C, it, infos[it["id"]], cal, key_layers, A_cfg["white"]["thr_q"], unrel)
+        el = time.time() - t0
+        log(f"analytic {it['id']}: {len(r)} rows in {time.time() - t1:.0f}s; variants {list(V[it['id']])}; "
+            f"elapsed {el / 60:.1f} min, eta {(time.time() - t1) * (len(items) - k - 1) / 60:.1f} min")
+    out.mkdir(parents=True, exist_ok=True)
+    torch.save({"V": {i: {k: v.cpu() for k, v in d.items()} for i, d in V.items()}, "med": cal.med,
+                "lsets": lsets, "alphas": alphas, "key_layers": key_layers, "write_range": wr}, out / "state.pt")
+    write_jsonl_gz(out / "lens.jsonl.gz", lens)
+    json.dump({"harvest": {i: {"checks": infos[i]["checks"], "H3_raw_norm": infos[i].get("H3_raw_norm")} for i in infos},
+               "norm_checks": hchecks, "sites": sites, "gkey": gkey, "median_norm": cal.med,
+               "write_range": wr, "lsets": [bind.lset_label(s) for s in lsets], "alphas": alphas},
+              open(out / "harvest.json", "w"), indent=1, default=str)
+    checks = {"harvest_norm_max_ratio": max((h["max_ratio"] for h in hchecks), default=float("nan")),
+              "harvest_all_finite": all(h["finite"] for h in hchecks),
+              "subject_found": {i: [c["subject_found"] for c in infos[i]["checks"]] for i in infos},
+              "lens_flags": [f"{x['item']}:{x['variant']}" for x in lens if x["flag"]]}
+    return rows_out, checks, {}
 
 
 # --------------------------------------------------------------------------- report
@@ -635,6 +970,286 @@ def report(out, cfg, model_key):
     return v
 
 
+def report_prefix(out, cfg, model_key):
+    """(A) EXPLORATORY report -> <out>/prefix/report.md."""
+    d = Path(out) / "prefix"
+    if not (d / "results.jsonl.gz").exists():
+        return None
+    rows = read_jsonl_gz(d / "results.jsonl.gz")
+    conf = json.load(open(d / "config.json"))
+    checks = json.load(open(d / "checks.json"))
+    nb, seed = cfg["n_boot"], cfg["seeds"]["bootstrap"]
+    L = [f"# dream_bind (A), EXPLORATORY: the subject mention inside the answer prefix ({model_key})", "",
+         "**Exploratory, not pre-registered.** Stage 0 patched and knocked out the subject in the *question*; the "
+         "teacher-forced answer prefix (\"Your dog's name is\") has its own subject mention (\"Your dog\"). Same "
+         "measures as stage 0 at that site. It does not change the stage-0 verdict; it says whether that token "
+         "relays the value.", "",
+         f"Model {conf['model']} ({conf['dtype']}), commit {conf['env']['commit']}, GPU {conf['env']['gpu']}. Means over "
+         f"items, 95% bootstrap CIs over items ({nb}, seed {seed}).", ""]
+    lay = conf.get("layouts", {})
+    L += ["| item | tier | prefix subject tokens | positions |", "|---|---|---|---|"]
+    for iid, ly in lay.items():
+        L.append(f"| {iid} | {'primary' if iid in cfg['primary'] else 'secondary'} | {ly.get('prefix_subj_toks') or 'none'} | "
+                 f"{ly.get('prefix_subj')} |")
+    L.append("")
+    have_ko = any(r["stage"] == "prefix_ko" for r in rows)
+    n = max(r["start"] for r in rows if r["kind"] == "block") + 1
+    blocks = [f"block {l}" for l in range(n)]
+    bands = [f"band {s}" for s in range(n - cfg["band"] + 1)]
+    summ = {}
+    for tier in ("primary", "secondary"):
+        pc = {s: curves_from(rows, "prefix_patch", s, tier, nb, seed) for s in ("subj_prefix_last", "subj_prefix_span")}
+        kc = {"subj_prefix_span": curves_from(rows, "prefix_ko", "subj_prefix_span", tier, nb, seed)} if have_ko else {}
+        summ[tier] = {k: dict(zip(("cell", "stats"), bind.best(v))) for k, v in {**{f"patch {s}": c for s, c in pc.items()},
+                                                                             **{f"knockout {s}": c for s, c in kc.items()}}.items()}
+        L += [f"## Summary ({tier}): best cell", ""]
+        for k, v in summ[tier].items():
+            L.append(f"- {k}: {v['cell']} {fmt(v['stats'])}")
+        L.append("")
+        L += table(f"patching ({tier}): flipped share, single blocks", pc, blocks)
+        L += table(f"patching ({tier}): bands of 5", pc, bands)
+        if have_ko:
+            L += table(f"knockout ({tier}): answer -> prefix subject, share of ctx's gain lost",
+                       kc, [f"window {s}" for s in range(n - cfg["band"] + 1)])
+    L += ["## Checks", ""] + [f"- {json.dumps(c)}" for c in checks["identity"]] + [""]
+    (d / "report.md").write_text("\n".join(L))
+    json.dump({"exploratory": True, "summary": summ}, open(d / "summary.json", "w"), indent=2, default=str)
+    log(f"prefix report -> {d / 'report.md'}")
+    return summ
+
+
+def push_reference(cfg, model_key):
+    """core_v1's push@1 (mem@1) on the same session-2 measure prompt and yes/no probes, read from its saved run:
+    {item: {dlp, dspec, dbal, dacc}} or None (with the reason)."""
+    for p in cfg["analytic"].get("push_ref", {}).get(model_key, []):
+        base = Path(p) if os.path.isabs(p) else REPO / p
+        fa = base / "prep" / "facts_analytic.jsonl.gz"
+        if not fa.exists():
+            continue
+        tf = [r for r in read_jsonl_gz(fa) if r["kind"] == "related" and r["cond"] in ("nomem", "mem@1")]
+        out = {}
+        for iid in {r["item"] for r in tf}:
+            g = {r["cond"]: r for r in tf if r["item"] == iid}
+            if "nomem" not in g or "mem@1" not in g:
+                continue
+            o = {"dlp": g["mem@1"]["lp_t"] - g["nomem"]["lp_t"], "dspec": g["mem@1"]["spec"] - g["nomem"]["spec"]}
+            f = base / "gen" / "items" / f"{iid}.jsonl.gz"
+            if f.exists():
+                yn = [r for r in read_jsonl_gz(f) if r.get("sec") == "yn" and r["cond"] in ("nomem", "mem@1")]
+                o.update(_yn_gain({(r["prompt"], r["cond"]): r["margin"] for r in yn},
+                                  {r["prompt"]: r["consistent"] for r in yn}, "mem@1", "nomem"))
+            out[iid] = o
+        return out, str(base)
+    return None, "core_v1 push@1 outputs not found (" + ", ".join(cfg["analytic"].get("push_ref", {}).get(model_key, [])) + ")"
+
+
+def _yn_gain(margin, cons, cond, ref):
+    """margin {(probe, cond): consistent-signed margin}, cons {probe: Yes|No} -> dbal = (dmY + dmN) / 2 and the
+    balanced-accuracy gain (accuracy = margin > 0)."""
+    dm, acc_c, acc_r = {"Yes": [], "No": []}, {"Yes": [], "No": []}, {"Yes": [], "No": []}
+    for p, side in cons.items():
+        if (p, cond) in margin and (p, ref) in margin:
+            dm[side].append(margin[(p, cond)] - margin[(p, ref)])
+            acc_c[side].append(float(margin[(p, cond)] > 0))
+            acc_r[side].append(float(margin[(p, ref)] > 0))
+    mean = lambda x: sum(x) / len(x) if x else float("nan")
+    return {"dbal": (mean(dm["Yes"]) + mean(dm["No"])) / 2, "dmY": mean(dm["Yes"]), "dmN": mean(dm["No"]),
+            "dacc": (mean(acc_c["Yes"]) + mean(acc_c["No"])) / 2 - (mean(acc_r["Yes"]) + mean(acc_r["No"])) / 2,
+            "bal_acc": (mean(acc_c["Yes"]) + mean(acc_c["No"])) / 2}
+
+
+def analytic_values(rows):
+    """rows -> {cond key (variant, lset, alpha, site): {item: {dlp, dspec, dbal, dmY, dmN, dacc, bal_acc}}}; cond
+    'ctx' = (None, None, None, 'ctx'). On the yes/no probes 'gen' = 'main' (no assistant prefix)."""
+    idx = defaultdict(dict)        # (item, cond) -> {pk: row}
+    cons = defaultdict(dict)
+    for r in rows:
+        key = (r["variant"], r["lset"], r["alpha"], r["site"])
+        idx[(r["item"], key)][r["pk"]] = r
+        if r["pk"] != "m":
+            cons[r["item"]][r["pk"]] = r["consistent"]
+            if r["site"] == "main":
+                idx[(r["item"], (r["variant"], r["lset"], r["alpha"], "gen"))][r["pk"]] = r
+    nom = {it: idx[(it, (None, None, None, "nomem"))] for it in cons}
+    out = defaultdict(dict)
+    for (it, key), pr in idx.items():
+        if key[3] == "nomem" or it not in nom:
+            continue
+        b = nom[it]
+        o = {"dlp": float("nan"), "dspec": float("nan")}
+        if "m" in pr and "m" in b:
+            o["dlp"] = pr["m"]["v0"] - b["m"]["v0"]
+            o["dspec"] = (pr["m"]["v0"] - pr["m"]["v1"]) - (b["m"]["v0"] - b["m"]["v1"])
+        sgn = lambda row, pk: (row["v0"] - row["v1"]) if cons[it][pk] == "Yes" else (row["v1"] - row["v0"])
+        margin = {}
+        for pk in cons[it]:
+            if pk in pr and pk in b:
+                margin[(pk, "c")], margin[(pk, "n")] = sgn(pr[pk], pk), sgn(b[pk], pk)
+        o.update(_yn_gain(margin, {pk: cons[it][pk] for pk in cons[it] if (pk, "c") in margin}, "c", "n"))
+        out[key][it] = o
+    return out
+
+
+def report_analytic(out, cfg, model_key):
+    """(B) the pre-registered harvest + analytic pre-pass report -> <out>/analytic/{report.md, verdict.json}."""
+    d = Path(out) / "analytic"
+    if not (d / "results.jsonl.gz").exists():
+        return None
+    rows = read_jsonl_gz(d / "results.jsonl.gz")
+    conf = json.load(open(d / "config.json"))
+    H = json.load(open(d / "harvest.json"))
+    lens = read_jsonl_gz(d / "lens.jsonl.gz")
+    nb, seed = cfg["n_boot"], cfg["seeds"]["bootstrap"]
+    vals = analytic_values(rows)
+    tier_of = {r["item"]: r["tier"] for r in rows}
+    variants = sorted({r["variant"] for r in rows if r["variant"]})
+    lsets, alphas = H["lsets"], H["alphas"]
+    metrics = ("dlp", "dspec", "dbal", "dacc")
+
+    def stats(key, tier, m):
+        per = {i: v[m] for i, v in vals.get(key, {}).items() if tier_of.get(i) == tier}
+        return bind.ci(per, nb, seed)
+
+    def pstats(key_a, per_b, tier, m="dlp"):
+        a = {i: v[m] for i, v in vals.get(key_a, {}).items() if tier_of.get(i) == tier}
+        diff = {i: a[i] - per_b[i] for i in a if i in per_b and not math.isnan(a[i]) and not math.isnan(per_b[i])}
+        return bind.ci(diff, nb, seed)
+
+    push, push_src = push_reference(cfg, model_key)
+    L = [f"# dream_bind (B): harvest + analytic pre-pass ({model_key})", "",
+         f"Pre-registered (PREREG.md, 'Later stages'). Teacher-forced, no generation. Model {conf['model']} "
+         f"({conf['dtype']}), commit {conf['env']['commit']}, GPU {conf['env']['gpu']}. Session-2 prompt = the related "
+         f"question + the measure prefix; yes/no = the balanced verify probes (first-token margins). Values are gains "
+         f"vs nomem on the same prompt; means over items with 95% bootstrap CIs over items ({nb}, seed {seed}). "
+         f"Layer sets {lsets}, alphas {alphas}.", ""]
+    # ---- the pre-registered read-out
+    cells = []
+    for v in variants:
+        for ls in lsets:
+            for a in alphas:
+                key = (v, ls, a, "main")
+                s = {m: stats(key, "primary", m) for m in metrics}
+                cells.append({"variant": v, "lset": ls, "alpha": a, **{m: s[m]["mean"] for m in metrics}, "_s": s})
+    ok = [c for c in cells if not math.isnan(c["dlp"])]
+    best = max(ok, key=lambda c: c["dlp"]) if ok else None
+    ng = bind.no_gain(best["_s"]["dlp"] if best else None)
+    pick = bind.analytic_pick([{k: c[k] for k in ("variant", "lset", "alpha", "dspec", "dbal", "dlp")} for c in ok])
+    ctx = {m: stats((None, None, None, "ctx"), "primary", m) for m in metrics}
+    L += ["## Verdict (pre-registered): does the subject write show a gain?", ""]
+    if best:
+        L += [f"**{'NO GAIN' if ng else 'GAIN'}**: the best cell (highest mean Δlog P(target), site main = G-match) is "
+              f"**{best['variant']} @ {best['lset']} α={best['alpha']}**: Δlog P(target) {fmt(best['_s']['dlp'])}, "
+              f"Δspec {fmt(best['_s']['dspec'])}, Δbal margin {fmt(best['_s']['dbal'])}, Δbal acc {fmt(best['_s']['dacc'])}.",
+              "", f"- 'No gain' = that CI includes 0 or lies below it (PREREG). Ceiling (ctx): Δlog P {fmt(ctx['dlp'])}, "
+              f"Δspec {fmt(ctx['dspec'])}, Δbal margin {fmt(ctx['dbal'])}, Δbal acc {fmt(ctx['dacc'])}.",
+              "- Combined with stage 0 (pointer-suspected on this model): the `subj` grid is skipped only if this says "
+              "NO GAIN.", ""]
+    else:
+        L += ["**undetermined** (no primary cell with a value)", ""]
+    # ---- best per variant + controls
+    L += ["## Best cell per variant, with the sites and controls (primary)", "",
+          "Δ = gain vs nomem. 'main − ctrl' = paired difference in Δlog P(target) over items.", ""]
+    focus = []
+    for v in variants:
+        bv = [c for c in ok if c["variant"] == v]
+        if bv:
+            focus.append(("best " + v, max(bv, key=lambda c: c["dlp"])))
+    focus += [(f"pick {j + 1}", c) for j, c in enumerate(pick["picks"])]
+    per_push = {i: o["dlp"] for i, o in (push or {}).items() if tier_of.get(i) == "primary"}
+    for name, c in focus:
+        key_of = lambda site: (c["variant"], c["lset"], c["alpha"], site)
+        main_dlp = {i: v["dlp"] for i, v in vals.get(key_of("main"), {}).items() if tier_of.get(i) == "primary"}
+        L += [f"**{name}: {c['variant']} @ {c['lset']} α={c['alpha']}**", "",
+              "| condition | Δlog P(target) | Δspec | Δbal margin | Δbal acc | main − ctrl (Δlog P) |", "|---|---|---|---|---|---|"]
+        for site in ("main", "plus1", "gen", "wrongpos", "rand", "swap"):
+            s = {m: stats(key_of(site), "primary", m) for m in metrics}
+            pd = "" if site == "main" else fmt(bind.ci({i: main_dlp[i] - v["dlp"] for i, v in vals.get(key_of(site), {}).items()
+                                                        if i in main_dlp and not math.isnan(v["dlp"])}, nb, seed))
+            L.append(f"| {site} | {fmt(s['dlp'])} | {fmt(s['dspec'])} | {fmt(s['dbal'])} | {fmt(s['dacc'])} | {pd} |")
+        if push:
+            s = {m: bind.ci({i: o.get(m, float('nan')) for i, o in push.items() if tier_of.get(i) == "primary"}, nb, seed)
+                 for m in metrics}
+            pd = fmt(bind.ci({i: main_dlp[i] - per_push[i] for i in main_dlp if i in per_push}, nb, seed))
+            L.append(f"| push@1 (core_v1) | {fmt(s['dlp'])} | {fmt(s['dspec'])} | {fmt(s['dbal'])} | {fmt(s['dacc'])} | {pd} |")
+        L.append(f"| ctx (ceiling) | {fmt(ctx['dlp'])} | {fmt(ctx['dspec'])} | {fmt(ctx['dbal'])} | {fmt(ctx['dacc'])} | |")
+        L.append("")
+    L.append(f"push@1: {'from ' + push_src if push else 'SKIPPED: ' + push_src}")
+    L.append("")
+    # ---- the analytic pick
+    L += ["## Analytic pick (for the record; generation is not run)", "", pick["rule"], "",
+          "| # | variant | layer set | α | Δspec | Δbal margin | Δlog P | score |", "|---|---|---|---|---|---|---|---|"]
+    for j, c in enumerate(pick["picks"]):
+        L.append(f"| {j + 1} | {c['variant']} | {c['lset']} | {c['alpha']} | {c['dspec']:.3f} | {c['dbal']:.3f} | "
+                 f"{c['dlp']:.3f} | {c['score']:.1f} |")
+    L.append("")
+    # ---- full grid (main site)
+    L += ["## Every cell, site main (primary)", "", "| variant | layer set | α | Δlog P(target) | Δspec | Δbal margin |",
+          "|---|---|---|---|---|---|"]
+    for c in cells:
+        L.append(f"| {c['variant']} | {c['lset']} | {c['alpha']} | {fmt(c['_s']['dlp'])} | {fmt(c['_s']['dspec'])} | "
+                 f"{fmt(c['_s']['dbal'])} |")
+    L.append("")
+    # ---- logit lens
+    wr = H["write_range"]
+    L += ["## Logit lens of the stored vectors", "",
+          f"Target rank per block (1 = top) through the final norm + output layer. **Flag** = rank ≤ "
+          f"{cfg['analytic']['lens_topk']} at an early-middle block (the write range, blocks {wr[0]}–{wr[1]}): a "
+          "late-layer 'say the name' vector harvested again.", "",
+          "| item | variant | min rank in write range | flag | ranks (every block) |", "|---|---|---|---|---|"]
+    for x in lens:
+        L.append(f"| {x['item']} | {x['variant']} | {x['min_rank_write_range']} | {'FLAG' if x['flag'] else ''} | "
+                 f"{' '.join(str(r) for r in x['ranks'])} |")
+    L.append("")
+    # ---- G-key
+    L += ["## G-key (reported): would the subject key alone open the gate?", "",
+          "Stored key = whitened subject-span key of the H1 without runs; read key = core_v1's pooled running key; "
+          "threshold = q0.95 generic match. open@subject = the gate is open at the question's subject token.", "",
+          "| key layer | open@subject (primary) | mean match − thr | unrelated fire rate |", "|---|---|---|---|"]
+    gk = {i: g for i, g in H["gkey"].items() if g and tier_of.get(i) == "primary"}
+    for l in sorted({int(l) for g in gk.values() for l in g}):
+        xs = [g[str(l)] for g in gk.values()]
+        L.append(f"| {l} | {sum(x['open_subject'] for x in xs)}/{len(xs)} | "
+                 f"{sum(x['match_subject'] - x['thr'] for x in xs) / len(xs):.3f} | "
+                 f"{sum(x['unrel_fire_rate'] for x in xs) / len(xs):.2f} |")
+    L.append("")
+    # ---- secondary
+    L += ["## Secondary items (reported separately; no verdict)", "",
+          "| variant | best cell | Δlog P(target) | Δspec | Δbal margin | items with a site |", "|---|---|---|---|---|---|"]
+    for v in variants:
+        sc = []
+        for ls in lsets:
+            for a in alphas:
+                key = (v, ls, a, "main")
+                s = {m: stats(key, "secondary", m) for m in metrics}
+                if not math.isnan(s["dlp"]["mean"]):
+                    sc.append((s["dlp"]["mean"], ls, a, s))
+        if sc:
+            _, ls, a, s = max(sc, key=lambda x: x[0])
+            L.append(f"| {v} | {ls} α={a} | {fmt(s['dlp'])} | {fmt(s['dspec'])} | {fmt(s['dbal'])} | {s['dlp']['n']} |")
+    L.append("")
+    if best:
+        L += ["## Per item at the best cell", "", "| item | tier | main | wrongpos | rand | swap | ctx |", "|---|---|---|---|---|---|---|"]
+        for i in sorted(tier_of, key=lambda i: (tier_of[i] != "primary", i)):
+            g = lambda site: vals.get((best["variant"], best["lset"], best["alpha"], site), {}).get(i, {}).get("dlp", float("nan"))
+            cx = vals.get((None, None, None, "ctx"), {}).get(i, {}).get("dlp", float("nan"))
+            L.append(f"| {i} | {tier_of[i]} | {g('main'):.2f} | {g('wrongpos'):.2f} | {g('rand'):.2f} | {g('swap'):.2f} | {cx:.2f} |")
+        L.append("")
+    # ---- checks
+    L += ["## Checks", "",
+          f"- harvest: every delta finite; max |delta| / median residual norm = "
+          f"{max((h['max_ratio'] for h in H['norm_checks']), default=float('nan')):.2f} (limit {cfg['analytic']['norm_check']})",
+          "- subject found: " + "; ".join(f"{i} {[c['subject_found'] for c in h['checks']]}" for i, h in H["harvest"].items()),
+          f"- peak GPU {conf.get('peak_gpu_gb')} GB allocated / {conf.get('peak_gpu_reserved_gb')} GB reserved; "
+          f"host RSS {conf.get('peak_host_rss_gb')} GB; {conf.get('minutes')} min", ""]
+    (d / "report.md").write_text("\n".join(L))
+    v = {"no_gain": ng, "best": {k: best[k] for k in ("variant", "lset", "alpha")} if best else None,
+         "best_dlp": best["_s"]["dlp"] if best else None, "ctx": ctx, "picks": pick["picks"],
+         "push_ref": push_src, "lens_flags": [f"{x['item']}:{x['variant']}" for x in lens if x["flag"]]}
+    json.dump(v, open(d / "verdict.json", "w"), indent=2, default=str)
+    log(f"analytic report -> {d / 'report.md'}: {'NO GAIN' if ng else 'GAIN'}")
+    return v
+
+
 # --------------------------------------------------------------------------- main
 
 
@@ -649,6 +1264,9 @@ def main(argv=None):
         assert s in mc["stages"] or A.random_model, f"stage {s} is not run on {A.model} (config stages {mc['stages']})"
     if stages:
         items = load_items(cfg, A.tiny)
+        all_items = load_items(cfg)
+        fns = {"patch": stage_patch, "knockout": stage_knockout, "prefix": stage_prefix,
+               "analytic": lambda C_, its, d_: stage_analytic(C_, its, d_, all_items)}
         with torch.inference_mode():
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
@@ -661,7 +1279,7 @@ def main(argv=None):
                 assert coh["ok"], f"the model does not answer coherently: {coh}"
             for st in stages:
                 t0 = time.time()
-                rows, checks, layouts = (stage_patch if st == "patch" else stage_knockout)(C, items, out / st)
+                rows, checks, layouts = fns[st](C, items, out / st)
                 checks["coherence"] = coh
                 d = out / st
                 d.mkdir(parents=True, exist_ok=True)
@@ -681,6 +1299,8 @@ def main(argv=None):
                 log(f"{st} done: {len(rows)} rows in {meta['minutes']} min -> {d}"
                     + (f"; peak GPU {meta['peak_gpu_gb']} GB" if "peak_gpu_gb" in meta else ""))
     report(out, cfg, A.model)
+    report_prefix(out, cfg, A.model)
+    report_analytic(out, cfg, A.model)
 
 
 if __name__ == "__main__":

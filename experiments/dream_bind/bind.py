@@ -275,3 +275,190 @@ def _f(s):
     if not s:
         return "n/a"
     return f"{s['mean']:.2f} [{s['lo']:.2f}, {s['hi']:.2f}]"
+
+
+# =============================================================== harvest + analytic (spec sections 4-6)
+
+
+def find_all_aliases(text, aliases, start=0, end=None):
+    """Every non-overlapping alias occurrence in text[start:end] (G-match fires at every occurrence).
+    Aliases are tried in list order; a later alias inside an earlier match ("dog" inside "my dog") is
+    skipped. Returns sorted [(char_start, char_end)]."""
+    end = len(text) if end is None else end
+    taken = []
+    for a in aliases:
+        for m in re.finditer(rf"(?<![\w-]){re.escape(a)}(?![\w-])", text[start:end], re.I):
+            s, e = start + m.start(), start + m.end()
+            if all(e <= s2 or s >= e2 for s2, e2 in taken):
+                taken.append((s, e))
+    return sorted(taken)
+
+
+def subject_sites(tok, ids, user_text, aliases, prefix=None, user_from=0):
+    """Injection sites in a chat sequence whose user turn is `user_text` (optionally followed by an
+    assistant-side teacher-forced `prefix` at the very end):
+      spans         token spans of every alias occurrence in user_text[user_from:]
+      main          the last token of each span (G-match; primary site)
+      plus1         main + the token after each (variant +1)
+      prefix_spans  alias spans inside the prefix (the model's own mention, "Your dog")
+      gen           main + the last token of each prefix span (variant gen)
+      wrongpos      one non-subject user-text token per main site: counted back from the end of the user
+                    text, skipping subject-span tokens and +1 tokens (ctrl:wrongpos)
+      user_tokens   every token overlapping the user text."""
+    spans, text = char_spans(tok, ids)
+    u0 = text.find(user_text)
+    assert u0 >= 0 and text.find(user_text, u0 + 1) < 0, "user text not found exactly once in the sequence"
+    u1 = u0 + len(user_text)
+    user_tokens = tokens_overlapping(spans, u0, u1)
+    occ = find_all_aliases(text, aliases, u0 + user_from, u1)
+    sp = [tokens_overlapping(spans, s, e) for s, e in occ]
+    main = [s[-1] for s in sp]
+    plus1 = sorted(set(main) | {p + 1 for p in main if p + 1 < len(ids)})
+    pspans = []
+    if prefix is not None:
+        assert text.endswith(prefix), "the sequence does not end with the prefix"
+        pspans = [tokens_overlapping(spans, s, e) for s, e in find_all_aliases(text, aliases, len(text) - len(prefix))]
+    gen = sorted(set(main) | {s[-1] for s in pspans})
+    excl = {i for s in sp for i in s} | set(plus1)
+    cand = [i for i in reversed(user_tokens) if i not in excl]
+    return {"spans": sp, "main": main, "plus1": plus1, "prefix_spans": pspans, "gen": gen,
+            "wrongpos": sorted(cand[:len(main)]), "user_tokens": user_tokens}
+
+
+@contextmanager
+def adding(blocks, plan):
+    """Additive injection at block outputs, per batch row: plan {layer: [(row, [positions], vec [d])]};
+    h[row, positions] += vec after block `layer`."""
+    handles = []
+    for l, todo in plan.items():
+        if not todo:
+            continue
+
+        def hook(module, args, out, todo=todo):
+            h = _hidden(out).clone()
+            for row, pos, v in todo:
+                p = torch.as_tensor(pos, device=h.device, dtype=torch.long)
+                h[row, p] = h[row, p] + v.to(device=h.device, dtype=h.dtype)
+            return _replace(out, h)
+        handles.append(blocks[l].register_forward_hook(hook))
+    try:
+        yield
+    finally:
+        for hd in handles:
+            hd.remove()
+
+
+def norm_match(v, ref):
+    """Rows of v [n, d] rescaled to the norms of ref [n, d] (H3: the raw state at H2's delta norm)."""
+    return v * (ref.norm(dim=-1, keepdim=True) / v.norm(dim=-1, keepdim=True).clamp_min(1e-12))
+
+
+def map_sets(sets, ref_blocks, n_blocks, map_layers):
+    """Layer sets of the 24-block reference model -> this model by core_v1's relative-depth rule. A set
+    {a..b} maps to the contiguous range {map(a)..map(b)}; duplicates are dropped (order kept)."""
+    out, seen = [], set()
+    for s in sets:
+        m = map_layers(list(s), ref_blocks, n_blocks)
+        m = list(range(min(m), max(m) + 1)) if len(s) > 1 else m
+        m = [min(max(x, 0), n_blocks - 1) for x in m]
+        if tuple(m) not in seen:
+            seen.add(tuple(m))
+            out.append(m)
+    return out
+
+
+def lset_label(ls):
+    return f"b{ls[0]}" if len(ls) == 1 else f"b{ls[0]}-{ls[-1]}"
+
+
+# ------------------------------------------------------------------------------ G-key
+
+
+def whitening(X, r=256, eps=0.01):
+    """diag_keys' pooled_w256 whitening: X [N, d] centred -> W [d, r] = U_r / sqrt(ev_r + eps * mean(ev))."""
+    X = X.double()
+    S = X.T @ X / X.shape[0]
+    ev, U = torch.linalg.eigh(S)
+    ev, U = ev.flip(0).clamp_min(0), U.flip(1)
+    r = min(r, X.shape[1])
+    return (U[:, :r] / (ev[:r] + eps * ev.mean()).sqrt()).float()
+
+
+def pooled_keys(H, user, mu, W):
+    """diag_keys.KeySpace(pooled) keys: the running mean over user-text positions of (h - mu) W,
+    normalised (zero before the first user token). H [T, d], user [T] bool -> [T, r]."""
+    f = (H.float() - mu) @ W
+    u = user.to(f.dtype)[:, None]
+    f = (f * u).cumsum(0) / u.cumsum(0).clamp_min(1.0)
+    return torch.nn.functional.normalize(f, dim=-1, eps=1e-6)
+
+
+def subject_key(Hs, mu, W):
+    """The stored key: the whitened mean of the subject-span states [n, d] -> [r] (unit)."""
+    return torch.nn.functional.normalize(((Hs.float().mean(0) - mu) @ W)[None], dim=-1, eps=1e-6)[0]
+
+
+def gate_threshold(gen_keys, stored, q=0.95):
+    """q-quantile over generic positions of the best cosine to the stored keys [m, r]."""
+    return torch.quantile((gen_keys @ stored.T).max(-1).values.float(), q).item()
+
+
+# --------------------------------------------------------------------------- pick rule
+
+
+def ranks(vals, higher=True):
+    """1 = best; ties (and nan, the worst) share their mean rank (xlayer_v1 / think_v1 convention)."""
+    k = [(1, 0.0) if (v is None or (isinstance(v, float) and math.isnan(v))) else (0, -v if higher else v)
+         for v in vals]
+    order = sorted(range(len(vals)), key=lambda i: k[i])
+    out, i = [0.0] * len(vals), 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and k[order[j + 1]] == k[order[i]]:
+            j += 1
+        for t in range(i, j + 1):
+            out[order[t]] = (i + j) / 2 + 1
+        i = j + 1
+    return out
+
+
+def _scored(cells):
+    rs, rb = ranks([c["dspec"] for c in cells]), ranks([c["dbal"] for c in cells])
+    sc = [dict(c, score=a + b) for c, a, b in zip(cells, rs, rb)]
+    return sorted(sc, key=lambda c: (c["score"], -(c["dlp"] if not math.isnan(c["dlp"]) else -1e9)))
+
+
+PICK_RULE = ("PREREG analytic-pick rule: per variant, eligible cells have dspec > 0 (if fewer than 3 qualify: every "
+             "cell of the variant); score = rank(dspec) + rank(dbal) (higher better; ties -> higher dlp); the best "
+             "3 layer sets (each by its best-scoring alpha) are kept, each at its 2 best-scoring alphas. The pool is "
+             "re-scored jointly with the same formula and taken best-first up to 8 cells, always including the "
+             "pool's best H1 cell.")
+
+
+def analytic_pick(cells, n_sets=3, n_alpha=2, n_max=8, must="H1"):
+    """cells: [{variant, lset, alpha, dspec, dbal, dlp}] (macro means over the primary items) -> {pool, picks}."""
+    pool = []
+    for v in sorted({c["variant"] for c in cells}):
+        cand = [c for c in cells if c["variant"] == v]
+        elig = [c for c in cand if not math.isnan(c["dspec"]) and c["dspec"] > 0]
+        if len(elig) < 3:
+            elig = cand
+        sc = _scored(elig)
+        sets = []
+        for c in sc:
+            if c["lset"] not in sets:
+                sets.append(c["lset"])
+        for ls in sets[:n_sets]:
+            pool += [c for c in sc if c["lset"] == ls][:n_alpha]
+    pool = _scored([{k: v for k, v in c.items() if k != "score"} for c in pool])
+    picks = pool[:n_max]
+    if must and not any(c["variant"] == must for c in picks):
+        best_must = next((c for c in pool if c["variant"] == must), None)
+        if best_must is not None:
+            picks = picks[:n_max - 1] + [best_must]
+    return {"pool": pool, "picks": picks, "rule": PICK_RULE}
+
+
+def no_gain(stats):
+    """PREREG: 'no gain' = the best cell's 95% CI of the mean dlog P(target) includes 0 or lies below it."""
+    return stats is None or math.isnan(stats["mean"]) or stats["lo"] <= 0

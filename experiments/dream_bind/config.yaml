@@ -12,14 +12,14 @@ models:
     thinking_template: true   # enable_thinking=False forced; the template tail is asserted
     text_only: true       # load the text decoder + tied lm_head only (no vision tower): fits a 10 GB slice in fp32
     eager: false          # no knockout on this model (spec section 2)
-    stages: [patch]
+    stages: [patch, prefix, analytic]   # prefix: exploratory (patching only here); analytic: harvest + pre-pass
   qwen25_15b:
     model: Qwen/Qwen2.5-1.5B-Instruct
     n_blocks: 28          # full attention everywhere
     thinking_template: false
     text_only: false
     eager: true           # knockout and the subject-alone cell edit the eager attention mask
-    stages: [patch, knockout]
+    stages: [patch, knockout, prefix, analytic]
 
 dtype: fp32               # both models (Qwen2.5: RTX 4060 locally; Qwen3.5-2B: A100 MIG 10 GB slice)
 band: 5                   # bands and knockout windows: 5 consecutive blocks
@@ -29,6 +29,22 @@ seeds:
   bootstrap: 7            # 2000 replicates, items resampled
   random_model: 0         # --random-model only (CPU dry runs)
 n_boot: 2000
+
+# Harvest (H1 / H2 / H3) + analytic pre-pass (spec sections 4-6; PREREG "later stages"). Layer sets are the
+# 2B's (24 blocks); other models get them by core_v1's relative-depth rule (bind.map_sets / core.map_layers).
+analytic:
+  ref_blocks: 24
+  singles: [4, 6, 8, 10, 12, 14, 16]
+  bands: [[4, 8], [6, 10], [8, 12], [10, 14]]
+  alphas: [0.5, 1, 2]
+  generic: experiments/v0/generic_prompts.txt   # G-key whitening + thresholds, and the median residual norms
+  n_generic: 100
+  white: {r: 256, eps: 0.01, thr_q: 0.95}       # pooled_w256 (diag_keys / core_v1)
+  norm_check: 10            # harvest check: |delta| <= 10 x the median residual norm at that block
+  lens_topk: 10             # logit-lens flag: target rank <= 10 at an early-middle block (the write range)
+  rand_seed: 1234
+  push_ref:                 # core_v1's push@1 (teacher-forced, same session-2 prompt) read from its saved run
+    qwen35_2b: [/scratch/vvjumle/seahorse_runs/core_v1_20261007_1820/qwen35_2b, results/core_v1_20261007_1820/qwen35_2b]
 
 primary: [dog_name, cat_name, sister_name, brother_name, grandmother_name, best_friend_name, boss_name]
 secondary: [job, hometown, first_language, university, favourite_colour]
@@ -47,38 +63,50 @@ subjects:
   dog_name:
     subject: ["my dog", "your dog", "the dog", "dog"]
     harvest_followups: ["I need to take my dog to the vet tomorrow.", "My dog has been really energetic lately."]
+    h2: {without: "I have a dog.", mention: "My dog is lovely."}
   cat_name:
     subject: ["my cat", "your cat", "the cat", "cat"]
     harvest_followups: ["My cat keeps scratching the sofa.", "I'm buying a new bed for my cat."]
+    h2: {without: "I have a cat.", mention: "My cat is lovely."}
   sister_name:
     subject: ["my sister", "your sister", "sister"]
     harvest_followups: ["I want to get my sister a birthday present.", "My sister is visiting me next weekend."]
+    h2: {without: "I have a sister.", mention: "My sister is lovely."}
   brother_name:
     subject: ["my brother", "your brother", "brother"]
     harvest_followups: ["My brother is moving into a new flat.", "I want to plan a surprise for my brother."]
+    h2: {without: "I have a brother.", mention: "My brother is lovely."}
   grandmother_name:
     subject: ["my grandmother", "your grandmother", "grandmother", "my grandma"]
     harvest_followups: ["I'm calling my grandmother this evening.", "My grandmother is turning ninety soon."]
+    h2: {without: "I have a grandmother.", mention: "My grandmother is lovely."}
   best_friend_name:
     subject: ["my best friend", "your best friend", "best friend"]
     harvest_followups: ["My best friend is getting married in June.", "I want to plan a trip with my best friend."]
+    h2: {without: "I have a best friend.", mention: "My best friend is lovely."}
   boss_name:
     subject: ["my boss", "your boss", "boss"]
     harvest_followups: ["I have a meeting with my boss tomorrow.", "My boss wants a report by Friday."]
+    h2: {without: "I have a boss.", mention: "My boss is lovely."}
   # secondary: the entity is the user ("I"); topic aliases instead
   job:
     subject: ["my job", "my work", "your job", "your work"]
     harvest_followups: ["I'm thinking about asking for a raise at my job.", "Work has been really exhausting this week."]
+    h2: {without: "I have a job.", mention: "My job is lovely."}
   hometown:
     subject: ["my hometown", "the place where I grew up", "your hometown"]
     harvest_followups: ["I'm going back to visit my hometown next month.", "I miss the place where I grew up."]
+    h2: {without: "I have a hometown.", mention: "My hometown is lovely."}
   first_language:
     subject: ["my native language", "my first language", "your native language", "your first language"]
     harvest_followups: ["I want to read more books in my native language.", "I'm teaching my kids my first language."]
+    h2: {without: "I have a native language.", mention: "My native language is lovely."}
   university:
     subject: ["my university", "my old university", "your university", "university"]
     harvest_followups: ["My university is holding an alumni reunion.", "I'm thinking of doing a master's at my old university."]
+    h2: {without: "I went to a university.", mention: "My university is lovely."}
   favourite_colour:
     no_site: true         # no usable site in the use prompts (spec section 3); excluded from primary numbers
     subject: ["my favourite colour", "your favourite colour", "favourite colour"]
     harvest_followups: []
+    h2: {without: "I have a favourite colour.", mention: "My favourite colour is lovely."}

@@ -256,3 +256,124 @@ def test_layouts_with_the_real_tokenizer():
             assert P.subj and P.q0 > P.a
         assert P.info["subj_toks"][-1:] in ([], [" dog"], [" cat"], [" sister"], [" brother"], [" grandmother"],
                                             [" friend"], [" boss"], [" language"], [" university"], [" colour"])
+
+
+# ======================================================== harvest + analytic (pure helpers)
+
+
+def test_find_all_aliases_and_subject_sites():
+    occ = bind.find_all_aliases("My dog likes my dog's toy and the dog bed.", ["my dog", "dog"])
+    assert [(s, e) for s, e in occ] == [(0, 6), (13, 19), (34, 37)]          # "dog" inside "my dog" skipped
+    tok = WordTok()
+    user = "Is my dog called Pepper? Answer yes or no."
+    ids = tok.encode("<s>user\n" + user + "</s>assistant\nYour dog's name is")
+    S = bind.subject_sites(tok, ids, user, ["my dog", "your dog", "dog"], prefix="Your dog's name is")
+    d = lambda xs: [tok.decode([ids[i]]) for i in xs]
+    assert [d(s) for s in S["spans"]] == [[" my", " dog"]] and d(S["main"]) == [" dog"]
+    assert d(S["plus1"]) == [" dog", " called"]
+    assert [d(s) for s in S["prefix_spans"]] == [["\nYour", " dog"]] and d(S["gen"]) == [" dog", " dog"]
+    assert d(S["wrongpos"]) == ["."]                                          # last non-subject user token
+    assert not set(S["wrongpos"]) & set(S["plus1"])
+    # user_from: the experience's own mention is skipped (H1 / H2 harvest)
+    exp, fu = "My dog's name is Pepper.", "My dog is lovely."
+    ids2 = tok.encode("<s>user\n" + exp + " " + fu + "</s>")
+    S2 = bind.subject_sites(tok, ids2, exp + " " + fu, ["my dog"], user_from=len(exp) + 1)
+    assert len(S2["main"]) == 1 and S2["main"][0] > ids2.index(tok.vocab[" Pepper"])
+    assert bind.subject_sites(tok, ids2, exp + " " + fu, [])["main"] == []
+
+
+def test_adding_hook(tiny):
+    C, src, _ = tiny
+    v = torch.randn(32)
+    with torch.no_grad():
+        st, lg = run.source_run(C, src)
+        zero = run.run_rows(C, src, [{"add": [([2], [5], {2: torch.zeros(32)})]}])
+        added = run.run_rows(C, src, [{"add": [([2], [5], {2: v})]}, {}])
+        st2 = {2: st[2].clone()}
+        st2[2][5] += v
+        patched = run.run_rows(C, src, [{"patch": [([2], [5])]}], st2)
+    assert torch.allclose(zero[0], lg, atol=1e-5)
+    assert torch.allclose(added[0], patched[0], atol=1e-5)                  # add == patch with h + v
+    assert torch.allclose(added[1], lg, atol=1e-5) and not torch.allclose(added[0], lg, atol=1e-4)
+
+
+def test_norm_match_and_layer_sets():
+    v, ref = torch.randn(4, 8), torch.randn(4, 8)
+    m = bind.norm_match(v, ref)
+    assert torch.allclose(m.norm(dim=-1), ref.norm(dim=-1), atol=1e-5)
+    assert torch.allclose(torch.nn.functional.normalize(m, dim=-1), torch.nn.functional.normalize(v, dim=-1), atol=1e-5)
+    core = _load("test_dream_bind_core_v1", ROOT / "experiments" / "core_v1" / "core.py")
+    A = CFG["analytic"]
+    sets = [[l] for l in A["singles"]] + [list(range(a, b + 1)) for a, b in A["bands"]]
+    assert bind.map_sets(sets, 24, 24, core.map_layers) == sets                 # identity on the 2B
+    q = bind.map_sets(sets, 24, 28, core.map_layers)
+    assert [s[0] for s in q[:7]] == core.map_layers(A["singles"], 24, 28)
+    assert all(len(s) >= 5 and s == list(range(s[0], s[-1] + 1)) for s in q[7:])
+    assert bind.lset_label([4]) == "b4" and bind.lset_label([4, 5, 6]) == "b4-6"
+
+
+def test_whitening_and_keys():
+    torch.manual_seed(0)
+    X = torch.randn(4000, 6) @ torch.randn(6, 6)
+    X = X - X.mean(0)
+    W = bind.whitening(X, r=6, eps=0.0)
+    Y = X @ W
+    assert torch.allclose(Y.T @ Y / len(Y), torch.eye(6), atol=1e-3)
+    H, mu = torch.randn(5, 6), torch.zeros(6)
+    user = torch.tensor([False, True, True, False, True])
+    k = bind.pooled_keys(H, user, mu, W)
+    want = torch.nn.functional.normalize(((H[1] + H[2]) / 2) @ W, dim=-1)
+    assert torch.allclose(k[2], want, atol=1e-5) and torch.allclose(k[3], want, atol=1e-5)
+    sk = bind.subject_key(H[1:3], mu, W)
+    assert torch.allclose(sk, want, atol=1e-5)
+    gk = torch.nn.functional.normalize(torch.randn(100, 6), dim=-1)
+    thr = bind.gate_threshold(gk, sk[None], 0.95)
+    assert abs((gk @ sk > thr).float().mean().item() - 0.05) <= 0.02
+
+
+def test_ranks_pick_and_no_gain():
+    assert bind.ranks([3.0, 1.0, 3.0, float("nan")]) == [1.5, 3.0, 1.5, 4.0]
+    cells = []
+    for v, off in (("H1", -1.0), ("H2", 0.5), ("H3", 1.0)):
+        for i, ls in enumerate(["b4", "b6", "b8", "b10", "b4-8"]):
+            for a in (0.5, 1, 2):
+                cells.append({"variant": v, "lset": ls, "alpha": a, "dspec": off + 0.1 * i + 0.01 * a,
+                              "dbal": off + 0.05 * i, "dlp": off + i})
+    P = bind.analytic_pick(cells)
+    assert len(P["pool"]) == 3 * 3 * 2 and len(P["picks"]) == 8
+    for v in ("H1", "H2", "H3"):
+        pv = [c for c in P["pool"] if c["variant"] == v]
+        assert len({c["lset"] for c in pv}) == 3 and all(sum(c["lset"] == ls for c in pv) == 2 for ls in {c["lset"] for c in pv})
+    assert {c["lset"] for c in P["pool"] if c["variant"] == "H2"} == {"b8", "b10", "b4-8"}  # the best three sets
+    assert any(c["variant"] == "H1" for c in P["picks"])                       # H1 kept although it scores worst
+    assert bind.no_gain({"mean": 0.3, "lo": -0.1, "hi": 0.7, "n": 7})
+    assert not bind.no_gain({"mean": 0.3, "lo": 0.05, "hi": 0.7, "n": 7})
+    assert bind.no_gain({"mean": -0.3, "lo": -0.5, "hi": -0.1, "n": 7}) and bind.no_gain(None)
+
+
+def test_analytic_values():
+    r = lambda pk, site, v0, v1, cons=None, var="H1": {"item": "a", "tier": "primary", "pk": pk, "consistent": cons,
+                                                       "variant": None if site in ("nomem", "ctx") else var,
+                                                       "lset": None if site in ("nomem", "ctx") else "b4",
+                                                       "alpha": None if site in ("nomem", "ctx") else 1, "site": site,
+                                                       "v0": v0, "v1": v1, "no_site": False}
+    rows = [r("m", "nomem", -5.0, -3.0), r("m", "main", -2.0, -3.5),
+            r("y0", "nomem", -1.0, -0.5, "Yes"), r("y0", "main", -0.4, -1.2, "Yes"),
+            r("y1", "nomem", -2.0, -0.2, "No"), r("y1", "main", -1.0, -0.5, "No")]
+    out = run.analytic_values(rows)
+    o = out[("H1", "b4", 1, "main")]["a"]
+    assert o["dlp"] == pytest.approx(3.0) and o["dspec"] == pytest.approx(1.5 - (-2.0))
+    # Yes probe margin: (v0 - v1): nomem -0.5 -> main 0.8 (+1.3); No probe margin (v1 - v0): 1.8 -> 0.5 (-1.3)
+    assert o["dmY"] == pytest.approx(1.3) and o["dmN"] == pytest.approx(-1.3) and o["dbal"] == pytest.approx(0.0)
+    assert o["bal_acc"] == pytest.approx(1.0) and o["dacc"] == pytest.approx(0.5)
+    assert out[("H1", "b4", 1, "gen")]["a"]["dbal"] == pytest.approx(0.0)       # gen on the probes = main
+
+
+def test_config_harvest_blocks():
+    for iid in CFG["primary"] + CFG["secondary"]:
+        sub = CFG["subjects"][iid]
+        h2 = sub["h2"]
+        assert bind.find_alias(h2["mention"], sub["subject"]) is not None, iid   # the second mention names the subject
+        if iid in CFG["primary"]:
+            for fu in sub["harvest_followups"]:
+                assert bind.find_alias(fu, sub["subject"]) is not None, (iid, fu)

@@ -31,6 +31,7 @@ module load cuda/12.9 2>/dev/null || true
 export HF_HOME=/scratch/$USER/hf_cache
 export HF_HUB_OFFLINE=1
 export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True   # less fragmentation on the 10 GB slice
 
 cd "$REPO"
 echo "dream_bind MODEL=$MODEL STAGES=$STAGES OUT=$OUT commit=$(git log -1 --oneline) node=$(hostname) job=$SLURM_JOB_ID"
