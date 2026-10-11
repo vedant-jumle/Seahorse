@@ -1,0 +1,39 @@
+# dream_refs (experiment 2) on Qwen/Qwen3.5-2B. Everything that shapes a memory or a reply is core_v1's
+# (config_qwen35_2b.yaml there): model, precision, layers, keys, thresholds, sampler, caps, batching, seeds.
+# Only the conditions differ (PREREG.md "The generation grid", fixed in advance).
+name: qwen35_2b
+model: Qwen/Qwen3.5-2B
+dtype: float32            # V100 (sm_70)
+n_blocks: 24
+reference_layers: [20, 21, 23]
+layers: [20, 21, 23]      # linear, linear, full
+items: experiments/core_v1/items.yaml     # the 29 preference items (15 leanings, 8 dislikes, 6 one-of-many)
+bench: data/bench_v1
+generic: experiments/v0/generic_prompts.txt
+# core_v1's 2B prep, REUSED (calibration, keys, thresholds, hand:opposite / hand:centroid / without shifts)
+cv1_prep: /scratch/vvjumle/seahorse_runs/core_v1_20261007_1820/qwen35_2b/prep
+# core_v1's 2B gen and analysis: read by analyze only (reproducibility of nomem / hand:opposite answers, and
+# core_v1's own centroid / without numbers as context; neither enters a rule)
+cv1_gen: /scratch/vvjumle/seahorse_runs/core_v1_20261007_1820/qwen35_2b/gen
+cv1_analysis: /scratch/vvjumle/seahorse_runs/core_v1_20261007_1820/qwen35_2b/analysis
+judge: {model: Qwen/Qwen3.5-9B, dtype: bfloat16, max_new: 64, batch: 48}
+seeds:
+  base: 0                 # per-prompt seed = seed_of("core_v1", prompt, base): core_v1's random streams
+  second: 1
+  rand: 1234
+  bootstrap: 7
+  audit: 11
+doses: [0.5, 1, 2]        # alpha per layer, every variant (raw shift, no rescaling)
+primary_alpha: 1          # yes/no and the unrelated prompts: nomem, ctx and the alpha = 1 cells only
+seed2: [nomem, ctx, "gen:opposite@1", "gen:centroid@1", "cs:concept_x_sign@1"]
+samples: 4                # per prompt: 1 greedy + 4 samples
+answer_cap: 120
+yn_cap: 10
+unrel_samples: 2
+sampler: {temp: 1.0, top_p: 0.95, top_k: 20, presence: 1.5}
+key: {thr_q: 0.95, white_eps: 0.01, cont_len: 20, gen_cont_len: 20, rls_lambda: 0.1}
+loop: {n: 4, thr: 0.3}
+max_batch: 96             # 16 non-ctx conditions x 5 + 4 seed-2 conditions x 4 = 96 rows: one batch per prompt
+kl_batch: 16
+nll_tokens: 24000
+check_tol: 0.05

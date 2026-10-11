@@ -1,0 +1,19 @@
+# dream_refs: the dreaming pass (dream.py) and its validation (validate.py). docs/dreaming/02-scaffold.md §4-§5.
+name: dream_qwen35_9b
+model: Qwen/Qwen3.5-9B        # the dreamer (the 9B dreams for the 2B; PREREG "Known limitations")
+dtype: bfloat16                # gpu-a100 (full A100 80GB), thinking OFF (core_v1 run.thinking_off)
+items: experiments/core_v1/items.yaml
+bench: data/bench_v1
+groups: [leanings, dislikes, one_of_many]   # the 29 preference items; facts are not used
+prompts: experiments/dream_refs/dream_prompts.yaml
+seed_base: 0                   # per prompt: core.seed_of("dream_refs/<step>", prompt, seed_base)
+n_samples: 12                  # T = 0.7 samples per prompt (list prompts; fallbacks for single prompts)
+sampler: {temp: 0.7, top_p: 0.8, top_k: 20, presence: 0.0}   # Qwen's non-thinking settings, no presence penalty
+keep: {alternatives: 8, paraphrases: 4, null_values: 8, topics: 40}
+valence:
+  followup: "What should I do this weekend?"
+  frames:   # [like, hate] per frame, exactly 02-scaffold.md §5
+    - ["I really like {X}.", "I can't stand {X}."]
+    - ["{X} is my favourite.", "{X} is the worst."]
+    - ["I always choose {X}.", "I always avoid {X}."]
+min_topics_fatal: 20           # validate.py stops the chain below this many topics (40 wanted; fewer is a reported deviation)

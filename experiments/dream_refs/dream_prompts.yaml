@@ -1,0 +1,89 @@
+# dream_refs dreamer prompts (experiment 2, docs/dreaming/02-scaffold.md §4-§5). Each prompt is ONE user turn
+# to the dreamer (Qwen3.5-9B, bf16, thinking OFF). {placeholders} are filled by dream.py (core_v1 core.render:
+# only the named keys are replaced; the literal slot {X} and JSON braces stay as written).
+#
+# The dreamer only ever sees an item's EXPERIENCE sentence (and its own earlier outputs: its frame, value and
+# key words). It never sees a hand-written opposite, alternative, lexicon or prompt. The examples inside the
+# prompts are deliberately about things no item is about (opera, the stairs, driving).
+#
+#   kind single  greedy (T = 0) answer, plus n samples at T = 0.7 kept as fallbacks (refs.select_*)
+#   kind list    n samples at T = 0.7, deduplicated and ranked by how many samples propose a candidate
+version: 1
+
+frame:
+  kind: single
+  max_new: 120
+  template: |-
+    Here is a sentence a user said about themselves:
+    "{sentence}"
+
+    1. VALUE: the specific thing, kind or quality the sentence is about, copied exactly as it appears in the sentence. For "I'm a big fan of opera." the value is "opera"; for "I always take the stairs." it is "the stairs".
+    2. FRAME: the whole sentence copied exactly, with the value replaced by {X}. For the examples: "I'm a big fan of {X}." and "I always take {X}."
+    3. KEY WORDS: the one to three words of the value that name it (for the examples: ["opera"] and ["stairs"]).
+
+    Reply with only this JSON object and nothing else:
+    {"value": "...", "frame": "...", "key_words": ["..."]}
+
+opposite:
+  kind: single
+  max_new: 64
+  template: |-
+    Here is a sentence a user said about themselves:
+    "{sentence}"
+
+    Rewrite the sentence so the speaker states the opposite preference, keeping the same topic and sentence frame. One sentence.
+    Do not add negation words (not, no, never, don't, can't, won't) unless the original sentence already has them: say the opposite with a positive verb or adjective instead. For example, "I can't stand opera." becomes "I love opera.", and "I'm a cautious driver." becomes "I'm a reckless driver."
+
+    Reply with only the rewritten sentence.
+
+alternatives:
+  kind: list
+  max_new: 360
+  template: |-
+    Here is a sentence a user said about themselves, and the same sentence with its value replaced by {X}:
+    Sentence: "{sentence}"
+    Frame: "{frame}"
+
+    List 12 other things the speaker could have said in exactly this frame, each a different value of the same kind as "{value}". Write each as the complete sentence with the frame unchanged and only {X} replaced.
+
+    Reply with only the 12 sentences, one per line, numbered 1 to 12.
+  # used only if no valid frame could be obtained for the item (refs.select_frame returned None)
+  template_no_frame: |-
+    Here is a sentence a user said about themselves:
+    "{sentence}"
+
+    List 12 other things the speaker could have said in exactly the same sentence frame, each a different value of the same kind. Change only the value; keep every other word.
+
+    Reply with only the 12 sentences, one per line, numbered 1 to 12.
+
+paraphrases:
+  kind: list
+  max_new: 200
+  template: |-
+    Here is a sentence a user said about themselves:
+    "{sentence}"
+
+    Write 4 different ways the same user could say exactly the same thing about themselves: the same meaning and, as far as possible, the same sentence frame. Do not add negation words unless the original sentence has them.
+
+    Reply with only the 4 sentences, one per line, numbered 1 to 4.
+
+null_values:
+  kind: single
+  max_new: 160
+  template: |-
+    Here is a sentence frame with a slot {X}:
+    "{frame}"
+
+    Give 8 different values for {X} that make a natural, grammatical sentence in this frame but come from a completely different area of life than "{value}" (not the same kind of thing, and not related to it).
+
+    Reply with only a JSON list of 8 strings and nothing else.
+
+topics:
+  kind: list
+  max_new: 700
+  template: |-
+    List 50 different everyday things that people commonly like or dislike, spread over many areas: foods, drinks, music styles, sports, hobbies and activities, places, kinds of weather, animals, school subjects, household chores, ways of travelling, and so on.
+
+    Write each as a short noun phrase that fits both "I really like ___." and "___ is my favourite." (for example "board games", "rainy days").
+
+    Reply with only the 50 lines, each as "area | thing", and nothing else.
