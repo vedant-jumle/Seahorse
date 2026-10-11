@@ -14,15 +14,16 @@ The comparison arm reinstates the experience sentence as a short segment of posi
 
 ## 2. Stage 0: does the fact live at the subject, or at its own position? (run first)
 
-One cheap job, no generation, in the `ctx` condition (experience + question in one user turn), on the 7 primary items (§3):
+One cheap job, no generation, in the `ctx` condition (experience + question in one user turn), on the 7 primary items (§3). **Which mention:** the subject span that is blocked or patched is the one in the *question* (after the attribute), e.g. "dog" in *"What's my dog's name?"*, never the one inside the experience sentence (which precedes the attribute and cannot hold it).
 
-1. **Attention knockout** (Geva's method): at the answer position, block attention to the **subject** span's positions, then separately to the **attribute** ("Pepper") positions, over a window of layers slid through the network. Measure the drop in `log P(target)` at the measure prefix.
-2. **Patching:** copy the "dog" state from the ctx run into the no-memory run at every block; and separately the "Pepper" state. Which one restores the answer?
+1. **Attention knockout** (Geva's method), **on Qwen2.5-1.5B only.** At the answer position, block attention to the question's **subject** span, then separately to the **attribute** ("Pepper") positions, over a window of 5 layers slid through the network. Measure the drop in `log P(target)` at the measure prefix, as a share of `ctx`'s gain over no memory. *Why not on Qwen3.5-2B:* 18 of its 24 blocks are Gated DeltaNet, which fold every past token into one recurrent state. There is no "answer → Pepper" edge to block there, and the delta rule makes a token's contribution depend on the state before it, so it can't be subtracted cleanly. Pepper's information can reach the answer through those blocks with all six softmax blocks masked, and a small drop would read as "the fact sits at the subject" when the knockout simply missed the path.
+2. **Patching, on both models** (it needs no edge): copy the question-subject's state from the ctx run into the no-memory run at block ℓ (one block at a time, and in bands), and separately the attribute's state. Measure the share of `ctx`'s `Δ log P(target)` that is restored. On Qwen3.5-2B this carries the read-out alone.
 
-**Read-out:**
-- **Fact lives at the subject:** blocking the subject hurts more than blocking Pepper, and patching the subject state restores. Then H1 has something to carry; proceed to §5.
-- **Fact lives at its own position (pointer at the subject):** blocking Pepper kills the answer, patching "dog" alone doesn't restore. Then the subject write is dead on arrival; the content channel is **gated reinstatement** (§7, arm R) or a trained read, and the generation budget goes there instead.
-- **Both:** proceed, but expect H1 to work only partly and R to win.
+**Read-out, with thresholds (these go into `PREREG.md` before the job runs).** All shares are of `ctx`'s gain `Δ log P(target)` over no memory; the statistic is the mean over the 7 primary items with a 95% bootstrap CI over items; "best" means the best block or band.
+- **Fact lives at the subject:** patching the question-subject's state restores **≥ 50%** of the gain at its best block (CI excludes 25%), and, on Qwen2.5, blocking the subject costs **≥ 50%** while blocking the attribute costs **< 25%**. Then H1 has something to carry; proceed to §5.
+- **Fact lives at its own position (pointer at the subject):** patching the subject restores **< 25%** at every block (CI excludes 50%), and, on Qwen2.5, blocking the attribute costs **≥ 50%**. Then the subject write is dead on arrival; the content channel is **gated reinstatement** (§7, arm R) or a trained read, and the generation budget goes there instead.
+- **Both / in between:** anything else. Proceed, but expect H1 to work only partly and R to win; report the restored share per block as the result.
+- Patching the attribute's state restoring the answer is expected under either reading (it's the content) and is reported, not decisive.
 
 Also run the **analytic pre-pass** (§6) before generation; it is the second early warning.
 

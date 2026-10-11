@@ -135,7 +135,7 @@ The paper settled that facts, premises and ownership fail because a push at the 
 - The fact use prompts don't all contain the subject literally (e.g. *"the place where I grew up"*); `01-binding.md` §3 says how to handle that (aliases, and "no-site" prompts reported separately).
 - The dreamer for experiment 2 is the 9B judge model on an A100 via `slurm/core_v1.slurm`; generation of references takes about half an hour.
 - Both experiments must have a `PREREG.md` committed before any job is submitted, as core_v1 did. The predictions and rules are already written in the docs; copy them.
-- The specs were reviewed once (2026-10-11) and revised: stage 0 knockout, the H2 causal-mask bug, gated reinstatement, item tiers, S1 nulls, §2c ground truth. Read the revised versions, not any earlier copy.
+- The specs were reviewed twice (2026-10-11) and revised: stage 0 knockout with thresholds (knockout on Qwen2.5 only, since Gated DeltaNet blocks can't be masked per token; patching on both), the H2 causal-mask bug, gated reinstatement, item tiers, S1 nulls, §2c ground truth (one author for both label classes; a cross-family dreamer; LongMemEval/LoCoMo as external labels). Read the revised versions, not any earlier copy.
 
 ## 5. Recently finished and reviewed
 
