@@ -200,6 +200,101 @@ means the cell (block or band; for knockout, window) with the highest mean.
   and mean, H2).
 - **Logit-lens flag:** target rank ≤ 10 at any block of the write range (2B blocks 4–16; Qwen2.5 mapped).
 
+### Addendum 2: arm R and the Qwen2.5 generation run (2026-10-12)
+
+*Written after the analytic pre-pass and before any reinstatement or generation number existed (the only
+numbers so far are stage 0, the exploratory prefix check and the analytic pre-pass).*
+
+**Design note on R.** Plain R as the spec states it (the experience sentence's K and V spliced into a user-role
+span before the question) is, under the causal mask, numerically the same as putting the sentence as text in a
+prior user turn. Its K and V depend only on the system prompt and header before it, and those are the same in
+every session. So R is run in three forms. The harvest and the splice are in `run.py` (`harvest_R`,
+`gen_batch`); which entries are kept is `bind.splice_keep`.
+- **R-full** (as specified): head (system block) + the whole experience user turn
+  (`<|im_start|>user\n{experience}<|im_end|>\n`). K and V are taken at every layer from a run of [head][experience
+  turn], kept at their stored RoPE positions. The question turn follows at the next positions.
+  **Check (fails the job):** R-full's logits at the question equal the run of the sentence as a prior user turn
+  (`[user: experience][user: question]`) within 0.01. It validates the splice code.
+- **R-min** (new; the primary reinstatement for the memory question): head + only the attribute position and the
+  next token (the full stop), K and V at every layer, at their stored positions. The question turn starts at the
+  same position as for R-full, which leaves a gap. Stage 0 showed the attribute position carries the whole flip,
+  so this tests whether 1–2 stored positions suffice (the compression claim).
+- **R-orphan** (new): the experience turn's K and V are harvested AFTER one fixed unrelated exchange
+  (`config.yaml: gen.orphan_exchange`, a user question about basil and an assistant answer, the same for every
+  item). In the fresh session the head + the segment are spliced without the exchange. The segment keeps its
+  harvest positions, and the question turn continues after them. Tests whether stored K and V survive a change
+  of context.
+- **Position scheme**, recorded per item in `gen/checks.json` (`R_info`): with the head n_h tokens, the experience
+  turn n_s, and the exchange n_u, the question starts at n_h + n_s (R-full, R-min) or n_h + n_u + n_s (R-orphan).
+  The cache holds n_h + n_s (R-full), n_h + 2 (R-min) or n_h + n_s (R-orphan) entries.
+- **Gating:** G-match on the subject alias in the user turn (primary; G-key was reported by the pre-pass). When
+  the gate is closed there is no segment, so the answer is the nomem answer by construction (not regenerated,
+  marked `shortcut`). **Leak baseline:** one ungated R-full condition, on the 50 unrelated prompts only, for every
+  primary item.
+- **R-swap** (control): another item's R-full segment (core_v1's swap partner) under this item's gate.
+
+**Generation (Qwen2.5-1.5B-Instruct, fp32, eager attention; DelftBlue gpu-a100-small).**
+- Conditions: `nomem`, `ctx` (the experience in the same user turn, core_v1's ceiling), `R-full`, `R-min`,
+  `R-orphan`, `R-swap`, `subj1`, `subj2`, and at subj1's cell `ctrl:wrongpos`, `ctrl:rand`, `ctrl:swap`,
+  `ctrl:placebo`.
+  - `subj1`/`subj2` are the top 2 of the pre-registered analytic pick on Qwen2.5: H1 @ blocks 5–10, α 0.5 and
+    H2 @ 5–10, α 2.
+  - **subj1 is the decisive subj cell** (the pick's first); subj2 is reported.
+  - The subj write is added to the prompt's subject positions in the prefill only; generated tokens see it
+    through the cache.
+  - `ctrl:placebo` is the same-variant vector harvested with the experience replaced by "By the way, I had a coffee
+    this morning."
+- Items: the 7 primary items get every condition. The 5 secondary items get only nomem, ctx, R-full and subj1.
+- Prompts per item: the direct question, the 2 use prompts (no-site prompts flagged), and the balanced verify
+  probes (greedy, 10 tokens, first-token margins). Plus the 50 unrelated prompts (greedy + 2 samples).
+- Cross-binding (dog/cat, sister/brother, best friend/boss) with both memories stored: under G-match only the
+  memory whose subject is named fires (the gate of the other is checked closed), so the partner's prompts under
+  each condition are the cross-binding probes. **Leak** = the wrong item's target in the answer, vs nomem.
+- Settings as core_v1:
+  - 1 greedy + 4 samples, T 1, top-p 0.95, top-k 20, presence 1.5, cap 120
+  - the same random streams in every condition (per-prompt seeds)
+  - seed set 2 (4 more samples) for nomem, ctx, R-full and subj1
+- Count: ≈ 1,600 primary + 540 secondary main answers, ≈ 1,200 unrelated (150 nomem + 1,050 leak baseline),
+  ≈ 420 short yes/no answers. No cut is planned; any cut made for the time budget is reported.
+
+**Scoring.**
+- Coherence NLL (the nomem model, plain prompt) in the generation job.
+- The original judge: Qwen3.5-9B bf16, core_v1's `judge_prompts.yaml` and parser, through core_v1's score code.
+- The panel judges gpt-oss and Gemma-4: core_v1's panel code; Llama is excluded, as in the panel.
+
+**Measures.**
+- **Primary 1: clean use.** The judges' majority (original + gpt-oss + Gemma-4; a tie, possible only when a label
+  is missing, goes to the original's label) of `uses_fact` AND `coherent`, on the use prompts. The original
+  judge alone is reported beside it.
+- **Primary 2: balanced yes/no accuracy.** Parsed from the greedy answer (unparsed = wrong); (accY + accN)/2 per
+  item; gain vs nomem.
+- **Also reported:** regex clean (target present, not a loop), mention-unclean, confabulation (majority
+  `wrong_value`), self-claim, loops, incoherence, NLL, `unrel_same`, cross-binding leak, and the direct question.
+
+**Rules (B1–B6 and section 9 as pre-registered; on Qwen2.5 with reinst = R-full).**
+- **B1:** subj1's clean-use CI lies above core_v1's push ceiling, **0.15** (Qwen2.5 has no push@1 run, so the
+  pre-registered number stands in for it), and the paired CI of subj1 − ctrl:wrongpos lies above 0.
+- **B2:** subj1's balanced-accuracy gain CI > 0, and its accuracy > 0.5.
+- **B3:** the paired CI of ctrl:wrongpos − nomem clean use does not lie above 0.
+- **B4:** the paired CI of the leak (subj1 − nomem) does not lie above 0.
+- **B5 (the Qwen2.5 half):** R-full − subj1 clean use ≥ 0 and its CI is not entirely below 0. The 2B half runs
+  later.
+- **B6:** `unrel_same ≥ 0.95` for every gated R and subj condition.
+- **Section 9:**
+  - Holds = B1 ∧ B2 ∧ B3 ∧ B6.
+  - Push in disguise = B1 ∧ ¬B3.
+  - Orphaned = neither subj cell's CI above the push ceiling, while the analytic pre-pass said GAIN (it did on
+    Qwen2.5).
+  - Reinstatement wins = the CI of R-full − subj1 clean use > 0.
+
+**R-min and R-orphan: reported, not decisive.** Clean use and balanced yes/no accuracy, each with CIs, vs nomem,
+ctx, R-full and subj1. Expectations stated in advance:
+- R-min close to R-full, if the attribute position really carries the fact.
+- R-orphan below R-full but above nomem, if stored K and V partly survive the change of context.
+
+**Statistics:** as above, two-level bootstrap over items then prompts, 2000 replicates, seed 7. Yes/no is per
+item, bootstrapped over items.
+
 ## Statistics
 
 - **Stage 0:** one value per item per cell (one prompt per item). The statistic is the **macro mean over
