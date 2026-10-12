@@ -349,6 +349,9 @@ The construction is in `run.py` (`harvest_R_hybrid`) and `bind.py` (`kv6_cache`,
 **Run order:** a short real-model smoke job first (`--tiny` with the real 2B: it must pass the R-full-state
 check and a fit check of peak reserved GPU memory ≤ 9.0 GB on the 10 GB slice); the generation, judging and
 analysis jobs follow with `afterok`.
+*(Infrastructure note, 2026-10-12, before any 2B reinstatement number was read: the first smoke, job 957431, passed the
+R-full-state check (max |Δlogit| 2.5e-5) but ran out of memory on the 10 GB slice in the coherence-NLL step, so the
+smoke and generation jobs run on gpu-v100 (32 GB, fp32) instead. Nothing else changes.)*
 
 ## Statistics
 
