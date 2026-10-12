@@ -12,7 +12,17 @@ models:
     thinking_template: true   # enable_thinking=False forced; the template tail is asserted
     text_only: true       # load the text decoder + tied lm_head only (no vision tower): fits a 10 GB slice in fp32
     eager: false          # no knockout on this model (spec section 2)
-    stages: [patch, prefix, analytic]   # prefix: exploratory (patching only here); analytic: harvest + pre-pass
+    stages: [patch, prefix, analytic, gen, judge, analyze]   # prefix: exploratory (patching only here)
+    # arm R on the hybrid (PREREG addendum 3). No subj arm: pre-registered skip (stage 0 pointer-suspected AND the
+    # analytic pre-pass said NO GAIN on this model).
+    gen_conds:
+      primary: [nomem, ctx, R-full-state, R-full-kv6, R-min-kv6, R-orphan-kv6, R-swap-kv6]
+      secondary: [nomem, ctx, R-full-kv6, R-full-state]
+      seed2: [nomem, ctx, R-full-kv6, R-full-state]
+      leak: R-full-kv6          # the ungated leak baseline on the unrelated prompts
+      swap_from: R-full-kv6     # R-swap-kv6 = the partner's R-full-kv6 under this item's gate
+      check: R-full-state       # must equal the sentence as a prior user turn (fails the job otherwise)
+      b5_ref: /scratch/vvjumle/seahorse_runs/dream_bind_gen_20261012_0038/qwen25_15b   # Qwen2.5's R (B5, reported)
   qwen25_15b:
     model: Qwen/Qwen2.5-1.5B-Instruct
     n_blocks: 28          # full attention everywhere

@@ -424,7 +424,7 @@ def tiny_real_tok():
                       num_key_value_heads=2, max_position_embeddings=512, attn_implementation="eager")
     model = Qwen2ForCausalLM(cfg).eval()
     C = SimpleNamespace(model=model, body=model.model, lm_head=model.lm_head, blocks=model.model.layers, n=3, d=32,
-                        dev="cpu", tok=tok, cfg=CFG, A=SimpleNamespace(tiny=True, random_model="qwen2"))
+                        dev="cpu", tok=tok, cfg=CFG, mc=CFG["models"]["qwen25_15b"], A=SimpleNamespace(tiny=True, random_model="qwen2"))
     run.gen_context(C, CFG)
     return C
 
@@ -457,3 +457,65 @@ def test_turn_pieces_and_R_full_equals_prior_turn(tiny_real_tok):
         # the same random streams in every condition: a sampled nomem row equals a solo run of that row
         solo = run.gen_batch(C, run.chat_ids(C.tok, q), [(False, (1, 2))], max_new=8, streams=streams)
         assert next(o for s, j, o in res["nomem"] if (s, j) == (1, 2))["ids"] == solo[0]["ids"]
+
+
+# ================================================= arm R on the hybrid (Qwen3.5: DeltaNet + full attention)
+
+
+@pytest.fixture(scope="module")
+def tiny_hybrid():
+    try:
+        from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+        from transformers.models.qwen3_5 import modeling_qwen3_5  # noqa: F401 (transformers >= 5)
+        tok = AutoTokenizer.from_pretrained("Qwen/Qwen3.5-2B", local_files_only=True)
+        tc = AutoConfig.from_pretrained("Qwen/Qwen3.5-2B", local_files_only=True).text_config
+    except Exception as e:  # transformers 4.x (no qwen3_5) or no cached Qwen3.5 config / tokenizer
+        pytest.skip(f"no Qwen3.5 classes / files: {type(e).__name__}")
+    tc.hidden_size, tc.intermediate_size, tc.num_attention_heads, tc.num_key_value_heads, tc.head_dim = 64, 128, 2, 1, 64
+    tc.linear_num_key_heads = tc.linear_num_value_heads = 2
+    tc.linear_key_head_dim = tc.linear_value_head_dim = 32
+    tc.num_hidden_layers, tc.layer_types = 8, list(tc.layer_types[:8])
+    torch.manual_seed(0)
+    model = AutoModelForCausalLM.from_config(tc).float().eval()
+    run.thinking_off(tok)
+    C = SimpleNamespace(model=model, body=model.model, lm_head=model.lm_head, blocks=model.model.layers, n=8, d=64,
+                        dev="cpu", tok=tok, cfg=CFG, mc=CFG["models"]["qwen35_2b"], A=SimpleNamespace(tiny=True, random_model="qwen2"))
+    run.gen_context(C, CFG)
+    return C
+
+
+def test_hybrid_reinstatement(tiny_hybrid):
+    C = tiny_hybrid
+    assert run.is_hybrid(C) and C.head == []          # Qwen3.5's template has no system block
+    it = next(i for i in run.load_items(CFG) if i["id"] == "dog_name")
+    q = it["question"]
+    with torch.no_grad():
+        R, info = run.harvest_R(C, it, CFG["gen"]["orphan_exchange"])
+        nh, ns = info["n_head"], info["n_seg"]
+        L = info["layers"]
+        assert [k for k, _ in L["R-full-state"]] == ["lin", "lin", "lin", "attn"] * 2
+        assert all(f for k, f in L["R-full-state"] if k == "lin")                       # DeltaNet saw the segment
+        for v, want in (("R-full-kv6", nh + ns), ("R-min-kv6", nh + 2), ("R-orphan-kv6", nh + ns)):
+            assert all(n == want for k, n in L[v] if k == "attn") and not any(f for k, f in L[v] if k == "lin")
+        assert info["starts"]["R-orphan-kv6"] == info["starts"]["R-full-kv6"] + info["n_unrel"]
+        # R-full-state == the sentence as a prior user turn (greedy, token-identical)
+        _, prior = run.render_ids(C.tok, [{"role": "user", "content": it["experience"]}, {"role": "user", "content": q}])
+        a = run.gen_batch(C, run.qt_ids(C, q), [(True, None), (True, None)], prefix=R["R-full-state"], max_new=10)
+        b = run.gen_batch(C, torch.tensor(prior), [(True, None)], max_new=10)
+        assert a[0]["ids"] == b[0]["ids"] == a[1]["ids"]
+        # the stored cache is not modified by generation (a second run gives the same tokens)
+        a2 = run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R["R-full-state"], max_new=10)
+        assert a2[0]["ids"] == a[0]["ids"]
+        # kv6 with an empty head: the DeltaNet blocks start fresh; with every attention entry dropped it is nomem
+        nm = run.gen_batch(C, run.chat_ids(C.tok, q), [(True, None)], max_new=10)
+        empty = (bind.kv6_cache(R["R-full-state"][0], run.run_cache(C, []), []), 0)
+        e = run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=empty, max_new=10)
+        assert e[0]["ids"] == nm[0]["ids"]
+        for v in ("R-full-kv6", "R-min-kv6", "R-orphan-kv6"):
+            assert len(run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R[v], max_new=6)[0]["ids"]) > 0
+        # gating and the swap condition name
+        M = run.item_memory(C, CFG, it, None, None, None, None, R, R)
+        assert set(M.R) == {"R-full-state", "R-full-kv6", "R-min-kv6", "R-orphan-kv6", "R-swap-kv6"} and not M.add
+        res, gi = run.run_prompt(C, CFG, it, M, ["nomem", "R-full-kv6"], "How do airplanes stay in the air?", S=1, cap=6,
+                                 streams={1: (7, 2), 2: (8, 2)})
+        assert not gi["gate"] and all(o is None for _, _, o in res["R-full-kv6"])

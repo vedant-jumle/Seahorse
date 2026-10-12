@@ -81,10 +81,13 @@ def parse_args(argv=None):
     p.add_argument("--out", required=True, help="the model's run dir, e.g. <run>/qwen25_15b")
     p.add_argument("--config", default=str(HERE / "config.yaml"))
     p.add_argument("--tiny", action="store_true", help="2 items (smoke)")
-    p.add_argument("--random-model", default=None, choices=["qwen2"],
-                   help="tiny random Qwen2 (eager) with the config model's tokenizer (CPU dry runs)")
+    p.add_argument("--random-model", default=None, choices=["qwen2", "qwen3_5"],
+                   help="tiny random model with the config model's tokenizer (CPU dry runs): qwen2 (eager) or qwen3_5 "
+                        "(the hybrid DeltaNet + full-attention classes; needs transformers >= 5)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu", choices=["cuda", "cpu"])
     p.add_argument("--dtype", default="fp32", choices=["fp32", "bf16"])
+    p.add_argument("--max-reserved-gb", type=float, default=None,
+                   help="fit check: fail if the peak reserved GPU memory exceeds this (smoke jobs before a long run)")
     return p.parse_args(argv)
 
 
@@ -139,6 +142,18 @@ def random_qwen2(tok, n_layers, seed, device):
     return Qwen2ForCausalLM(c).float().to(device).eval()
 
 
+def random_qwen35(name, seed, device):
+    """A tiny random Qwen3.5 text model (8 blocks: 3 Gated DeltaNet + 1 full attention, twice) from the real config."""
+    from transformers import AutoConfig, AutoModelForCausalLM
+    tc = AutoConfig.from_pretrained(name).text_config
+    tc.hidden_size, tc.intermediate_size, tc.num_attention_heads, tc.num_key_value_heads, tc.head_dim = 64, 128, 2, 1, 64
+    tc.linear_num_key_heads = tc.linear_num_value_heads = 2
+    tc.linear_key_head_dim = tc.linear_value_head_dim = 32
+    tc.num_hidden_layers, tc.layer_types = 8, list(tc.layer_types[:8])
+    torch.manual_seed(seed)
+    return AutoModelForCausalLM.from_config(tc).float().to(device).eval()
+
+
 def load_text_only(name, device, dtype):
     """Qwen3.5 (a *ForConditionalGeneration checkpoint): the text decoder + tied lm_head only, no vision
     tower. Built from config.text_config on the target device, then every parameter is copied from the
@@ -185,7 +200,9 @@ def load(A, cfg, mc):
     tok = AutoTokenizer.from_pretrained(mc["model"])
     info = {}
     dtype = DTYPES[A.dtype]
-    if A.random_model:
+    if A.random_model == "qwen3_5":
+        model = random_qwen35(mc["model"], cfg["seeds"]["random_model"], A.device)
+    elif A.random_model:
         model = random_qwen2(tok, 8, cfg["seeds"]["random_model"], A.device)
     elif mc["text_only"]:
         model, info = load_text_only(mc["model"], A.device, dtype)
@@ -204,7 +221,7 @@ def load(A, cfg, mc):
     if mc["thinking_template"]:
         thinking_off(tok)
     impl = getattr(model.config, "_attn_implementation", None)
-    if mc["eager"] or A.random_model:
+    if mc["eager"] or A.random_model == "qwen2":
         assert impl == "eager", f"eager attention required, got {impl}"
     log(f"loaded {mc['model']} ({'random ' + A.random_model if A.random_model else A.dtype}, attn {impl}) "
         f"in {time.time() - t0:.0f}s {json.dumps(info)}")
@@ -1298,6 +1315,48 @@ def qt_ids(C, text):
     return ids[len(C.head):]
 
 
+def run_cache(C, ids):
+    """The cache object of a batch-1 run of `ids` (a fresh, empty cache of the right layer types if empty)."""
+    if not ids:
+        from transformers import DynamicCache
+        return DynamicCache(config=C.model.config)
+    return C.body(input_ids=torch.tensor(ids)[None].to(C.dev), use_cache=True).past_key_values
+
+
+def is_hybrid(C):
+    return "linear_attention" in (getattr(C.model.config, "layer_types", None) or [])
+
+
+def harvest_R_hybrid(C, it, exchange):
+    """Qwen3.5 (6 full-attention blocks, 18 Gated DeltaNet blocks): cache objects (PREREG addendum 3).
+      R-full-state  the whole session cache after [head][experience turn]: K,V at the full blocks AND the DeltaNet
+                    conv + recurrent states (prompt caching for hybrids; == the sentence as a prior user turn)
+      R-full-kv6    full blocks: K,V of head + experience turn at their stored positions; DeltaNet blocks: the
+                    state after the head only (the segment is invisible to them; they have no positions)
+      R-min-kv6     full blocks: head + the attribute and the next token only; DeltaNet as R-full-kv6
+      R-orphan-kv6  full blocks: head + experience turn harvested after the unrelated exchange (dropped);
+                    DeltaNet as R-full-kv6; the question continues after the harvest positions"""
+    P, Po = turn_pieces(C.tok, it["experience"]), turn_pieces(C.tok, it["experience"], exchange)
+    assert P.H == Po.H and P.Seg == Po.Seg
+    t = int(text_ids(C.tok, it["target"])[0])
+    a = [i for i, x in enumerate(P.Seg) if x == t]
+    assert len(a) == 1, f"{it['id']}: attribute token found {len(a)} times in the experience turn"
+    full, head, orph = run_cache(C, P.H + P.Seg), run_cache(C, P.H), run_cache(C, Po.H + Po.U + Po.Seg)
+    nh, ns, nu = len(P.H), len(P.Seg), len(Po.U)
+    k_full, s_full = bind.splice_keep("R-full", nh, ns, a[0])
+    k_min, _ = bind.splice_keep("R-min", nh, ns, a[0])
+    k_orph, s_orph = bind.splice_keep("R-orphan", nh, ns, a[0], nu)
+    out = {"R-full-state": (full, s_full), "R-full-kv6": (bind.kv6_cache(full, head, k_full), s_full),
+           "R-min-kv6": (bind.kv6_cache(full, head, k_min), s_full),
+           "R-orphan-kv6": (bind.kv6_cache(orph, head, k_orph), s_orph)}
+    dec = lambda i: C.tok.decode([i])
+    info = {"n_head": nh, "n_seg": ns, "n_unrel": nu, "attr_in_seg": a[0], "min_tokens": [dec(P.Seg[a[0]]), dec(P.Seg[a[0] + 1])],
+            "starts": {v: st for v, (_, st) in out.items()},
+            "layers": {v: bind.cache_summary(c) for v, (c, _) in out.items()},
+            "head_layers": bind.cache_summary(head)}
+    return out, info
+
+
 def harvest_R(C, it, exchange):
     """The item's reinstatement caches: {variant: ([(K, V)] per layer, question start position)} for R-full,
     R-min and R-orphan (bind.splice_keep), harvested from the frozen model."""
@@ -1306,6 +1365,8 @@ def harvest_R(C, it, exchange):
     t = int(text_ids(C.tok, it["target"])[0])
     a = [i for i, x in enumerate(P.Seg) if x == t]
     assert len(a) == 1, f"{it['id']}: attribute token found {len(a)} times in the experience turn"
+    if is_hybrid(C):
+        return harvest_R_hybrid(C, it, exchange)
     run = lambda ids: bind.kv_list(C.body(input_ids=torch.tensor(ids)[None].to(C.dev), use_cache=True).past_key_values)
     kv, kvo = run(P.H + P.Seg), run(Po.H + Po.U + Po.Seg)
     out = {}
@@ -1329,7 +1390,12 @@ def gen_batch(C, ids, rows, *, prefix=None, add=None, max_new, streams=None, fir
     dev = C.dev
     B, T = len(rows), len(ids)
     start = prefix[1] if prefix else 0
-    cache = bind.make_cache(prefix[0] if prefix else [], B)
+    if prefix is None:
+        cache = None if is_hybrid(C) else bind.make_cache([], B)
+    elif isinstance(prefix[0], list):
+        cache = bind.make_cache(prefix[0], B)
+    else:
+        cache = bind.expand_cache(prefix[0], B)
     x = ids[None].expand(B, -1).to(dev).contiguous()
     streams = streams or {}
     gens = {}
@@ -1403,12 +1469,21 @@ def gen_context(C, cfg):
     s = g["sampler"]
     C.sampler = cv1.qwen_sampler(s["temp"], s["top_k"], s["top_p"], s["presence"])
     C.head = turn_pieces(C.tok, "x").H
+    gc = C.mc.get("gen_conds") or {}
+    C.gc = SimpleNamespace(primary=list(gc.get("primary", PRIMARY_CONDS)), secondary=list(gc.get("secondary", SECONDARY_CONDS)),
+                           seed2=list(gc.get("seed2", g["seed2"])), leak=gc.get("leak", "R-full"),
+                           swap_from=gc.get("swap_from", "R-full"), check=gc.get("check", "R-full"),
+                           b5_ref=gc.get("b5_ref"))
     C.yes, C.no = int(text_ids(C.tok, "Yes")[0]), int(text_ids(C.tok, "No")[0])
 
 
 def item_memory(C, cfg, it, V, Vp, Vplac, U, R, Rp):
     """Per-condition specs of one item: residual conditions -> (site key, {layer: vec}); R conditions ->
-    (cache, start)."""
+    (cache, start). The swap condition is the partner's `swap_from` reinstatement under this item's gate."""
+    swap_name = "R-swap" + C.gc.swap_from[len("R-full"):]
+    rr = {**R, swap_name: Rp[C.gc.swap_from] if Rp else None}
+    if V is None:
+        return SimpleNamespace(add={}, R={k: v for k, v in rr.items() if v})
     cells = {c["name"]: {**c, "layers": [l for l in c["layers"] if l < C.n]} for c in cfg["gen"]["subj_cells"]}
     if not C.A.random_model:
         assert all(len(c["layers"]) == len(c0["layers"]) for c, c0 in zip(cells.values(), cfg["gen"]["subj_cells"]))
@@ -1419,7 +1494,6 @@ def item_memory(C, cfg, it, V, Vp, Vplac, U, R, Rp):
            "ctrl:rand": ("main", {l: c1["alpha"] * U[l] * V[c1["variant"]][l].norm() for l in c1["layers"]}
                          if c1["variant"] in V else None),
            "ctrl:swap": ("main", vec(Vp, c1)), "ctrl:placebo": ("main", vec(Vplac, c1))}
-    rr = {"R-full": R["R-full"], "R-min": R["R-min"], "R-orphan": R["R-orphan"], "R-swap": Rp["R-full"] if Rp else None}
     return SimpleNamespace(add={k: v for k, v in add.items() if v[1] is not None}, R={k: v for k, v in rr.items() if v})
 
 
@@ -1440,7 +1514,7 @@ def run_prompt(C, cfg, it, M, conds, text, *, S, cap, streams, first_ids=None):
     ids = chat_ids(tok, text)
     site = bind.subject_sites(tok, ids, text, it["aliases"])
     gate = bool(site["main"])
-    lay = row_layout(conds, g["seed2"], S)
+    lay = row_layout(conds, C.gc.seed2, S)
     res = defaultdict(list)
     rows_of = lambda specs: [(j == 0, None if j == 0 else (s, j)) for _, s, j in specs]
     # batch A: nomem + residual conditions (same prompt ids, per-row injection plans)
@@ -1462,7 +1536,7 @@ def run_prompt(C, cfg, it, M, conds, text, *, S, cap, streams, first_ids=None):
             outs = gen_batch(C, chat_ids(tok, f"{it['experience']} {text}"), rows_of(specs), max_new=cap, streams=streams,
                              first_ids=first_ids)
             res[c] += [(s, j, o) for (_, s, j), o in zip(specs, outs)]
-        elif c in RCONDS and c in M.R:
+        elif c.startswith("R-") and c in M.R:
             if gate:
                 outs = gen_batch(C, qt_ids(C, text), rows_of(specs), prefix=M.R[c], max_new=cap, streams=streams,
                                  first_ids=first_ids)
@@ -1487,18 +1561,19 @@ def stage_gen(C, items, out, all_items):
     V, Vplac, R, Rinfo = {}, {}, {}, {}
     for iid in [i for i in by_id if i in need]:
         it = by_id[iid]
-        V[iid], _ = harvest(C, it, [])
-        Vplac[iid], _ = harvest(C, {**it, "experience": g["placebo"]}, [])
+        if any(c in RESID for c in C.gc.primary):
+            V[iid], _ = harvest(C, it, [])
+            Vplac[iid], _ = harvest(C, {**it, "experience": g["placebo"]}, [])
+            for d in (V[iid], Vplac[iid]):
+                for k in d:
+                    d[k] = d[k].to(C.dev)
         R[iid], Rinfo[iid] = harvest_R(C, it, g["orphan_exchange"])
-        for d in (V[iid], Vplac[iid]):
-            for k in d:
-                d[k] = d[k].to(C.dev)
     # checks: R-full == the sentence as a prior user turn; R-min keeps 2 entries + head
     checks = {"splice": [], "R_info": Rinfo}
     for it in items:
-        kvs, start = R[it["id"]]["R-full"]
+        kvs, start = R[it["id"]][C.gc.check]
         qt = qt_ids(C, it["question"])
-        cache = bind.make_cache(kvs, 1)
+        cache = bind.make_cache(kvs, 1) if isinstance(kvs, list) else bind.expand_cache(kvs, 1)
         pos = torch.arange(start, start + len(qt))[None].to(C.dev)
         a = C.lm_head(C.body(input_ids=qt[None].to(C.dev), past_key_values=cache, position_ids=pos,
                              use_cache=True).last_hidden_state[:, -1]).float()
@@ -1507,12 +1582,21 @@ def stage_gen(C, items, out, all_items):
         b = C.lm_head(C.body(input_ids=torch.tensor(ids_prior)[None].to(C.dev)).last_hidden_state[:, -1]).float()
         d = maxdiff(a, b)
         checks["splice"].append({"item": it["id"], "max_abs_logit_diff": d, "same_argmax": int(a.argmax()) == int(b.argmax())})
-        assert d <= g["splice_tol"], f"{it['id']}: R-full != prior-turn text ({d})"
-        assert Rinfo[it["id"]]["kept"]["R-min"] == Rinfo[it["id"]]["n_head"] + 2
+        assert d <= g["splice_tol"], f"{it['id']}: {C.gc.check} != prior-turn text ({d})"
+        ri = Rinfo[it["id"]]
+        if "kept" in ri:
+            assert ri["kept"]["R-min"] == ri["n_head"] + 2
+        else:   # hybrid: attention blocks hold head + segment / head + 2; DeltaNet blocks hold the head's state only
+            nh, ns = ri["n_head"], ri["n_seg"]
+            for v, want in (("R-full-state", nh + ns), ("R-full-kv6", nh + ns), ("R-min-kv6", nh + 2), ("R-orphan-kv6", nh + ns)):
+                assert all(n == want for k, n in ri["layers"][v] if k == "attn"), (v, ri["layers"][v])
+            assert all(f for k, f in ri["layers"]["R-full-state"] if k == "lin")
+            for v in ("R-full-kv6", "R-min-kv6", "R-orphan-kv6"):
+                assert [x for x in ri["layers"][v] if x[0] == "lin"] == [x for x in ri["head_layers"] if x[0] == "lin"]
     log(f"gen: harvest + splice checks done in {(time.time() - t0) / 60:.1f} min; max splice diff "
         f"{max(c['max_abs_logit_diff'] for c in checks['splice']):.2e}")
     U = {iid: rand_dirs(C, iid, A_cfg["rand_seed"]) for iid in sel}
-    Ms = {iid: item_memory(C, cfg, by_id[iid], V[iid], V.get(by_id[iid]["swap"]), Vplac[iid], U[iid], R[iid],
+    Ms = {iid: item_memory(C, cfg, by_id[iid], V.get(iid), V.get(by_id[iid]["swap"]), Vplac.get(iid), U[iid], R[iid],
                            R.get(by_id[iid]["swap"])) for iid in sel}
     (out / "items").mkdir(parents=True, exist_ok=True)
     (out / "unrel").mkdir(parents=True, exist_ok=True)
@@ -1525,7 +1609,7 @@ def stage_gen(C, items, out, all_items):
             log(f"gen: {it['id']} already done, skipped")
             continue
         t1 = time.time()
-        conds = PRIMARY_CONDS if it["tier"] == "primary" else SECONDARY_CONDS
+        conds = C.gc.primary if it["tier"] == "primary" else C.gc.secondary
         M = Ms[it["id"]]
         rows = []
         prompts = [("related", it["question"])] + [("use", u) for u in it["use"]]
@@ -1584,7 +1668,7 @@ def stage_gen(C, items, out, all_items):
                  "shortcut": False, "ids": o["ids"], "answer": C.tok.decode(o["ids"], skip_special_tokens=True).strip()}
                 for j, o in enumerate(nm)]
         for it in items:
-            conds = [c for c in (PRIMARY_CONDS if it["tier"] == "primary" else SECONDARY_CONDS) if c not in ("nomem", "ctx")]
+            conds = [c for c in (C.gc.primary if it["tier"] == "primary" else C.gc.secondary) if c not in ("nomem", "ctx")]
             gate = bind.gate_open(text, it["aliases"])
             if gate:
                 res, _ = run_prompt(C, cfg, it, Ms[it["id"]], ["nomem"] + conds, text, S=Us, cap=cap, streams=streams)
@@ -1598,9 +1682,9 @@ def stage_gen(C, items, out, all_items):
                                  "ids": None if o is None else o["ids"],
                                  "answer": None if o is None else C.tok.decode(o["ids"], skip_special_tokens=True).strip()})
             if it["tier"] == "primary":
-                lk = gen_batch(C, qt_ids(C, text), rws, prefix=Ms[it["id"]].R["R-full"], max_new=cap, streams=streams)
+                lk = gen_batch(C, qt_ids(C, text), rws, prefix=Ms[it["id"]].R[C.gc.leak], max_new=cap, streams=streams)
                 for j, o in enumerate(lk):
-                    rows.append({"sec": "unrel", "uk": uk, "prompt": text, "item": it["id"], "cond": "R-full:ungated",
+                    rows.append({"sec": "unrel", "uk": uk, "prompt": text, "item": it["id"], "cond": f"{C.gc.leak}:ungated",
                                  "j": j, "gate": True, "shortcut": False, "same": o["ids"] == nm[j]["ids"], "ids": o["ids"],
                                  "answer": C.tok.decode(o["ids"], skip_special_tokens=True).strip()})
         write_jsonl_gz(f, rows)
@@ -1661,13 +1745,15 @@ def coherence_nll(C, gen_dir):
     return len(seqs)
 
 
-def gen_plan(cfg, items, n_unrel=50):
+def gen_plan(cfg, items, n_unrel=50, mc=None):
     """Generation counts (for the budget)."""
     g = cfg["gen"]
+    gc = (mc or {}).get("gen_conds") or {}
+    P, Sd, s2 = gc.get("primary", PRIMARY_CONDS), gc.get("secondary", SECONDARY_CONDS), gc.get("seed2", g["seed2"])
     S, Us = g["samples"], g["unrel_samples"]
-    per = lambda conds: len(row_layout(conds, g["seed2"], S))
-    main = sum(3 * per(PRIMARY_CONDS if it["tier"] == "primary" else SECONDARY_CONDS) for it in items)
-    yn = sum(len(it["relation_probes"]) * len(PRIMARY_CONDS if it["tier"] == "primary" else SECONDARY_CONDS) for it in items)
+    per = lambda conds: len(row_layout(conds, s2, S))
+    main = sum(3 * per(P if it["tier"] == "primary" else Sd) for it in items)
+    yn = sum(len(it["relation_probes"]) * len(P if it["tier"] == "primary" else Sd) for it in items)
     n_prim = sum(it["tier"] == "primary" for it in items)
     unrel = n_unrel * (Us + 1) * (1 + n_prim)
     return {"main_answers_max": main, "yn_answers": yn, "unrel_answers_min": unrel, "total_long_max": main + unrel}
@@ -1685,7 +1771,7 @@ def stage_judge(A, cfg, run_dir):
         rows += [r for r in read_jsonl_gz(f) if r["sec"] == "gen"]
     L = {"by_id": json.load(open(run_dir / "prep" / "items.json"))}
     cfg_j = {"judge": cfg["judge"], "model": "Qwen/Qwen3.5-2B"}   # 'model' only names the random-model tokenizer
-    Aj = SimpleNamespace(random_model=A.random_model, device=A.device)
+    Aj = SimpleNamespace(random_model="qwen2" if A.random_model else None, device=A.device)
     out = run_dir / "score"
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
@@ -1702,12 +1788,9 @@ def _has_word(text, w):
     return bool(re.search(rf"(?<![\w-]){re.escape(w.strip())}(?![\w-])", text or "", re.I))
 
 
-def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
-    """Every table and the pre-registered verdicts from the saved files (no GPU). Clean use = the judges'
-    majority (original + gpt-oss + Gemma-4; a tie goes to the original's label) of uses_fact AND coherent; the
-    original judge alone is reported beside it."""
-    from seahorse.stats import boot_ci, paired_diff
-    nb, seed = cfg["n_boot"], cfg["seeds"]["bootstrap"]
+def load_labeled(cfg, run_dir, model_key):
+    """A run's answers with their labels: (G gen rows, YN yes/no rows, UN unrelated rows, tier, target, n_panel).
+    Clean use = the judges' majority (original + gpt-oss + Gemma-4; a tie goes to the original's label)."""
     items = json.load(open(run_dir / "prep" / "items.json"))
     tier = {i: ("primary" if i in cfg["primary"] else "secondary") for i in items}
     target = {i: items[i]["measure"]["target"].strip() for i in items}
@@ -1750,6 +1833,16 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
         r["mention_unclean"] = r["mention"] and not bool(r["clean_maj"])
         r["nll"] = nll.get(r["key"])
     n_panel = sum(1 for r in G if r["key"] in panel)
+    return G, YN, UN, tier, target, n_panel
+
+
+def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
+    """Every table and the pre-registered verdicts from the saved files (no GPU). Clean use = the judges'
+    majority (original + gpt-oss + Gemma-4; a tie goes to the original's label) of uses_fact AND coherent; the
+    original judge alone is reported beside it."""
+    from seahorse.stats import boot_ci, paired_diff
+    nb, seed = cfg["n_boot"], cfg["seeds"]["bootstrap"]
+    G, YN, UN, tier, target, n_panel = load_labeled(cfg, run_dir, model_key)
 
     def nested(rows, fn, ss=1):
         d = defaultdict(dict)
@@ -1817,10 +1910,15 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
     cm = lambda c: nested(sel(c, "primary"), measures["clean (majority)"])
     pd = lambda a, b: ci(paired_diff(cm(a), cm(b)))
     L += ["## Paired differences in clean use (primary, use prompts)", "", "| comparison | difference [CI] |", "|---|---|"]
+    has_subj = "subj1" in conds
     comps = [("subj1", "nomem"), ("subj1", "ctrl:wrongpos"), ("subj1", "ctrl:rand"), ("subj1", "ctrl:swap"),
              ("subj1", "ctrl:placebo"), ("ctrl:wrongpos", "nomem"), ("R-full", "subj1"), ("R-full", "nomem"),
              ("R-min", "nomem"), ("R-min", "R-full"), ("R-min", "subj1"), ("R-orphan", "nomem"), ("R-orphan", "R-full"),
-             ("R-orphan", "subj1"), ("R-swap", "nomem"), ("ctx", "R-full"), ("subj2", "nomem")]
+             ("R-orphan", "subj1"), ("R-swap", "nomem"), ("ctx", "R-full"), ("subj2", "nomem")] if has_subj else [
+             ("R-full-state", "ctx"), ("R-full-state", "nomem"), ("R-full-kv6", "nomem"), ("R-full-kv6", "R-full-state"),
+             ("R-min-kv6", "R-full-kv6"), ("R-min-kv6", "nomem"), ("R-orphan-kv6", "R-full-kv6"), ("R-orphan-kv6", "nomem"),
+             ("R-swap-kv6", "nomem"), ("ctx", "R-full-kv6")]
+    comps = [(x, y) for x, y in comps if x in conds and y in conds]
     PD = {}
     for a, b in comps:
         PD[(a, b)] = pd(a, b)
@@ -1828,13 +1926,14 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
     L.append("")
     # yes/no balanced accuracy gains (primary)
     bal = lambda c: yn_bal(c, "primary")
-    L += ["## Balanced yes/no (primary): R-min / R-orphan reported, not decisive", "",
-          "| condition | balanced accuracy | gain vs nomem | − R-full | − subj1 | − ctx |", "|---|---|---|---|---|---|"]
-    for c in ("nomem", "ctx", "R-full", "R-min", "R-orphan", "R-swap", "subj1", "subj2", "ctrl:wrongpos"):
+    ref1, ref2 = ("R-full", "subj1") if has_subj else ("R-full-kv6", "R-full-state")
+    L += ["## Balanced yes/no (primary)", "",
+          f"| condition | balanced accuracy | gain vs nomem | − {ref1} | − {ref2} | − ctx |", "|---|---|---|---|---|---|"]
+    for c in conds:
         b = bal(c)
         if b:
-            L.append(f"| {c} | {fmt(ci(b))} | {fmt(ci(paired_diff(b, bal('nomem'))))} | {fmt(ci(paired_diff(b, bal('R-full'))))} | "
-                     f"{fmt(ci(paired_diff(b, bal('subj1'))))} | {fmt(ci(paired_diff(b, bal('ctx'))))} |")
+            L.append(f"| {c} | {fmt(ci(b))} | {fmt(ci(paired_diff(b, bal('nomem'))))} | {fmt(ci(paired_diff(b, bal(ref1))))} | "
+                     f"{fmt(ci(paired_diff(b, bal(ref2))))} | {fmt(ci(paired_diff(b, bal('ctx'))))} |")
     L.append("")
     # selectivity
     us = defaultdict(list)
@@ -1843,7 +1942,7 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
             us[r["cond"]].append(bool(r["same"]))
     unrel_same = {c: sum(v) / len(v) for c, v in us.items()}
     L += ["## Unrelated prompts: share token-identical to nomem", ""]
-    L += [f"- {c}: {v:.3f} ({len(us[c])} answers{'; ungated leak baseline' if c == 'R-full:ungated' else ''})"
+    L += [f"- {c}: {v:.3f} ({len(us[c])} answers{'; ungated leak baseline' if c.endswith(':ungated') else ''})"
           for c, v in sorted(unrel_same.items())]
     L.append("")
     # cross-binding: the partner's target in this item's answers
@@ -1866,10 +1965,12 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
     L.append("")
     # seed set 2
     L += ["## Seed set 2 (robustness): clean use (majority), primary use prompts", ""]
-    for c in cfg["gen"]["seed2"]:
+    for c in [c for c in conds if any(r["seedset"] == 2 and r["cond"] == c for r in G)]:
         L.append(f"- {c}: {fmt(ci(nested(sel(c, 'primary'), measures['clean (majority)'], ss=2)))}")
     L.append("")
     # rules
+    if not has_subj:
+        return analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, paired_diff, n_panel, len(G))
     s = {"subj": T[("primary", "subj1")]["clean (majority)"], "subj_m_wrong": PD[("subj1", "ctrl:wrongpos")],
          "bal_gain_subj": T[("primary", "subj1")]["bal_gain"], "bal_subj": T[("primary", "subj1")]["bal"],
          "wrong_gain": PD[("ctrl:wrongpos", "nomem")], "leak_gain": ci(paired_diff(leak["subj1"], leak["nomem"])),
@@ -1886,6 +1987,50 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
     (out / "report.md").write_text("\n".join(L))
     json.dump({"verdict": V, "inputs": s, "n_panel_labels": n_panel, "n_answers": len(G)}, open(out / "verdict.json", "w"),
               indent=2, default=str)
+    log(f"analyze -> {out / 'report.md'}: {V['labels']}")
+    return V
+
+
+def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, paired_diff, n_panel, n_answers):
+    """Qwen3.5-2B (PREREG addendum 3): no subj arm (pre-registered skip), so B1-B4 do not apply; B6 for the gated R
+    conditions; the predictions are reported: R-full-state ~ ctx, kv6 weaker than Qwen2.5's R (B5), kv6 vs state,
+    R-min-kv6 vs R-full-kv6."""
+    gc = cfg["models"][model_key].get("gen_conds") or {}
+    gated = [c for c in unrel_same if c.startswith("R-") and not c.endswith(":ungated")]
+    B6 = all(unrel_same[c] >= 0.95 for c in gated) if gated else None
+    rep_ = {"R-full-state - ctx (expected ~0)": PD.get(("R-full-state", "ctx")),
+            "R-full-kv6 - R-full-state": PD.get(("R-full-kv6", "R-full-state")),
+            "R-min-kv6 - R-full-kv6": PD.get(("R-min-kv6", "R-full-kv6"))}
+    b5 = None
+    ref = gc.get("b5_ref")
+    if ref and Path(ref, "gen", "items").exists():
+        try:
+            G2, _, _, tier2, _, _ = load_labeled(cfg, Path(ref), "qwen25_15b")
+            d2 = defaultdict(lambda: defaultdict(list))
+            for r in G2:
+                if r["cond"] == "R-full" and r["seedset"] == 1 and r["kind"] == "use" and tier2[r["item"]] == "primary" \
+                        and r["clean_maj"] is not None:
+                    d2[r["item"]][r["pi"]].append(float(r["clean_maj"]))
+            q25 = {i: {p: sum(v) / len(v) for p, v in ps.items()} for i, ps in d2.items()}
+            b5 = {"Qwen2.5 R-full": ci(q25), "2B R-full-kv6 - Qwen2.5 R-full (expected < 0)": ci(paired_diff(cm("R-full-kv6"), q25)),
+                  "2B R-full-state - Qwen2.5 R-full": ci(paired_diff(cm("R-full-state"), q25))}
+        except Exception as e:   # the reference run is missing or unlabeled: reported, not fatal
+            b5 = {"error": f"{type(e).__name__}: {e}"}
+    V = {"labels": ["reported (no subj arm on the 2B: pre-registered skip; B1-B4 not applicable)"],
+         "B": {"B6": B6}, "reported": rep_, "B5_vs_qwen25": b5}
+    L[4:4] = ["## Verdicts (PREREG addendum 3)", "",
+              "**No subj arm on Qwen3.5-2B** (pre-registered skip: stage 0 pointer-suspected AND the analytic pre-pass "
+              "said NO GAIN), so B1-B4 do not apply. B5 on the 2B is reported, not decisive.", "",
+              f"- B6 (gated R conditions, unrel_same >= 0.95): {'holds' if B6 else ('fails' if B6 is not None else 'n/a')}",
+              *[f"- {k}: {fmt(v)}" for k, v in rep_.items() if v],
+              *([f"- B5: {k}: {fmt(v) if isinstance(v, dict) and 'mean' in v else v}" for k, v in b5.items()] if b5 else
+                ["- B5: Qwen2.5 reference run not found (reported as missing)"]), ""]
+    out = run_dir / "analysis"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.md").write_text("\n".join(L))
+    json.dump({"verdict": V, "n_panel_labels": n_panel, "n_answers": n_answers,
+               "clean_use": {f"{tr}/{c}": v["clean (majority)"] for (tr, c), v in T.items()}},
+              open(out / "verdict.json", "w"), indent=2, default=str)
     log(f"analyze -> {out / 'report.md'}: {V['labels']}")
     return V
 
@@ -1916,7 +2061,7 @@ def main(argv=None):
                "analytic": lambda C_, its, d_: stage_analytic(C_, its, d_, all_items),
                "gen": lambda C_, its, d_: stage_gen(C_, its, d_, all_items)}
         if "gen" in stages:
-            log(f"gen plan: {json.dumps(gen_plan(cfg, items))}")
+            log(f"gen plan: {json.dumps(gen_plan(cfg, items, mc=mc))}")
         with torch.inference_mode():
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
@@ -1951,6 +2096,12 @@ def main(argv=None):
     report(out, cfg, A.model)
     report_prefix(out, cfg, A.model)
     report_analytic(out, cfg, A.model)
+    if A.max_reserved_gb is not None and torch.cuda.is_available():
+        peak = torch.cuda.max_memory_reserved() / 2 ** 30
+        log(f"fit check: peak reserved {peak:.3f} GB (limit {A.max_reserved_gb} GB), allocated "
+            f"{torch.cuda.max_memory_allocated() / 2 ** 30:.3f} GB")
+        if peak > A.max_reserved_gb:
+            raise SystemExit(f"FIT CHECK FAILED: peak reserved {peak:.2f} GB > {A.max_reserved_gb} GB")
 
 
 if __name__ == "__main__":

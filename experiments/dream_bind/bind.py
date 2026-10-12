@@ -502,6 +502,55 @@ def splice_keep(variant, n_head, n_seg, attr, n_unrel=0):
     raise ValueError(variant)
 
 
+def is_linear_layer(L):
+    """A cache layer of a linear-attention (Gated DeltaNet) block: conv + recurrent states, no K,V."""
+    return hasattr(L, "conv_states") and hasattr(L, "recurrent_states")
+
+
+def expand_cache(cache, B):
+    """A deep copy of a batch-1 cache object (transformers 5 DynamicCache, hybrid or not) expanded to B rows.
+    The stored cache is never modified (decoding updates conv states in place)."""
+    import copy
+    c = copy.deepcopy(cache)
+    for L in c.layers:
+        if is_linear_layer(L):
+            for d in (L.conv_states, L.recurrent_states):
+                for i, t in d.items():
+                    if t is not None:
+                        d[i] = t.expand(B, *t.shape[1:]).contiguous()
+        elif getattr(L, "is_initialized", False):
+            L.keys = L.keys.expand(B, -1, -1, -1).contiguous()
+            L.values = L.values.expand(B, -1, -1, -1).contiguous()
+    return c
+
+
+def kv6_cache(src, head, keep):
+    """Hybrid reinstatement 'kv6': the attention blocks keep only the entries `keep` of the stored cache `src`
+    (at their stored RoPE positions); every linear-attention (DeltaNet) block gets the state of `head` (the run
+    WITHOUT the experience turn), so the segment is invisible to them. Returns a new cache (src is unchanged)."""
+    import copy
+    c = copy.deepcopy(src)
+    for i, L in enumerate(c.layers):
+        if is_linear_layer(L):
+            c.layers[i] = copy.deepcopy(head.layers[i])
+        elif getattr(L, "is_initialized", False):
+            ki = torch.as_tensor(keep, device=L.keys.device, dtype=torch.long)
+            L.keys = L.keys[:, :, ki].contiguous()
+            L.values = L.values[:, :, ki].contiguous()
+    return c
+
+
+def cache_summary(cache):
+    """[('lin', has_previous_state) | ('attn', n_entries)] per layer (checks and the position record)."""
+    out = []
+    for L in cache.layers:
+        if is_linear_layer(L):
+            out.append(("lin", bool(L.has_previous_state.get(0, False))))
+        else:
+            out.append(("attn", int(L.keys.shape[-2]) if getattr(L, "is_initialized", False) else 0))
+    return out
+
+
 def gate_open(text, aliases):
     """G-match: the subject alias occurs (whole words, case-insensitive) in the user text."""
     return bool(find_all_aliases(text, aliases))
