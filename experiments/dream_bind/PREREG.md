@@ -295,6 +295,61 @@ ctx, R-full and subj1. Expectations stated in advance:
 **Statistics:** as above, two-level bootstrap over items then prompts, 2000 replicates, seed 7. Yes/no is per
 item, bootstrapped over items.
 
+### Addendum 3: arm R on Qwen3.5-2B, the hybrid (2026-10-12)
+
+*Written before any reinstatement or generation number on Qwen3.5-2B existed (Qwen2.5's arm R results were
+known: "orphaned; reinstatement wins").*
+
+**The problem.** Qwen3.5-2B has full attention only at blocks 3, 7, 11, 15, 19, 23. The 18 Gated DeltaNet blocks
+have no K and V to splice; they carry a recurrent state and a short convolution state (the last 3 inputs). The
+spec's reinstatement (K and V spliced into the cache) therefore reaches only the six full-attention blocks.
+Qwen3.5's chat template has **no system block**, so the head is empty: the experience turn starts at position 0.
+The construction is in `run.py` (`harvest_R_hybrid`) and `bind.py` (`kv6_cache`, `expand_cache`).
+
+**Conditions** (G-match gating as in addendum 2; a closed gate = nomem by construction).
+- **`R-full-state`**: the full session cache after [head][experience turn]. That is K and V at the 6
+  full-attention blocks AND the DeltaNet conv and recurrent states, as prompt caching does for hybrids.
+  **Check (fails the job):** its logits at the question equal the run of the sentence as a prior user turn within
+  0.01. It validates the code, as on Qwen2.5.
+- **`R-full-kv6`** (the spec's arm): the experience turn's K and V at the 6 full-attention blocks, at their
+  stored RoPE positions; the question starts at n_head + n_seg. **The DeltaNet blocks:** every DeltaNet layer's
+  cache entry is replaced by its state after the head alone. With the empty head this is a fresh, uninitialised
+  state, so these blocks process the question exactly as if the segment were absent. They have no positional
+  encoding (only order), so the position gap that keeps the full-attention RoPE positions consistent is
+  invisible to them. **Checked:**
+  - the attention blocks hold n_head + n_seg entries
+  - the DeltaNet layers equal the head-only cache
+  - with every attention entry also dropped, the condition reproduces nomem (unit test on a tiny random hybrid)
+- **`R-min-kv6`**: the attribute token and the full stop, K and V at the 6 full blocks (n_head + 2 entries);
+  DeltaNet as R-full-kv6; the question at n_head + n_seg.
+- **`R-orphan-kv6`**: the experience turn harvested after the same fixed unrelated exchange (basil); the exchange's
+  entries are dropped. K and V at the 6 full blocks keep their harvest positions, and the question continues after
+  them. DeltaNet as R-full-kv6.
+- **`R-swap-kv6`**: the partner's R-full-kv6 under this item's gate.
+- **Leak baseline:** an ungated R-full-kv6 on the 50 unrelated prompts, for every primary item.
+- **No subj arm on the 2B.** This is the pre-registered skip: stage 0 said pointer-suspected and the analytic
+  pre-pass said NO GAIN on this model. So B1–B4 and the section-9 rules that need `subj` do not apply here.
+
+**Items, prompts, cross-binding, generation settings, judges and statistics:** as in addendum 2.
+- The 7 primary items get every condition. The 5 secondary items get nomem, ctx, R-full-kv6 and R-full-state.
+- Seed set 2 for nomem, ctx, R-full-kv6 and R-full-state.
+- Clean use = the majority of the original judge + gpt-oss + Gemma-4.
+- Two-level bootstrap, 2000 replicates, seed 7.
+- Count: 1,071 primary + 540 secondary main answers, 1,200 unrelated (150 nomem + 1,050 leak), 276 yes/no.
+
+**Predictions, reported (the spec makes B5 not decisive on the 2B):**
+- **R-full-state ≈ ctx.** The paired difference in clean use is reported. The expectation is near 0 (it is the
+  prior-turn layout rather than ctx's same-turn layout).
+- **B5:** the kv6 arms are weaker than Qwen2.5's R. Reported as the paired difference 2B R-full-kv6 − Qwen2.5
+  R-full in clean use, over the same items and prompts (from the Qwen2.5 run), expected < 0.
+- Also reported: R-full-kv6 − R-full-state (how much the DeltaNet states carry), and R-min-kv6 − R-full-kv6 (the
+  compression claim on the hybrid).
+- **B6:** `unrel_same ≥ 0.95` for every gated R condition.
+
+**Run order:** a short real-model smoke job first (`--tiny` with the real 2B: it must pass the R-full-state
+check and a fit check of peak reserved GPU memory ≤ 9.0 GB on the 10 GB slice); the generation, judging and
+analysis jobs follow with `afterok`.
+
 ## Statistics
 
 - **Stage 0:** one value per item per cell (one prompt per item). The statistic is the **macro mean over
