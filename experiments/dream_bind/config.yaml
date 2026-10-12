@@ -23,6 +23,15 @@ models:
       swap_from: R-full-kv6     # R-swap-kv6 = the partner's R-full-kv6 under this item's gate
       check: R-full-state       # must equal the sentence as a prior user turn (fails the job otherwise)
       b5_ref: /scratch/vvjumle/seahorse_runs/dream_bind_gen_20261012_0038/qwen25_15b   # Qwen2.5's R (B5, reported)
+    # PREREG addendum 4 (exploratory follow-up: what the DeltaNet state contributes); run with --gen-set state
+    gen_conds_state:
+      primary: [nomem, ctx, R-full-state, R-min-kv6, R-min-state, R-state-only, R-orphan-state, R-swap-min-state]
+      secondary: [nomem, ctx, R-full-state, R-min-state]
+      seed2: [nomem, ctx, R-full-state, R-min-state]
+      leak: R-min-state         # the ungated leak baseline on the unrelated prompts
+      swap_from: R-min-state    # R-swap-min-state = the partner's R-min-state under this item's gate
+      swap_name: R-swap-min-state
+      check: R-full-state
   qwen25_15b:
     model: Qwen/Qwen2.5-1.5B-Instruct
     n_blocks: 28          # full attention everywhere

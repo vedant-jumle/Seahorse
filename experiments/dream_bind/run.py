@@ -86,6 +86,7 @@ def parse_args(argv=None):
                         "(the hybrid DeltaNet + full-attention classes; needs transformers >= 5)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu", choices=["cuda", "cpu"])
     p.add_argument("--dtype", default="fp32", choices=["fp32", "bf16"])
+    p.add_argument("--gen-set", default=None, help="gen: use the model's gen_conds_<SET> condition set (e.g. state)")
     p.add_argument("--max-reserved-gb", type=float, default=None,
                    help="fit check: fail if the peak reserved GPU memory exceeds this (smoke jobs before a long run)")
     return p.parse_args(argv)
@@ -1335,7 +1336,15 @@ def harvest_R_hybrid(C, it, exchange):
                     state after the head only (the segment is invisible to them; they have no positions)
       R-min-kv6     full blocks: head + the attribute and the next token only; DeltaNet as R-full-kv6
       R-orphan-kv6  full blocks: head + experience turn harvested after the unrelated exchange (dropped);
-                    DeltaNet as R-full-kv6; the question continues after the harvest positions"""
+                    DeltaNet as R-full-kv6; the question continues after the harvest positions
+    Addendum 4 (what the DeltaNet state contributes):
+      R-min-state   full blocks: head + the attribute and the next token (as R-min-kv6) PLUS the DeltaNet states
+                    after the experience turn (a fixed-size state that summarises the whole sentence)
+      R-state-only  full blocks: head only (no segment entries); DeltaNet states after the experience turn; the
+                    question starts at n_head + n_seg, the position it has after the segment (as R-full-state)
+      R-orphan-state R-min's two entries harvested after the unrelated exchange + experience, and the DeltaNet
+                    state after exchange + experience (contaminated by the exchange); the question continues after
+                    the harvest positions"""
     P, Po = turn_pieces(C.tok, it["experience"]), turn_pieces(C.tok, it["experience"], exchange)
     assert P.H == Po.H and P.Seg == Po.Seg
     t = int(text_ids(C.tok, it["target"])[0])
@@ -1346,14 +1355,21 @@ def harvest_R_hybrid(C, it, exchange):
     k_full, s_full = bind.splice_keep("R-full", nh, ns, a[0])
     k_min, _ = bind.splice_keep("R-min", nh, ns, a[0])
     k_orph, s_orph = bind.splice_keep("R-orphan", nh, ns, a[0], nu)
+    k_omin, _ = bind.splice_keep("R-orphan-min", nh, ns, a[0], nu)
+    k_so, s_so = bind.splice_keep("R-state-only", nh, ns, a[0])
     out = {"R-full-state": (full, s_full), "R-full-kv6": (bind.kv6_cache(full, head, k_full), s_full),
            "R-min-kv6": (bind.kv6_cache(full, head, k_min), s_full),
-           "R-orphan-kv6": (bind.kv6_cache(orph, head, k_orph), s_orph)}
+           "R-orphan-kv6": (bind.kv6_cache(orph, head, k_orph), s_orph),
+           "R-min-state": (bind.mix_cache(full, k_min, full), s_full),
+           "R-state-only": (bind.mix_cache(full, k_so, full), s_so),
+           "R-orphan-state": (bind.mix_cache(orph, k_omin, orph), s_orph)}
     dec = lambda i: C.tok.decode([i])
     info = {"n_head": nh, "n_seg": ns, "n_unrel": nu, "attr_in_seg": a[0], "min_tokens": [dec(P.Seg[a[0]]), dec(P.Seg[a[0] + 1])],
             "starts": {v: st for v, (_, st) in out.items()},
             "layers": {v: bind.cache_summary(c) for v, (c, _) in out.items()},
-            "head_layers": bind.cache_summary(head)}
+            "head_layers": bind.cache_summary(head),
+            "lin_equal_full": {v: bind.linear_states_equal(c, full) for v, (c, _) in out.items()},
+            "lin_equal_orphan": {v: bind.linear_states_equal(c, orph) for v, (c, _) in out.items()}}
     return out, info
 
 
@@ -1469,10 +1485,13 @@ def gen_context(C, cfg):
     s = g["sampler"]
     C.sampler = cv1.qwen_sampler(s["temp"], s["top_k"], s["top_p"], s["presence"])
     C.head = turn_pieces(C.tok, "x").H
-    gc = C.mc.get("gen_conds") or {}
+    gs = getattr(C.A, "gen_set", None)
+    gc = (C.mc.get(f"gen_conds_{gs}") if gs else C.mc.get("gen_conds")) or {}
+    assert not gs or gc, f"no gen_conds_{gs} for this model"
     C.gc = SimpleNamespace(primary=list(gc.get("primary", PRIMARY_CONDS)), secondary=list(gc.get("secondary", SECONDARY_CONDS)),
                            seed2=list(gc.get("seed2", g["seed2"])), leak=gc.get("leak", "R-full"),
                            swap_from=gc.get("swap_from", "R-full"), check=gc.get("check", "R-full"),
+                           swap_name=gc.get("swap_name"),
                            b5_ref=gc.get("b5_ref"))
     C.yes, C.no = int(text_ids(C.tok, "Yes")[0]), int(text_ids(C.tok, "No")[0])
 
@@ -1480,7 +1499,7 @@ def gen_context(C, cfg):
 def item_memory(C, cfg, it, V, Vp, Vplac, U, R, Rp):
     """Per-condition specs of one item: residual conditions -> (site key, {layer: vec}); R conditions ->
     (cache, start). The swap condition is the partner's `swap_from` reinstatement under this item's gate."""
-    swap_name = "R-swap" + C.gc.swap_from[len("R-full"):]
+    swap_name = C.gc.swap_name or ("R-swap" + C.gc.swap_from[len("R-full"):])
     rr = {**R, swap_name: Rp[C.gc.swap_from] if Rp else None}
     if V is None:
         return SimpleNamespace(add={}, R={k: v for k, v in rr.items() if v})
@@ -1570,6 +1589,8 @@ def stage_gen(C, items, out, all_items):
         R[iid], Rinfo[iid] = harvest_R(C, it, g["orphan_exchange"])
     # checks: R-full == the sentence as a prior user turn; R-min keeps 2 entries + head
     checks = {"splice": [], "R_info": Rinfo}
+    (out).mkdir(parents=True, exist_ok=True)
+    json.dump({**vars(C.gc), "gen_set": getattr(C.A, "gen_set", None)}, open(out / "gen_conds.json", "w"), indent=1)
     for it in items:
         kvs, start = R[it["id"]][C.gc.check]
         qt = qt_ids(C, it["question"])
@@ -1588,8 +1609,11 @@ def stage_gen(C, items, out, all_items):
             assert ri["kept"]["R-min"] == ri["n_head"] + 2
         else:   # hybrid: attention blocks hold head + segment / head + 2; DeltaNet blocks hold the head's state only
             nh, ns = ri["n_head"], ri["n_seg"]
-            for v, want in (("R-full-state", nh + ns), ("R-full-kv6", nh + ns), ("R-min-kv6", nh + 2), ("R-orphan-kv6", nh + ns)):
+            for v, want in (("R-full-state", nh + ns), ("R-full-kv6", nh + ns), ("R-min-kv6", nh + 2), ("R-orphan-kv6", nh + ns),
+                            ("R-min-state", nh + 2), ("R-state-only", nh), ("R-orphan-state", nh + 2)):
                 assert all(n == want for k, n in ri["layers"][v] if k == "attn"), (v, ri["layers"][v])
+            assert ri["lin_equal_full"]["R-min-state"] and ri["lin_equal_full"]["R-state-only"], ri["lin_equal_full"]
+            assert ri["lin_equal_orphan"]["R-orphan-state"] and not ri["lin_equal_full"]["R-orphan-state"]
             assert all(f for k, f in ri["layers"]["R-full-state"] if k == "lin")
             for v in ("R-full-kv6", "R-min-kv6", "R-orphan-kv6"):
                 assert [x for x in ri["layers"][v] if x[0] == "lin"] == [x for x in ri["head_layers"] if x[0] == "lin"]
@@ -1745,10 +1769,10 @@ def coherence_nll(C, gen_dir):
     return len(seqs)
 
 
-def gen_plan(cfg, items, n_unrel=50, mc=None):
+def gen_plan(cfg, items, n_unrel=50, mc=None, gen_set=None):
     """Generation counts (for the budget)."""
     g = cfg["gen"]
-    gc = (mc or {}).get("gen_conds") or {}
+    gc = (mc or {}).get(f"gen_conds_{gen_set}" if gen_set else "gen_conds") or {}
     P, Sd, s2 = gc.get("primary", PRIMARY_CONDS), gc.get("secondary", SECONDARY_CONDS), gc.get("seed2", g["seed2"])
     S, Us = g["samples"], g["unrel_samples"]
     per = lambda conds: len(row_layout(conds, s2, S))
@@ -1917,7 +1941,10 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
              ("R-orphan", "subj1"), ("R-swap", "nomem"), ("ctx", "R-full"), ("subj2", "nomem")] if has_subj else [
              ("R-full-state", "ctx"), ("R-full-state", "nomem"), ("R-full-kv6", "nomem"), ("R-full-kv6", "R-full-state"),
              ("R-min-kv6", "R-full-kv6"), ("R-min-kv6", "nomem"), ("R-orphan-kv6", "R-full-kv6"), ("R-orphan-kv6", "nomem"),
-             ("R-swap-kv6", "nomem"), ("ctx", "R-full-kv6")]
+             ("R-swap-kv6", "nomem"), ("ctx", "R-full-kv6"),
+             ("R-min-state", "R-full-state"), ("R-min-state", "R-min-kv6"), ("R-min-state", "nomem"),
+             ("R-state-only", "nomem"), ("R-state-only", "R-min-kv6"), ("R-state-only", "R-min-state"),
+             ("R-orphan-state", "R-min-state"), ("R-orphan-state", "nomem"), ("R-swap-min-state", "nomem")]
     comps = [(x, y) for x, y in comps if x in conds and y in conds]
     PD = {}
     for a, b in comps:
@@ -1926,7 +1953,8 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
     L.append("")
     # yes/no balanced accuracy gains (primary)
     bal = lambda c: yn_bal(c, "primary")
-    ref1, ref2 = ("R-full", "subj1") if has_subj else ("R-full-kv6", "R-full-state")
+    ref1, ref2 = ("R-full", "subj1") if has_subj else (("R-min-kv6", "R-full-state") if "R-min-state" in conds
+                                                         else ("R-full-kv6", "R-full-state"))
     L += ["## Balanced yes/no (primary)", "",
           f"| condition | balanced accuracy | gain vs nomem | − {ref1} | − {ref2} | − ctx |", "|---|---|---|---|---|---|"]
     for c in conds:
@@ -1968,6 +1996,23 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
     for c in [c for c in conds if any(r["seedset"] == 2 and r["cond"] == c for r in G)]:
         L.append(f"- {c}: {fmt(ci(nested(sel(c, 'primary'), measures['clean (majority)'], ss=2)))}")
     L.append("")
+    # direct question ("knows it knows"): clean use per condition, paired contrasts, and the greedy answers
+    cq = lambda c: nested(sel(c, "primary", ("related",)), measures["clean (majority)"])
+    L += ["## Direct question (primary): does the model know that it knows?", "",
+          "Clean use (majority) on the direct question per condition, paired contrasts, and every item's greedy answer.", ""]
+    for a_, b_ in [x for x in (("R-min-state", "R-min-kv6"), ("R-min-state", "R-full-state"), ("R-state-only", "nomem"),
+                               ("R-state-only", "R-min-kv6"), ("R-orphan-state", "R-min-state"), ("R-full-kv6", "R-full-state"))
+                   if x[0] in conds and x[1] in conds]:
+        L.append(f"- {a_} − {b_}: {fmt(ci(paired_diff(cq(a_), cq(b_))))}")
+    L += ["", "| item | " + " | ".join(conds) + " |", "|---|" + "---|" * len(conds)]
+    for i in sorted({r["item"] for r in G if tier[r["item"]] == "primary"}):
+        cells_ = []
+        for c in conds:
+            r = next((r for r in G if r["item"] == i and r["cond"] == c and r["kind"] == "related" and r["seedset"] == 1
+                      and r["j"] == 0), None)
+            cells_.append("" if r is None else r["answer"][:90].replace("|", "/").replace("\n", " "))
+        L.append(f"| {i} | " + " | ".join(cells_) + " |")
+    L.append("")
     # rules
     if not has_subj:
         return analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, paired_diff, n_panel, len(G))
@@ -1995,12 +2040,22 @@ def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, 
     """Qwen3.5-2B (PREREG addendum 3): no subj arm (pre-registered skip), so B1-B4 do not apply; B6 for the gated R
     conditions; the predictions are reported: R-full-state ~ ctx, kv6 weaker than Qwen2.5's R (B5), kv6 vs state,
     R-min-kv6 vs R-full-kv6."""
-    gc = cfg["models"][model_key].get("gen_conds") or {}
+    gcf = run_dir / "gen" / "gen_conds.json"
+    gc = json.load(open(gcf)) if gcf.exists() else (cfg["models"][model_key].get("gen_conds") or {})
     gated = [c for c in unrel_same if c.startswith("R-") and not c.endswith(":ungated")]
     B6 = all(unrel_same[c] >= 0.95 for c in gated) if gated else None
     rep_ = {"R-full-state - ctx (expected ~0)": PD.get(("R-full-state", "ctx")),
             "R-full-kv6 - R-full-state": PD.get(("R-full-kv6", "R-full-state")),
-            "R-min-kv6 - R-full-kv6": PD.get(("R-min-kv6", "R-full-kv6"))}
+            "R-min-kv6 - R-full-kv6": PD.get(("R-min-kv6", "R-full-kv6")),
+            "R-min-state - R-full-state (expected: CI includes 0, point > -0.1)": PD.get(("R-min-state", "R-full-state")),
+            "R-min-state - R-min-kv6 (expected > 0)": PD.get(("R-min-state", "R-min-kv6")),
+            "R-state-only - nomem (open)": PD.get(("R-state-only", "nomem")),
+            "R-state-only - R-min-kv6 (open)": PD.get(("R-state-only", "R-min-kv6")),
+            "R-orphan-state - R-min-state (reported)": PD.get(("R-orphan-state", "R-min-state"))}
+    if ("R-min-state", "R-full-state") in PD and not math.isnan(PD[("R-min-state", "R-full-state")]["mean"]):
+        d = PD[("R-min-state", "R-full-state")]
+        rep_["compact hybrid memory (CI of R-min-state - R-full-state includes 0 AND point > -0.1)"] = {
+            "holds": bool(d["lo"] <= 0 <= d["hi"] and d["mean"] > -0.1)}
     b5 = None
     ref = gc.get("b5_ref")
     if ref and Path(ref, "gen", "items").exists():
@@ -2018,13 +2073,14 @@ def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, 
             b5 = {"error": f"{type(e).__name__}: {e}"}
     V = {"labels": ["reported (no subj arm on the 2B: pre-registered skip; B1-B4 not applicable)"],
          "B": {"B6": B6}, "reported": rep_, "B5_vs_qwen25": b5}
-    L[4:4] = ["## Verdicts (PREREG addendum 3)", "",
+    add4 = gc.get("gen_set") == "state"
+    L[4:4] = [f"## Verdicts (PREREG addendum {'4, exploratory: all reported, not decisive' if add4 else '3'})", "",
               "**No subj arm on Qwen3.5-2B** (pre-registered skip: stage 0 pointer-suspected AND the analytic pre-pass "
               "said NO GAIN), so B1-B4 do not apply. B5 on the 2B is reported, not decisive.", "",
               f"- B6 (gated R conditions, unrel_same >= 0.95): {'holds' if B6 else ('fails' if B6 is not None else 'n/a')}",
-              *[f"- {k}: {fmt(v)}" for k, v in rep_.items() if v],
+              *[f"- {k}: {fmt(v) if 'mean' in v else v}" for k, v in rep_.items() if v],
               *([f"- B5: {k}: {fmt(v) if isinstance(v, dict) and 'mean' in v else v}" for k, v in b5.items()] if b5 else
-                ["- B5: Qwen2.5 reference run not found (reported as missing)"]), ""]
+                ([] if not ref else ["- B5: Qwen2.5 reference run not found (reported as missing)"])), ""]
     out = run_dir / "analysis"
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.md").write_text("\n".join(L))
@@ -2061,7 +2117,7 @@ def main(argv=None):
                "analytic": lambda C_, its, d_: stage_analytic(C_, its, d_, all_items),
                "gen": lambda C_, its, d_: stage_gen(C_, its, d_, all_items)}
         if "gen" in stages:
-            log(f"gen plan: {json.dumps(gen_plan(cfg, items, mc=mc))}")
+            log(f"gen plan: {json.dumps(gen_plan(cfg, items, mc=mc, gen_set=A.gen_set))}")
         with torch.inference_mode():
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()

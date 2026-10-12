@@ -499,6 +499,12 @@ def splice_keep(variant, n_head, n_seg, attr, n_unrel=0):
     if variant == "R-orphan":
         s0 = n_head + n_unrel
         return head + list(range(s0, s0 + n_seg)), s0 + n_seg
+    if variant == "R-orphan-min":   # R-min's two entries, harvested after the unrelated exchange (dropped)
+        s0 = n_head + n_unrel
+        assert 0 <= attr and attr + 1 < n_seg
+        return head + [s0 + attr, s0 + attr + 1], s0 + n_seg
+    if variant == "R-state-only":   # no segment entries; the question keeps the positions it has after the segment
+        return head, n_head + n_seg
     raise ValueError(variant)
 
 
@@ -524,20 +530,40 @@ def expand_cache(cache, B):
     return c
 
 
-def kv6_cache(src, head, keep):
-    """Hybrid reinstatement 'kv6': the attention blocks keep only the entries `keep` of the stored cache `src`
-    (at their stored RoPE positions); every linear-attention (DeltaNet) block gets the state of `head` (the run
-    WITHOUT the experience turn), so the segment is invisible to them. Returns a new cache (src is unchanged)."""
+def mix_cache(attn_src, keep, lin_src):
+    """A new hybrid cache: the attention blocks hold the entries `keep` of `attn_src` (at their stored RoPE
+    positions); every linear-attention (DeltaNet) block holds `lin_src`'s state. Neither source is modified."""
     import copy
-    c = copy.deepcopy(src)
+    c = copy.deepcopy(attn_src)
     for i, L in enumerate(c.layers):
         if is_linear_layer(L):
-            c.layers[i] = copy.deepcopy(head.layers[i])
+            c.layers[i] = copy.deepcopy(lin_src.layers[i])
         elif getattr(L, "is_initialized", False):
             ki = torch.as_tensor(keep, device=L.keys.device, dtype=torch.long)
             L.keys = L.keys[:, :, ki].contiguous()
             L.values = L.values[:, :, ki].contiguous()
     return c
+
+
+def kv6_cache(src, head, keep):
+    """Hybrid reinstatement 'kv6': the attention blocks keep only the entries `keep` of the stored cache `src`
+    (at their stored RoPE positions); every linear-attention (DeltaNet) block gets the state of `head` (the run
+    WITHOUT the experience turn), so the segment is invisible to them. Returns a new cache (src is unchanged)."""
+    return mix_cache(src, keep, head)
+
+
+def linear_states_equal(a, b):
+    """True if every linear-attention layer of caches a and b holds identical conv and recurrent states."""
+    for La, Lb in zip(a.layers, b.layers):
+        if is_linear_layer(La) != is_linear_layer(Lb):
+            return False
+        if is_linear_layer(La):
+            for da, db in ((La.conv_states, Lb.conv_states), (La.recurrent_states, Lb.recurrent_states)):
+                for i in da:
+                    x, y = da[i], db.get(i)
+                    if (x is None) != (y is None) or (x is not None and not torch.equal(x, y)):
+                        return False
+    return True
 
 
 def cache_summary(cache):

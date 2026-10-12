@@ -515,7 +515,47 @@ def test_hybrid_reinstatement(tiny_hybrid):
             assert len(run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R[v], max_new=6)[0]["ids"]) > 0
         # gating and the swap condition name
         M = run.item_memory(C, CFG, it, None, None, None, None, R, R)
-        assert set(M.R) == {"R-full-state", "R-full-kv6", "R-min-kv6", "R-orphan-kv6", "R-swap-kv6"} and not M.add
+        assert set(M.R) == {"R-full-state", "R-full-kv6", "R-min-kv6", "R-orphan-kv6", "R-swap-kv6", "R-min-state",
+                            "R-state-only", "R-orphan-state"} and not M.add
         res, gi = run.run_prompt(C, CFG, it, M, ["nomem", "R-full-kv6"], "How do airplanes stay in the air?", S=1, cap=6,
                                  streams={1: (7, 2), 2: (8, 2)})
         assert not gi["gate"] and all(o is None for _, _, o in res["R-full-kv6"])
+
+
+def test_hybrid_state_variants(tiny_hybrid):
+    """Addendum 4: R-min-state (2 attention entries + the full DeltaNet state), R-state-only (no segment entries +
+    the full DeltaNet state), R-orphan-state (2 entries + the state after the unrelated exchange + experience)."""
+    C = tiny_hybrid
+    assert bind.splice_keep("R-state-only", 3, 8, 5) == ([0, 1, 2], 11)
+    assert bind.splice_keep("R-orphan-min", 3, 8, 5, n_unrel=10) == ([0, 1, 2, 18, 19], 21)
+    it = next(i for i in run.load_items(CFG) if i["id"] == "dog_name")
+    q = it["question"]
+    with torch.no_grad():
+        R, info = run.harvest_R(C, it, CFG["gen"]["orphan_exchange"])
+        nh, ns, L = info["n_head"], info["n_seg"], info["layers"]
+        for v, want in (("R-min-state", nh + 2), ("R-state-only", nh), ("R-orphan-state", nh + 2)):
+            assert all(n == want for k, n in L[v] if k == "attn"), (v, L[v])
+            assert all(f for k, f in L[v] if k == "lin")                               # DeltaNet saw the sentence
+        assert info["lin_equal_full"]["R-min-state"] and info["lin_equal_full"]["R-state-only"]
+        assert not info["lin_equal_full"]["R-min-kv6"] and not info["lin_equal_full"]["R-orphan-state"]
+        assert info["lin_equal_orphan"]["R-orphan-state"]
+        assert info["starts"]["R-state-only"] == info["starts"]["R-full-state"] == nh + ns
+        assert info["starts"]["R-orphan-state"] == nh + info["n_unrel"] + ns
+        # the DeltaNet part alone: R-min-state with its 2 entries == R-full-state's DeltaNet + 2 entries; state-only
+        # differs from R-full-state only by the missing attention entries
+        for v in ("R-min-state", "R-state-only", "R-orphan-state"):
+            assert len(run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R[v], max_new=6)[0]["ids"]) > 0
+        C.A.gen_set = "state"
+        try:
+            run.gen_context(C, CFG)
+            assert C.gc.primary == CFG["models"]["qwen35_2b"]["gen_conds_state"]["primary"] and C.gc.leak == "R-min-state"
+            M = run.item_memory(C, CFG, it, None, None, None, None, R, R)
+            assert "R-swap-min-state" in M.R and M.R["R-swap-min-state"] is R["R-min-state"]
+            res, gi = run.run_prompt(C, CFG, it, M, ["nomem", "R-min-state", "R-state-only"], "Tell me a joke.", S=1, cap=6,
+                                     streams={1: (7, 2), 2: (8, 2)})
+            assert not gi["gate"] and all(o is None for c in ("R-min-state", "R-state-only") for _, _, o in res[c])
+            res, gi = run.run_prompt(C, CFG, it, M, ["nomem", "R-min-state"], q, S=1, cap=6, streams={1: (7, 2), 2: (8, 2)})
+            assert gi["gate"] and all(o is not None for _, _, o in res["R-min-state"])
+        finally:
+            C.A.gen_set = None
+            run.gen_context(C, CFG)
