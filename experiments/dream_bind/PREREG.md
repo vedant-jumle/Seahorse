@@ -353,6 +353,64 @@ analysis jobs follow with `afterok`.
 R-full-state check (max |Δlogit| 2.5e-5) but ran out of memory on the 10 GB slice in the coherence-NLL step, so the
 smoke and generation jobs run on gpu-v100 (32 GB, fp32) instead. Nothing else changes.)*
 
+### Addendum 4: what the DeltaNet state contributes (2B, exploratory follow-up to addendum 3; 2026-10-12)
+
+*Written before any number of this follow-up existed. Addendum 3's results were known:
+- R-full-state 0.96 ≈ ctx.
+- R-full-kv6 0.50: it uses the name in slot-filling tasks but refuses direct questions, with yes/no 0.61.
+- R-min-kv6 0.67.
+- Ungated unrel_same 0.007.
+
+**Everything here is reported, not decisive.** The working hypothesis is that the attention blocks fetch the value
+and the DeltaNet state carries the sense that something was said.*
+
+**Conditions** (Qwen3.5-2B fp32, text decoder only; `run.py --stage gen --gen-set state`; `config.yaml:
+gen_conds_state`; construction in `run.py: harvest_R_hybrid` and `bind.py: mix_cache`).
+- **`R-min-state`**: the attribute token and the full stop, K and V at the 6 full-attention blocks (as in
+  R-min-kv6), PLUS the DeltaNet conv and recurrent states after the experience turn. **Honest label:** minimal
+  attention entries + a fixed-size recurrent state, and that state summarises the whole sentence. So this is not
+  a 2-token memory: it is 2 attention entries plus 18 layers' fixed-size states (≈ 16 × 128 × 128 numbers per
+  layer for the recurrent state, + the conv state).
+- **`R-state-only`**: the DeltaNet states after the experience turn and no attention entries for the segment (with
+  the empty head, the full-attention blocks hold nothing before the question).
+  - **Position scheme:** the question starts at n_head + n_seg, the position it has after the segment, as in
+    R-full-state and R-min-state.
+  - The full-attention blocks then see only the question's own entries. Under RoPE only relative positions matter,
+    so the question attends to itself exactly as it would at any offset.
+  - The DeltaNet blocks have no positions, so the offset is consistent with the n_seg tokens their state consumed.
+  - It differs from R-full-state only by the missing attention entries, and from R-min-state by the missing 2
+    entries.
+- **`R-orphan-state`**: R-min-style entries (the attribute and the full stop) harvested after the fixed unrelated
+  exchange (basil) + the experience turn, and the DeltaNet state after exchange + experience. The state is
+  contaminated by the exchange; that is the test. The exchange's attention entries are dropped, and the question
+  continues after the harvest positions.
+- **`R-swap-min-state`**: the partner item's R-min-state under this item's gate.
+- **Anchors, rerun in the same run with the same random streams:** `nomem`, `ctx`, `R-full-state`, `R-min-kv6`.
+- **Leak baseline:** an ungated R-min-state on the 50 unrelated prompts, for every primary item.
+- **Checks (fail the job):**
+  - R-full-state ≡ the sentence as a prior user turn (≤ 0.01)
+  - attention-entry counts per variant: R-state-only = head only; R-min-state and R-orphan-state = head + 2;
+    the anchors as before
+  - R-min-state's and R-state-only's DeltaNet layers equal R-full-state's exactly
+  - R-orphan-state's DeltaNet layers equal the orphan harvest's, and differ from R-full-state's
+
+**Items, prompts, gating, cross-binding, judges, statistics:** as in addendum 3.
+- The 7 primary items get every condition. The secondary items get nomem, ctx, R-full-state and R-min-state.
+- Seed set 2 for nomem, ctx, R-full-state and R-min-state.
+- Clean use = the majority of the original judge + gpt-oss + Gemma-4.
+- Two-level bootstrap, 2000 replicates, seed 7.
+- Count: 1,176 primary + 540 secondary main answers, 1,200 unrelated (150 nomem + 1,050 leak), 304 yes/no.
+
+**Expectations (stated in advance; reported):**
+- **"Compact hybrid memory":** the CI of R-min-state − R-full-state (clean use) includes 0 AND its point estimate
+  is > −0.1.
+- **R-min-state > R-min-kv6** on the direct question (clean use) and on balanced yes/no accuracy.
+- **R-state-only:** open. Reported against nomem and R-min-kv6: does the recurrent state alone carry the fact, or
+  only the "something was said" signal?
+- **R-orphan-state − R-min-state:** reported.
+- **Also reported:** every condition's answer to the direct question (the "knows it knows" readout: greedy answer
+  per item, plus clean use with paired contrasts), and B6 for the gated conditions.
+
 ## Statistics
 
 - **Stage 0:** one value per item per cell (one prompt per item). The statistic is the **macro mean over
