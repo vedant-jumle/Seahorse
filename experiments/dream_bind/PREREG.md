@@ -504,6 +504,112 @@ the sibling model dir `<model>_collide`.
   pairs (the different-subject pairs reported beside them).
 - The min versions (R2-min-*) and the kv6 probes are reported with the same contrasts.
 
+### Addendum 6: binding-ID repair, and G-key retrieval with capacity (Qwen2.5-1.5B; 2026-10-13)
+
+*Written before any number of these runs existed. Known from addendum 5:
+- Separately harvested segments swap partners (0.26–0.37), even for different subjects.
+- Shift ≈ overlap.
+- The joint harvest fixes it.
+
+The binding-ID (order-tag) explanation is inferred, not measured. Everything here is exploratory and reported;
+the rules say how it will be read.*
+
+**(A) Binding-ID repair: measure the cause, test a cheap fix.** `run.py --stage idrepair` (sibling dir
+`<model>_idrepair`).
+- **Estimating the ID directions** (Feng & Steinhardt's mean-difference method, per layer):
+  - **Contexts:** 500 jointly encoded two-pair contexts: [head][user: "My {slot1}'s name is {v1}."][user: "My
+    {slot2}'s name is {v2}."]. The slots (person/pet slots of `fact_pool.yaml`, two distinct per context) and
+    the values are drawn at random, seed 11. The two-turn format is the one the joint harvest uses.
+  - **Positions:**
+    - Entity = the last token of the subject phrase + the next token (Feng: the entity token and the one after
+      it).
+    - Attribute = the value token + the full stop (as in R-min).
+    - The subject phrase is located by rule: the word before the first "'s name is" / " is" / " was" in the
+      sentence.
+  - **Offsets:** Δ_E(l) = mean over contexts of [block-l input residual at pair-2 entity positions] − mean over
+    contexts of [same at pair-1 entity positions], for every block l. The same for Δ_A at attribute positions.
+    Content averages out over the random slots and values.
+  - **Dai's version:** per layer, PCA of the entity (or attribute) residuals of both orders. The principal
+    component most correlated with the order label (of the top 4) is the order-ID direction. Δ_dai(l) = the
+    projection of Δ(l) onto it.
+- **Validation (replication), on 200 held-out template contexts** (seed 12; both entities queried, 400 queries):
+  - **Feng's mean intervention:** pair 1 + Δ, pair 2 − Δ, at the attribute positions ("swap-attr"), the entity
+    positions ("swap-ent"), or both. Implemented by editing the stored block-input residuals at those positions
+    and recomputing only those positions' K and V at each layer (frozen W_k, W_v, input norm and RoPE at their
+    positions; every other position frozen, as in Feng).
+  - **Read-out:** the teacher-forced margin logit(own) − logit(partner) at "Your {slot}'s name is".
+    **Flip** = the margin changes sign.
+  - **Control:** random directions with Δ's norm at every layer.
+  - **Layer sets:** all 28 blocks (Feng), and the thirds 0–9, 10–18, 19–27.
+  - **Pre-registered pick for the repair:** the set with the largest swap-attr flip rate on these held-out
+    contexts (ties → all blocks).
+  - Also reported on the addendum-5 pairs' joint contexts.
+- **Repair (our claim).** In R2-sep, add the pair-2 offset (+Δ_E at the entity positions, +Δ_A at the attribute
+  positions) to the SECOND segment (B) only, at the picked layers. Then recompute those positions' K and V from
+  the edited residuals and splice as in addendum 5 (overlap and shift; full segments and R-min slices; in the
+  slices only the attribute entries exist, so only Δ_A acts).
+  - **Controls:**
+    - a random direction with the same norm per layer
+    - the wrong sign (−Δ)
+    - the offset on the wrong tokens: B's first two tokens of the sentence ("My" and the next), which are neither
+      the entity nor the attribute
+  - Also: the Dai-projected offset.
+- **Analytic first (teacher-forced), on all 16 addendum-5 members:**
+  - log P(own), the margin own − partner, and **TF confusion** (P(partner) > P(own))
+  - the yes/no first-token margins with the partner as the foil
+  - conditions: R2-joint, R2-min-joint, and for each scheme × size: R2-sep, +ID (Feng), +ID (Dai), +rand,
+    +neg, +wrongtok
+- **Best repair cell:** among scheme × size × direction, the largest mean reduction in TF confusion vs R2-sep
+  (ties → the larger margin gain).
+- **Generation (+ judges)** only for the best cell: R2-joint, R2-sep, R2-sep+ID, +rand, +neg, +wrongtok. Each is
+  16 members × (direct question + 2 use prompts) × (1 greedy + 4 samples), plus the balanced yes/no (partner as
+  foil). That is 1,440 answers + 384 yes/no.
+- **Rules (exploratory, reported):**
+  - **"ID direction valid":** the swap-attr flip rate minus the random control's has a CI > 0 (bootstrap over the
+    held-out contexts).
+  - **"Repair works":** partner confusion (as in addendum 5; generated, judged) of R2-sep+ID − R2-sep has a
+    CI < 0 (excludes 0), AND +ID's confusion is below each control's (paired CI < 0). The analytic TF version is
+    reported beside it.
+
+**(B) G-key retrieval and capacity.** `run.py --stage gkey` (sibling dir `<model>_gkey`).
+- **Facts:** the 12 hand-written facts + 47 pool facts. These are all `fact_pool.yaml` slots not used by the
+  hand-written facts (distinct slots; one of wife / husband), so 59 facts at most.
+  - **N ∈ {10, 20, 59}:** stores are nested prefixes of the order [7 primary, 5 secondary, 47 pool facts in
+    `sample_pool` order, seed 0]. N = 60 is not reachable with distinct slots (59), so the largest store is 59.
+  - **Pool facts have no use prompts:** they get the direct question + measure prefix only.
+  - Four pool values are 2 tokens (Monopoly, Monet, Matilda, clarinet). Their R-min slice keeps the first
+    sub-token + the next token, and the measure uses the first token.
+- **Store:** each fact's R-min slice (as in addendum 2) + its keys.
+  - **K1 (primary, the G-key construction):** the whitened (pooled_w256) mean of the subject-span residuals in
+    the without runs of the fact's 2 on-topic follow-ups. The subject aliases are the hand-written items' own;
+    for pool facts "my {slot}", "your {slot}", "{slot}". When a follow-up has no alias, its whole-user-text key is
+    used, and the count is reported.
+  - **K2 (reported):** the pooled key over the follow-up's whole user text.
+  - A fact matches with the max cosine over its keys.
+- **Retrieval:**
+  - **Query key:** the pooled running key at the question's last user-text token (no string matching).
+  - **Rule:** top-1 above the threshold → inject that fact's slice; below it → nothing (nomem).
+  - **Threshold:** q0.95 of the store's best match over the 100 generic prompts' last-user-token keys.
+  - **Key layer:** 14 (primary); 5, 10 and 19 reported.
+  - Top-2 accuracy is also reported.
+- **Measures (all N):**
+  - retrieval accuracy (the correct slice), wrong-slice rate, miss rate, top-2 accuracy
+  - false-fire rate on the 50 unrelated prompts
+  - teacher-forced Δlog P(target) vs nomem, for: retrieved, oracle (the own slice), ctx, and R-swap (the swap
+    partner's slice)
+  - **wrong-value rate** (a wrong slice injected and P(that slice's value) > P(target)), compared with R-swap's
+- **Generation (+ judges) at N = 59, on a subset:**
+  - Facts: the 7 primary facts (question + 2 use prompts) + the first 20 pool facts of the store order (direct
+    question).
+  - Conditions: nomem, ctx, oracle (G-match), G-key (retrieved).
+  - Count: 41 prompts × 4 conditions × 5 answers = 820.
+  - Clean use and confabulation (the judges' majority `wrong_value`).
+- **Prediction (reported):** retrieval accuracy falls with N; wrong-slice retrievals give confident wrong answers
+  at about the R-swap rate. **Rules for (B): the curves are reported; no pass/fail.**
+
+**Judges and statistics:** as in addendum 5 (the original judge + gpt-oss + Gemma-4 majority; bootstrap over
+members/facts then prompts, 2000 replicates, seed 7).
+
 ## Statistics
 
 - **Stage 0:** one value per item per cell (one prompt per item). The statistic is the **macro mean over
