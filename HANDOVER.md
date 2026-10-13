@@ -30,7 +30,7 @@ The latest results come from **core_v1**, a pre-registered run on both Qwen3.5 s
 
 **Where the project is now (2026-10-13):**
 - **Experiment 1 of the dreaming plan has been run (2026-10-11 to 13), and facts finally have a working channel.** It is not the one planned:
-  - **The subject write is dead.** The answer reads the value from the attribute's own position ("Pepper"), late; the question's subject carries nothing (patching 0.00 on both models). Writing a state at the subject gave clean use 0.00.
+  - **The subject write is dead.** The answer reads the value from the attribute's own position ("Pepper"), late; the question's subject holds no copy of the value (patching 0.00 on both models; it may still carry an order-ID pointer, see docs/dreaming/literature-exp1.md). Writing a state at the subject gave clean use 0.00.
   - **What works is a stored slice of the model's own attention memory (K,V), put back in the next session and gated by a subject match.** Qwen2.5-1.5B: the whole turn 0.87, just the name and the full stop 0.86, stored after an unrelated chat 0.80, with the sentence in context 0.90. The same two tokens as plain text: 0.27.
   - **On the hybrid Qwen3.5-2B the attention slice needs the recurrent (DeltaNet) state too:** 2 positions plus the state 0.97, attention only 0.50 to 0.67, state only 0.00 use but 0.93 yes/no (recognition without recall). That state is about 4.7M numbers (~19 MB in fp32) whatever the text length, so it is not compact for one fact.
   - **Separately stored slices collide when used together** (wrong partner's name 19% to 37% of the time, even for different subjects). Encoding them together fixes it. This is the first concrete job for the offline phase.
