@@ -1749,7 +1749,7 @@ def coherence_nll(C, gen_dir):
         todo.setdefault((r["prompt"], tuple(r["ids"])), None)
     seqs = sorted([(k, chat_ids(C.tok, k[0]), list(k[1])) for k in todo], key=lambda s: len(s[1]) + len(s[2]))
     pad = C.tok.pad_token_id if C.tok.pad_token_id is not None else C.eos_list[0]
-    budget = C.cfg["gen"]["nll_tokens"]
+    budget = C.mc.get("nll_tokens", C.cfg["gen"]["nll_tokens"])   # per-model override (2B on the 10 GB slice)
     res, i = {}, 0
     while i < len(seqs):
         j = i + 1
