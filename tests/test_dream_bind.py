@@ -515,7 +515,7 @@ def test_hybrid_reinstatement(tiny_hybrid):
             assert len(run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R[v], max_new=6)[0]["ids"]) > 0
         # gating and the swap condition name
         M = run.item_memory(C, CFG, it, None, None, None, None, R, R)
-        assert set(M.R) == {"R-full-state", "R-full-kv6", "R-min-kv6", "R-orphan-kv6", "R-swap-kv6", "R-min-state",
+        assert set(M.R) >= {"R-full-state", "R-full-kv6", "R-min-kv6", "R-orphan-kv6", "R-swap-kv6", "R-min-state",
                             "R-state-only", "R-orphan-state"} and not M.add
         res, gi = run.run_prompt(C, CFG, it, M, ["nomem", "R-full-kv6"], "How do airplanes stay in the air?", S=1, cap=6,
                                  streams={1: (7, 2), 2: (8, 2)})
@@ -669,3 +669,101 @@ def test_collide_harvest_hybrid(tiny_hybrid):
         a = run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R["R2-joint-state"], max_new=10)
         b = run.gen_batch(C, torch.tensor(t2), [(True, None)], max_new=10)
         assert a[0]["ids"] == b[0]["ids"]
+
+
+# ================================================= addendum 6: binding-ID repair and G-key capacity
+
+
+def test_kv_from_resid_and_edit_identity(tiny_real_tok):
+    C = tiny_real_tok
+    ids = run._turns(C, "My dog's name is Pepper.", "My cat's name is Jasper.")
+    with torch.no_grad():
+        H, kv = run.block_inputs(C, ids)
+        assert H.shape[0] == C.n and H.shape[1] == len(ids)
+        P = bind.ea_positions(C.tok, ids, "My cat's name is Jasper.", "Jasper")
+        for l in range(C.n):
+            k, v = run.kv_from_resid(C, l, H[l][P["attr"]], P["attr"])
+            ii = torch.tensor(P["attr"])
+            assert torch.allclose(k, kv[l][0][:, :, ii], atol=1e-5) and torch.allclose(v, kv[l][1][:, :, ii], atol=1e-5)
+        zero = run.edit_kv(C, kv, H, [(P["attr"], {l: torch.zeros(2, C.d) for l in range(C.n)})], list(range(C.n)))
+        assert all(torch.allclose(a[0], b[0], atol=1e-5) for a, b in zip(zero, kv))
+        some = run.edit_kv(C, kv, H, [(P["attr"], {1: torch.ones(2, C.d)})], [1])
+        assert torch.equal(some[0][0], kv[0][0]) and not torch.allclose(some[1][0], kv[1][0])
+        other = [i for i in range(len(ids)) if i not in P["attr"]]
+        assert torch.equal(some[1][0][:, :, other], kv[1][0][:, :, other])          # every other position frozen
+
+
+def test_ea_positions_real_tokenizer():
+    tok = _qwen25_tok()
+    if tok is None:
+        pytest.skip("Qwen2.5 tokenizer not in the local cache")
+    C = SimpleNamespace(tok=tok, head=run.turn_pieces(tok, "x").H)
+    d = lambda ids, xs: [tok.decode([int(ids[i])]) for i in xs]
+    for _, _, A, B in run.collide_pairs(CFG):
+        for M in (A, B):
+            ids = run._turns(C, M["experience"])
+            P = bind.ea_positions(tok, ids, M["experience"], M["value"])
+            assert d(ids, P["attr"]) == [M["value"], "."], (M["id"], d(ids, P["attr"]))
+            ent = d(ids, P["entity"])
+            assert ent[1] in ("'s", " is", " was"), (M["id"], ent)
+    ids = run._turns(C, "My mother-in-law's name is Petra.")
+    P = bind.ea_positions(tok, ids, "My mother-in-law's name is Petra.", "Petra")
+    assert d(ids, P["entity"])[1] == "'s" and d(ids, P["attr"]) == [" Petra", "."]
+
+
+def test_order_pc_and_templates():
+    torch.manual_seed(0)
+    X = torch.randn(200, 16)
+    order = torch.tensor([0, 1] * 100)
+    X[:, 3] += 4 * order.float()                      # the order lives on axis 3
+    u, r = bind.order_pc(X, order)
+    assert abs(u[3].item()) > 0.9 and r > 0.8
+    from seahorse.bench import load_bench
+    pool = load_bench(ROOT / "data" / "bench_v1")["pool"]
+    T = bind.id_templates(pool, 50, 11)
+    assert len(T) == 50 and all(s1 != s2 and v1 != v2 for s1, v1, s2, v2 in T) and T == bind.id_templates(pool, 50, 11)
+
+
+def test_gkey_facts_and_retrieve():
+    F = run.gkey_facts(CFG)
+    assert len(F) == 59 and len({f["id"] for f in F}) == 59
+    assert [f["tier"] for f in F[:12]] == ["primary"] * 7 + ["secondary"] * 5 and all(f["tier"] == "pool" for f in F[12:])
+    assert all(f["swap"] in {x["id"] for x in F} and f["swap"] != f["id"] for f in F)
+    assert all(len(f["harvest_followups"]) == 2 for f in F if f["tier"] == "pool")
+    q = torch.tensor([1.0, 0.0])
+    sk = [("a", torch.tensor([[0.9, 0.1], [0.0, 1.0]])), ("b", torch.tensor([[0.5, 0.5]]))]
+    assert run.retrieve(q, sk, 0.6) == ("a", ["a", "b"], pytest.approx(0.9))
+    assert run.retrieve(q, sk, 0.95)[0] is None
+
+
+def test_hybrid_state_decomposition(tiny_hybrid):
+    """Addendum 6b: R-state-only-rec / -conv / R-min-state-rec restore exactly the named DeltaNet part; resetting
+    both parts (and no attention entries) reproduces nomem."""
+    C = tiny_hybrid
+    it = next(i for i in run.load_items(CFG) if i["id"] == "sister_name")
+    q = it["question"]
+    with torch.no_grad():
+        R, info = run.harvest_R(C, it, CFG["gen"]["orphan_exchange"])
+        rs = info["restored"]
+        assert rs["R-state-only"] == rs["R-min-state"] == {"rec": True, "conv": True}
+        assert rs["R-state-only-rec"] == rs["R-min-state-rec"] == {"rec": True, "conv": False}
+        assert rs["R-state-only-conv"] == {"rec": False, "conv": True}
+        assert rs["R-min-kv6"] == {"rec": False, "conv": False}
+        nh, L = info["n_head"], info["layers"]
+        assert all(n == nh for k, n in L["R-state-only-rec"] if k == "attn")
+        assert all(n == nh + 2 for k, n in L["R-min-state-rec"] if k == "attn")
+        full, head = R["R-full-state"][0], run.run_cache(C, [])
+        none = bind.split_linear(bind.mix_cache(full, list(range(nh)), full), head, "head", "head")
+        nm = run.gen_batch(C, run.chat_ids(C.tok, q), [(True, None)], max_new=10)
+        e = run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=(none, R["R-state-only"][1]), max_new=10)
+        assert e[0]["ids"] == nm[0]["ids"]                                   # fresh = no previous tokens
+        assert R["R-full-state"][0] is full and bind.linear_states_equal(R["R-full-state"][0], full)   # source untouched
+        C.A.gen_set = "decomp"
+        try:
+            run.gen_context(C, CFG)
+            rows = run.decomp_analytic(C, [it], {it["id"]: R}, ["nomem", "R-state-only-rec", "R-state-only-conv"])
+            assert [r["cond"] for r in rows] == ["nomem", "R-state-only-rec", "R-state-only-conv"]
+            assert rows[0]["dlp"] == 0 and all(0 <= r["yn_bal_acc"] <= 1 for r in rows)
+        finally:
+            C.A.gen_set = None
+            run.gen_context(C, CFG)

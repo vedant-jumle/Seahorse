@@ -552,6 +552,23 @@ def kv6_cache(src, head, keep):
     return mix_cache(src, keep, head)
 
 
+def split_linear(c, head, rec_from, conv_from):
+    """Addendum 6b: in cache `c` (whose DeltaNet layers hold the after-experience state), reset the recurrent state
+    and / or the conv buffer of every DeltaNet layer to the head-only ("fresh") value: `head`'s state when it has
+    one, else zeros (= no previous tokens). rec_from / conv_from: "full" (keep) or "head" (reset). In place."""
+    for i, L in enumerate(c.layers):
+        if not is_linear_layer(L):
+            continue
+        H = head.layers[i]
+        for which, d, hd in (("rec", L.recurrent_states, H.recurrent_states), ("conv", L.conv_states, H.conv_states)):
+            if (rec_from if which == "rec" else conv_from) != "head":
+                continue
+            for j, t in d.items():
+                if t is not None:
+                    d[j] = hd[j].clone() if hd.get(j) is not None else torch.zeros_like(t)
+    return c
+
+
 def linear_states_equal(a, b):
     """True if every linear-attention layer of caches a and b holds identical conv and recurrent states."""
     for La, Lb in zip(a.layers, b.layers):
@@ -604,6 +621,66 @@ def hybrid_collide_names(base):
     out = {("R2-joint-state" if b == "R2-joint" else f"{b}-jstate"): (b, "J") for b in base}
     out.update({"R2-joint-kv6": ("R2-joint", "H"), "R2-sep-shift-kv6": ("R2-sep-shift", "H")})
     return out
+
+
+# =============================================================== addendum 6 (A): binding IDs
+
+
+_SUBJ_END = re.compile(r"([\w-]+)(?='s name is| is\b| was\b)")
+
+
+def ea_positions(tok, ids, sentence, value):
+    """Entity and attribute token positions of `sentence` (which must occur exactly once in the decoded ids):
+      entity     the last token of the subject phrase (the word before the first "'s name is" / " is" / " was")
+                 and the token after it (Feng & Steinhardt: the entity token and the next one)
+      attribute  the value's first token and the token after it (the full stop, as in R-min)
+      wrong      the sentence's first token and the token before the attribute (neither entity nor attribute;
+                 the wrong-token control)
+    Returns {"entity": [i, i + 1], "attr": [j, j + 1], "wrong": [w, j - 1]}."""
+    spans, text = char_spans(tok, ids)
+    s0 = text.find(sentence)
+    assert s0 >= 0 and text.find(sentence, s0 + 1) < 0, "sentence not found exactly once"
+    m = _SUBJ_END.search(sentence)
+    assert m, f"no subject phrase in {sentence!r}"
+    e = tokens_overlapping(spans, s0 + m.end(1) - 1, s0 + m.end(1))[-1]
+    v = value.strip()
+    vi = sentence.find(v, m.end(1))
+    assert vi >= 0, f"value {v!r} not after the subject in {sentence!r}"
+    a = tokens_overlapping(spans, s0 + vi, s0 + vi + 1)[0]
+    w = tokens_overlapping(spans, s0, s0 + 1)[0]
+    out = {"entity": [e, e + 1], "attr": [a, a + 1], "wrong": [w, a - 1]}
+    assert not set(out["wrong"]) & (set(out["entity"]) | set(out["attr"])), out
+    return out
+
+
+def id_templates(pool, n, seed):
+    """n two-pair 'name' contexts from the fact pool's person/pet slots: [(slot1, v1, slot2, v2)], two distinct
+    slots and two distinct values per context (random, seeded)."""
+    import random
+    rng = random.Random(seed)
+    slots = [s for s in pool["slots"] if s.get("kind") in ("person", "pet")]
+    out = []
+    while len(out) < n:
+        s1, s2 = rng.sample(slots, 2)
+        v1 = rng.choice(pool["names"][s1["names"]])
+        v2 = rng.choice([x for x in pool["names"][s2["names"]] if x != v1])
+        out.append((s1["slot"], v1, s2["slot"], v2))
+    return out
+
+
+def order_pc(X, order, k=4):
+    """Dai's ordering-ID direction: of the top-k principal components of X [n, d] (centred), the one most
+    correlated (|r|) with the order label [n]. Returns (unit direction [d], |r|)."""
+    Xc = X.float() - X.float().mean(0)
+    U, S, V = torch.linalg.svd(Xc, full_matrices=False)
+    best, bv = -1.0, None
+    o = order.float() - order.float().mean()
+    for i in range(min(k, V.shape[0])):
+        p = Xc @ V[i]
+        r = (p * o).sum() / (p.norm() * o.norm()).clamp_min(1e-12)
+        if abs(r.item()) > best:
+            best, bv = abs(r.item()), V[i]
+    return bv / bv.norm(), best
 
 
 def gate_open(text, aliases):

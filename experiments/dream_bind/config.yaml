@@ -42,6 +42,16 @@ models:
       swap_from: R-min-state
       swap_name: R-swap-min-state   # built, not generated
       check: R-full-state
+    # PREREG addendum 6b (C): the DeltaNet recurrent state vs the conv buffer; run with --gen-set decomp
+    gen_conds_decomp:
+      primary: [nomem, ctx, R-state-only, R-state-only-rec, R-state-only-conv, R-min-state-rec]
+      secondary: []             # the 7 primary items only
+      seed2: [nomem, ctx, R-state-only, R-state-only-rec]
+      leak: null
+      swap_from: R-min-state
+      swap_name: R-swap-min-state   # built, not generated
+      check: R-full-state
+      analytic: [nomem, ctx, R-full-state, R-min-state, R-min-kv6, R-state-only, R-state-only-rec, R-state-only-conv, R-min-state-rec]
     # PREREG addendum 5 (2): the two-fact collision test (run.py --stage collide); joint DeltaNet state everywhere,
     # plus two attention-only probes with the head-only DeltaNet state
     collide_conds: [nomem, ctx2, R2-joint-state, R2-sep-overlap-jstate, R2-sep-shift-jstate, R2-min-joint-jstate,
@@ -52,7 +62,7 @@ models:
     thinking_template: false
     text_only: false
     eager: true           # knockout and the subject-alone cell edit the eager attention mask
-    stages: [patch, knockout, prefix, analytic, gen, judge, analyze, collide]
+    stages: [patch, knockout, prefix, analytic, gen, judge, analyze, collide, idrepair, gkey]
     # PREREG addendum 5 (1): the plain-text controls; run with --gen-set text
     gen_conds_text:
       primary: [nomem, ctx, T-min, T-full, R-min, R-full]
@@ -177,6 +187,20 @@ collide:
           question: "What's my grandmother on my father's side called?", prefix: "Your grandmother on your father's side is called",
           use: ["Write a short speech for my grandmother on my father's side at her birthday party.", "Draft a letter to my grandmother on my father's side asking about her garden."],
           verify: ["Is my grandmother on my father's side called {v}?", "Is {v} the name of my grandmother on my father's side?"]}
+
+# PREREG addendum 6 (Qwen2.5): (A) binding-ID repair, (B) G-key retrieval + capacity
+idrepair:
+  n_estimate: 500          # two-pair contexts for the mean-difference offsets
+  n_validate: 200          # held-out contexts for the mean-intervention validation
+  seed_estimate: 11
+  seed_validate: 12
+gkey:
+  N: [10, 20, 59]          # store sizes (59 = every distinct slot available)
+  key_layers: [5, 10, 14, 19]
+  primary_layer: 14
+  thr_q: 0.95
+  pool_seed: 0
+  n_pool_gen: 20           # pool facts in the judged generation subset (plus the 7 primary facts)
 
 primary: [dog_name, cat_name, sister_name, brother_name, grandmother_name, best_friend_name, boss_name]
 secondary: [job, hometown, first_language, university, favourite_colour]
