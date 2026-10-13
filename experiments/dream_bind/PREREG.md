@@ -610,6 +610,54 @@ the rules say how it will be read.*
 **Judges and statistics:** as in addendum 5 (the original judge + gpt-oss + Gemma-4 majority; bootstrap over
 members/facts then prompts, 2000 replicates, seed 7).
 
+### Addendum 6b (2026-10-13, after addendum 6 was committed and before any (A), (B) or (C) number existed)
+
+**Correction to (A), made before any number.** The wrong-token control uses the sentence's first token and **the
+token before the attribute** (e.g. "My" and " is" in "My dog's name is Pepper."), not "the first two tokens". In
+"My dog's name is Pepper." the second token is the entity itself, so the first-two-tokens rule would put the
+control on the entity.
+
+**(C) Qwen3.5-2B: what in the restored DeltaNet state carries recognition?** A literature check flagged a
+confound for addendum 4's "R-state-only: use 0, yes/no 0.93". Gated DeltaNet's short-convolution buffer holds the
+last few inputs of the stored turn almost verbatim ("Pepper", ".", end of turn). So the recognition could come from
+that buffer, not from the recurrent matrix.
+
+**What the existing conditions restored:** R-state-only and R-min-state (addendum 4) copied each DeltaNet layer's
+cache object whole from the R-full-state harvest, **so both restored the conv buffer AND the recurrent state.**
+
+`run.py --stage gen --gen-set decomp` (`config.yaml: gen_conds_decomp`).
+
+**New conditions** (G-match gated as before; "fresh" = the head-only value, which with Qwen3.5's empty head is a
+zero conv buffer / zero recurrent state, exactly the state with no previous tokens):
+
+| Condition | Attention entries | DeltaNet recurrent state | DeltaNet conv buffer |
+|---|---|---|---|
+| `R-state-only-rec` | none | after the experience turn | fresh |
+| `R-state-only-conv` | none | fresh | after the experience turn |
+| `R-state-only` (anchor; both, as before) | none | after the experience turn | after the experience turn |
+| `R-min-state-rec` | R-min (attribute + full stop) | after the experience turn | fresh |
+
+  The last row asks: does compact memory survive without the buffer?
+
+**Analytic first (teacher-forced), on the 7 primary items:**
+- conditions: nomem, ctx, R-full-state, R-min-state, R-min-kv6, and the four above
+- the balanced verify probes' first-token margins and accuracy (margin > 0) — **primary for recognition**
+- Δlog P(target) at the direct question's measure prefix
+
+**Generation (+ judges)** for the four conditions + the nomem and ctx anchors:
+- 7 primary items × (direct question + 2 use prompts) × (1 greedy + 4 samples), seed set 2 for nomem, ctx,
+  R-state-only and R-state-only-rec
+- the balanced yes/no probes (greedy)
+- the 50 unrelated prompts (gated)
+- one 2B gen job on gpu-a100-small
+
+**Rule (reported):**
+- **"Recognition lives in the recurrent state"** if R-state-only-rec's teacher-forced balanced yes/no accuracy
+  has a CI lower bound > 0.5, AND its point estimate is within 0.1 of R-state-only's.
+- If only R-state-only-conv carries it, recognition is reported as **a short verbatim-buffer effect, not
+  familiarity**.
+- The generated (greedy, parsed) yes/no accuracy is reported beside it.
+
 ## Statistics
 
 - **Stage 0:** one value per item per cell (one prompt per item). The statistic is the **macro mean over
