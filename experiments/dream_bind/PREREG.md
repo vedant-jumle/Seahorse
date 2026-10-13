@@ -411,6 +411,99 @@ gen_conds_state`; construction in `run.py: harvest_R_hybrid` and `bind.py: mix_c
 - **Also reported:** every condition's answer to the direct question (the "knows it knows" readout: greedy answer
   per item, plus clean use with paired contrasts), and B6 for the gated conditions.
 
+### Addendum 5: the plain-text control, and the two-fact collision (binding-ID) test (2026-10-13)
+
+*Written before any number of these runs existed. Results known so far:
+- Qwen2.5: R-min 0.86, R-orphan 0.80.
+- 2B: R-min-state ≈ R-full-state ≈ ctx.
+- 2B: R-state-only use 0 but yes/no 0.93 (recognition without recall).
+- 2B: R-orphan-state 0.99.
+
+Everything in this addendum is exploratory and reported. The rules below say how it will be read.*
+
+**(1) Text controls: does R-min carry more than its tokens as text?** `run.py --stage gen --gen-set text`
+(`config.yaml: gen_conds_text`). Same items, prompts, G-match gates, measures and judges as addenda 2–4.
+- **`T-min`:** the attribute and the full stop as plain text in a prior user turn, in the same place R-min's
+  entries come from: the conversation [user: "Pepper."][user: question]. The value is written without its leading
+  space, as a user would type it.
+- **`T-full`:** the experience sentence as text in a prior user turn ([user: experience][user: question]). By the
+  earlier checks this equals R-full (Qwen2.5) and R-full-state (2B); it is the anchor.
+- **Conditions:**
+  - Qwen2.5: nomem, ctx, T-min, T-full, R-min, R-full.
+  - 2B: nomem, ctx, T-min, T-full, R-min-state, R-full-state.
+  - On the 2B, the text also feeds the DeltaNet blocks (the text is ordinary context to every block), whereas
+    R-min-state's DeltaNet state comes from the whole sentence.
+- **Items:** the 7 primary items fully. The secondary items in nomem, ctx, T-min and R-min / R-min-state. Seed
+  set 2 for those four. The unrelated prompts are gated (no ungated baseline).
+- **Prediction:** T-min ≈ nomem on use and on the direct question, and well below R-min / R-min-state.
+  **If T-min ≈ R-min, the compression claim falls.**
+
+**(2) Two-fact collision: separately harvested segments restored together.** `run.py --stage collide`; output in
+the sibling model dir `<model>_collide`.
+- **Theory:** in context, entity–attribute pairs carry an order-based binding ID (Feng & Steinhardt; Dai).
+  Segments harvested in separate sessions all carry the "first pair" ID, so restoring two at once may make them
+  collide. Re-encoding them jointly ("dreaming") would give them distinct IDs.
+- **Pairs** (`config.yaml: collide`). All values are single tokens on both tokenizers (checked at run time).
+  - (a) **Different subjects** (existing items): dog/cat, sister/brother, best friend/boss.
+  - (b) **Confusable** (new; the same relation and near-identical subjects):
+
+| Pair | Member A | Member B |
+|---|---|---|
+| sisters | "My older sister's name is Petra." | "My younger sister's name is Maria." |
+| dogs | "My first dog was called Pepper." | "My second dog is called Rocky." |
+| friends | "My friend from work is called Omar." | "My friend from school is called Kevin." |
+| teachers | "My son's teacher is called Hugo." | "My daughter's teacher is called Daniel." |
+| grandmothers | "My grandmother on my mother's side is called Esther." | "My grandmother on my father's side is called Rosa." |
+
+- **Prompts per member:** a direct question, two use prompts, and balanced yes/no from two verify templates (Yes
+  with the member's own value; **No with the partner's value as the foil**), all in `config.yaml`. Plus a
+  teacher-forced readout at the measure prefix: log P(own) and logit(own) − logit(partner).
+- **Gates:** both forced open (oracle retrieval). This tests binding, not retrieval. Pair order is fixed (A then
+  B) in every condition.
+- **Conditions (Qwen2.5)** (head h, A's turn n_A tokens, B's n_B; attribute index a_A, a_B):
+
+| Condition | Cache entries | Question starts at |
+|---|---|---|
+| `nomem` | — | — |
+| `ctx2` | both sentences in the question's user turn ("A. B. question") | — |
+| `R2-joint` | [head][A's turn][B's turn] harvested in ONE session, every entry (the re-encoding) | h + n_A + n_B |
+| `R2-sep-overlap` | A and B each harvested in its own session [head][turn], both kept at their stored positions, so they share positions | h + max(n_A, n_B) |
+| `R2-sep-shift` | as overlap, but B's keys re-rotated by RoPE (+n_A) to follow A | h + n_A + n_B |
+| `R2-min-joint` | the attribute + full stop of each, from the joint harvest | h + n_A + n_B |
+| `R2-min-sep-overlap` | the attribute + full stop of each, from the separate harvests, at stored positions | h + max(n_A, n_B) |
+| `R2-min-sep-shift` | as min-sep-overlap, B shifted by +n_A | h + n_A + n_B |
+
+  - `T2` (both as separate prior user turns) equals R2-joint by construction. A check (fails the job) verifies
+    that R2-joint's logits equal T2's text run, and one generated set serves both.
+  - **Check (fails the job):** re-rotating stored keys by RoPE equals recomputing them at the new positions (unit
+    test on tiny models; on the real model the shift is applied with the model's own rotary embedding).
+- **Conditions (2B):** the 6 attention blocks have the same overlap/shift issue; the 18 DeltaNet blocks do not,
+  but two separately harvested DeltaNet states cannot be merged.
+  - **Chosen scheme:** every R2 condition on the 2B uses the JOINT DeltaNet state (after [A's turn][B's turn]),
+    so sep vs joint differ only in the attention entries. This isolates the binding question to the six
+    attention blocks.
+  - Conditions: nomem, ctx2, `R2-joint-state` (= T2), `R2-sep-overlap-jstate`, `R2-sep-shift-jstate`,
+    `R2-min-joint-jstate`, `R2-min-sep-overlap-jstate`, `R2-min-sep-shift-jstate`.
+  - Two attention-only probes with the head-only (fresh) DeltaNet state: `R2-joint-kv6`, `R2-sep-shift-kv6`.
+- **Answers:** seed set 1 only (1 greedy + 4 samples per prompt). Yes/no greedy with first-token margins.
+- **Measures, per member question:**
+  - **correct-target clean use:** the judges' majority (original + gpt-oss + Gemma-4), judged against the member's
+    own fact
+  - **partner confusion:** the partner's value is in the answer and the member's own value is not (regex); the
+    judges' `wrong_value` is reported beside it
+  - **balanced yes/no accuracy with the partner as the foil**
+  - the teacher-forced margin
+- **Statistics:** the bootstrap is over members, then prompts.
+
+**Decision rules (exploratory, reported):**
+- **"IDs collide":** partner confusion R2-sep − R2-joint has a CI > 0 on the confusable pairs. Decided
+  separately for the overlap and the shift scheme (2B: the `-jstate` versions).
+- **"Content suffices":** R2-sep ≈ ctx2 on the different-subject pairs. That is, the CI of R2-sep − ctx2 in
+  correct clean use includes 0 AND |point estimate| < 0.1. Again per scheme.
+- **"Re-encoding helps":** R2-joint − R2-sep in correct clean use has a CI > 0. Per scheme; on the confusable
+  pairs (the different-subject pairs reported beside them).
+- The min versions (R2-min-*) and the kv6 probes are reported with the same contrasts.
+
 ## Statistics
 
 - **Stage 0:** one value per item per cell (one prompt per item). The statistic is the **macro mean over
