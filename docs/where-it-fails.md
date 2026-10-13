@@ -1,6 +1,6 @@
 # Seahorse: where it fails, and why
 
-*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01. Updated 2026-10-07 with the Qwen3.5 results (think_v1, ref_v1): failures 13–16, plus updates to 1, 2, 4 and 7. Updated 2026-10-08 with cross-layer injection (xlayer_v1) and the pre-registered run on Qwen3.5-2B and 9B (core_v1): updates to 1, 2, 4, 10, 11, 12 and 13. Updated 2026-10-11: failure 11's judge check was done by a cross-family panel instead of by hand (note at the end of failure 11). Related papers: [literature.md](reference/literature.md).*
+*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01. Updated 2026-10-07 with the Qwen3.5 results (think_v1, ref_v1): failures 13–16, plus updates to 1, 2, 4 and 7. Updated 2026-10-08 with cross-layer injection (xlayer_v1) and the pre-registered run on Qwen3.5-2B and 9B (core_v1): updates to 1, 2, 4, 10, 11, 12 and 13. Updated 2026-10-11: failure 11's judge check was done by a cross-family panel instead of by hand (note at the end of failure 11). Updated 2026-10-13 with dreaming experiment 1 (dream_bind): failures 1, 2 and 15 have a working route through a stored attention slice, and there is a new failure 17 (separately stored facts collide). Related papers: [literature.md](reference/literature.md).*
 
 ---
 
@@ -8,8 +8,8 @@
 
 | # | Failure | Status | Root cause, in one line |
 |---|---|---|---|
-| 1 | It can't give the model a premise to reason with | **Open (a limit of this channel)** | Adding a vector nudges; reasoning needs something the model can *attend to* |
-| 2 | The exact fact rarely comes out; the gist does | **Open** | Recall is a blend, and the right answer starts out extremely unlikely |
+| 1 | It can't give the model a premise to reason with | **Open for the steer channel; works with a stored attention slice** | Adding a vector nudges; reasoning needs something the model can *attend to* |
+| 2 | The exact fact rarely comes out; the gist does | **Open for the steer channel; works with a stored attention slice** | Recall is a blend, and the right answer starts out extremely unlikely |
 | 3 | It stores the concept instead of the relation ("peanut" → peanut butter) | **Fixed only with a hand-made opposite** | The plain shift carries the topic as well as the point |
 | 4 | Preferences are either faint or crude | **Open** | Clean writing cancels too much; plain writing carries too much |
 | 5 | It fired everywhere | **Fixed** | Keys of unrelated situations looked alike, and nothing set a bar |
@@ -22,10 +22,11 @@
 | 12 | We don't know how far any of this generalises | **Partly open** | Two small models, a handful of scenarios |
 | 13 | Dislikes turn into likes | **Open (understood)** | Negation is faint inside the model; most references keep the concept and lose the direction |
 | 14 | Single-item preferences flood or do nothing | **Open** | A constant push at every word suits whole-answer leanings, not one word in one place |
-| 15 | The model claims the memory as its own | **Open** | Injected states read as the model's own thoughts; nothing stores *whose* a memory is |
+| 15 | The model claims the memory as its own | **Open for the steer channel; fixed by the user-turn slice** | Injected states read as the model's own thoughts; nothing stores *whose* a memory is |
 | 16 | Turning memory up during thinking floods the thinking | **Open** | A constant push on every thinking word is an overdose, not a thought |
+| 17 | Separately stored facts collide when used together | **Open (understood; joint re-encoding fixes it)** | Slices stored in separate sessions carry the same order tag, so the model can't tell them apart (inferred) |
 
-The failures cluster into four root causes, discussed at the end:
+The failures cluster into five root causes (E, binding, was added with dreaming experiment 1), discussed at the end:
 - the limits of **adding a vector**
 - **what gets written**
 - **where it gets filed**
@@ -59,6 +60,8 @@ Two untested escape routes remain, both from Lindsey 2026 ([literature.md](refer
 - **The 9B model** behaves like the 2B.
 
 In the pre-registered run, the balanced yes/no accuracy never rose on either model, at any dose. What the memory does do is tilt answers toward "Yes" or toward "No" across the board, which helps one kind of question exactly as much as it hurts the other. On the 2B, the fact memory at α=2 even made yes/no *worse*.
+
+**Update (2026-10-13, dream_bind): the predicted route works.** The natural answer above was a second channel that puts a stored moment back where attention can reach it. Experiment 1 built it. With the model's own keys and values (K,V) for the sentence put back in a later session, gated on a subject match, balanced yes/no accuracy goes from 0.46 (no memory) to 1.00 for the whole turn (Qwen2.5-1.5B), 0.86 for just the name and the full stop, and 1.00 for a slice stored after an unrelated chat. On the hybrid Qwen3.5-2B the same holds when the recurrent state is included (0.93 to 1.00); the attention blocks alone give 0.50 to 0.61. The state alone gives 0.93 yes/no but no recall: it can recognise a fact without being able to say it. So premises were never out of reach for the model; they needed something to attend to. Folders: `results/dream_bind_gen_20261012_0038/`, `dream_bind_state2b_20261012_1759/`. Details: [01-binding.md](dreaming/01-binding.md).
 
 ---
 
@@ -101,6 +104,8 @@ So more strength traded "never" for "flood", with a narrow window in between. Si
 - **The numbers:** the judge counts a "clean use" only when the fact is used correctly in a coherent answer. Clean use stays ≤ 15% at every dose (0.5–3) on both models, against 96–98% in context. At α ≥ 2, 85–94% of answers mention the fact without a clean use.
 
 The fact most likely lives where it was said, reachable by attention. That makes it the episodic channel's job, not something to fix in this one.
+
+**Update (2026-10-13, dream_bind): confirmed, and the channel works.** Stage 0 showed that in context the answer reads the value from the attribute's own position ("Pepper"), late: patching the state of the question's subject flips 0.00 of the preference on both models, patching the attribute flips 1.00. Putting back a stored slice of that position restores the exact fact. Clean use (Qwen2.5-1.5B, a judged correct, coherent use of the fact): no memory 0.00, experience in context 0.90, whole turn's K,V 0.87, **just the name and the full stop 0.86**, stored after an unrelated chat 0.80. On the 2B, two positions plus the recurrent state give 0.97. The same two tokens as plain text give only 0.27 (0.24 on the 2B), so a stored slice carries more than its tokens. A wrong slice gives a confident wrong value (41% of use answers). Unrelated prompts stay word-for-word unchanged (1.000) only with the gate; without it, 6% do. The state of the 2B is about 4.7M numbers (~19 MB) whatever the text length, so on a hybrid this is not compact for a single fact. Details: [01-binding.md](dreaming/01-binding.md), Results.
 
 ---
 
@@ -362,6 +367,8 @@ The same split shows up in steering research: whole-answer styles steer well, lo
 
 **What might fix it.** Store *whose* as a third part. One untested route: a direction for "the user has X" vs "I have X", found by contrasting the same fact said by each.
 
+**Update (2026-10-13, dream_bind): the user-turn segment fixes it for facts.** A stored slice that is put back as part of the user's turn is read as something the user said. The self-claim rate (answers that take the fact as the model's own) is 0.01 for the whole-turn slice on Qwen2.5, the same as with the experience in the prompt (0.01), and 0.00 to 0.01 for the 2B's slice-plus-state conditions; no memory is 0.00. The steer channel still has the problem ("Teal is my favourite colour!"), so for facts and ownership, "whose" comes from where the content is placed, not from a vector. The ungated leak case and a swapped slice are the way to break it (a swapped slice leaks the wrong value instead).
+
 ## 16. Turning memory up during thinking floods the thinking
 
 **What you see.** At 2–3× strength, applied only while the model thinks:
@@ -379,9 +386,35 @@ Repetition in the thinking is 95–98%. A weak dose during the answer recovers s
 
 ---
 
+## 17. Separately stored facts collide when used together
+
+**What you see.** Two sentences are each stored on their own, in separate sessions, as stored attention slices. Later both are put back for one question. *"My older sister's name is Petra."* and *"My younger sister's name is Maria."* Asked the older sister's name, the model gives **Maria** in about a third of the answers:
+
+| Qwen2.5-1.5B, two facts put back | Right name | Partner's name instead |
+|---|---|---|
+| both sentences in the prompt (ceiling) | 0.93 | 0.01 |
+| stored together, encoded in one pass | 0.89 | 0.05 |
+| **stored separately, positions overlapping** | **0.51** | **0.35** |
+| **stored separately, the second shifted after the first** | **0.54** | **0.37** |
+
+(Confusable pairs: same relation, near-identical subjects, 5 pairs.) It also happens for different subjects: a dog's and a cat's name, a sister and a brother: 0.26 to 0.28 confusion on Qwen2.5 and 0.19 to 0.22 on the 2B, with the right name 0.62 (Qwen2.5) against 0.91 to 0.97 in the prompt. Qwen3.5-2B shows the same (separate 0.57 to 0.59 right, 0.28 to 0.33 confusion; together 0.89 right, 0.05 confusion; the joint recurrent state is used in all cases so only the attention blocks differ).
+
+**Why (inferred, not yet measured).** In context, the model ties each name to its owner with an order-based tag: roughly "the first pair", "the second pair" (Feng and Steinhardt; Dai). A slice stored on its own always carries the "first pair" tag. Two slices put back both claim to be the first pair, and the question can't tell them apart. Evidence: it isn't position (keeping stored positions or shifting the second slice after the first gives the same swaps: 0.35 vs 0.37), and it goes away when both are encoded together, where the model assigns the tags itself.
+
+**Two-position slices.** The version with just the name and the full stop is still confused on Qwen2.5 even when encoded together (confusion 0.20, right name 0.61), so the tag may be partly carried by other positions there. On the 2B, two positions encoded together with the joint state work (0.73 right, 0.06 confusion).
+
+**What might fix it.**
+- **Joint re-encoding** (works): re-read the text of the memories that will be used together, in one pass, and store the result. It is the first concrete job for the offline "dreaming" phase. It costs a forward pass over text we already have.
+- **Binding-ID repair** (being tested, PREREG addendum 6): measure the "which pair" direction and add it to one separately stored slice. If it works, consolidation needs no re-reading.
+- Retrieve only the slice that matches the question (G-key), so that two are rarely put back at once. This avoids the collision rather than fixing it.
+
+Folders: `results/dream_bind_add5_20261013_1255/{qwen25_15b_collide,qwen35_2b_collide}/`. Details: [01-binding.md](dreaming/01-binding.md).
+
+---
+
 ## The patterns underneath
 
-The sixteen failures come from four root causes.
+The seventeen failures come from five root causes (E was added with dreaming experiment 1).
 
 **A. Adding a vector is a nudge, not a statement** (failures 1, 2, 4, 10, 14, 16). The memory acts by adding to the model's state at every word. That's enough to change what comes to mind and which way a broad preference leans. It isn't enough to:
 - supply a premise
@@ -401,6 +434,8 @@ Producing the right parts still needs counterfactuals we write by hand. Getting 
 **C. Where it gets filed** (failures 5, 6, 7, 8). Keys decide when a memory fires and how much memories interfere. Most of our progress came from fixing keys (5, 6). Most of what remains (7, 8) is still about keys: memories filed under the wrong situations, or crowding each other.
 
 **D. How we measured** (failure 11, and the uncertainty in 12). Twice we nearly drew the wrong conclusion from a flawed measurement. Balanced, sampled, controlled tests are now non-negotiable.
+
+**E. Binding** (failures 1, 2, 15, 17). The model ties an attribute to its owner through positions and order tags. A push has no position, so it can't bind (1, 2, 15); a stored slice has one, so it can, but slices stored apart share the same tag and collide (17). Experiment 1 showed both halves.
 
 ## Which failures matter most for the project
 

@@ -1,6 +1,6 @@
 # Seahorse: handover
 
-*The live handover: the current state, where everything is, what's pending, and how to pick up. Updated 2026-10-11. For the story and the reasoning, read [README.md](README.md), then the plain-language docs it lists.*
+*The live handover: the current state, where everything is, what's pending, and how to pick up. Updated 2026-10-13. For the story and the reasoning, read [README.md](README.md), then the plain-language docs it lists.*
 
 ---
 
@@ -21,24 +21,32 @@ The latest results come from **core_v1**, a pre-registered run on both Qwen3.5 s
 - **Direction via the opposite.** Subtracting the hand-made opposite is what keeps a dislike a dislike. This is shown on 8 dislikes, on both models.
 
 **What it doesn't:**
-- **Exact facts.** A fact memory stores *a word to say*, not a statement. It exists only in the last ~15% of layers. Injected there, it loops ("Petra Petra Petra"); injected earlier, it fades or garbles ("My name is Omar"). Clean use is ≤ 15%, against 96–98% in context.
-- **Premises.** Balanced yes/no never improves on any model, layer or dose.
+- **Exact facts.** A fact memory stores *a word to say*, not a statement. It exists only in the last ~15% of layers. Injected there, it loops ("Petra Petra Petra"); injected earlier, it fades or garbles ("My name is Omar"). Clean use is ≤ 15%, against 96–98% in context. *(Update 2026-10-13: the steer channel still can't; a stored attention slice can, 0.86 to 0.97. See dream_bind below.)*
+- **Premises.** Balanced yes/no never improves on any model, layer or dose. *(Through the steer channel. With a stored slice put back, balanced yes/no reaches 0.86 to 1.00.)*
 - **Dislikes without the opposite.** Every other reference flips them into likes.
 - **Single-item preferences** (a country, a genre) either flood or do nothing.
 - **Ownership.** The model claims memories as its own ("Teal is my favourite colour!").
 - **Self-driven writing.** It still needs hand-made with/without/opposite comparisons.
 
-**Where the project is now (2026-10-11):**
+**Where the project is now (2026-10-13):**
+- **Experiment 1 of the dreaming plan has been run (2026-10-11 to 13), and facts finally have a working channel.** It is not the one planned:
+  - **The subject write is dead.** The answer reads the value from the attribute's own position ("Pepper"), late; the question's subject carries nothing (patching 0.00 on both models). Writing a state at the subject gave clean use 0.00.
+  - **What works is a stored slice of the model's own attention memory (K,V), put back in the next session and gated by a subject match.** Qwen2.5-1.5B: the whole turn 0.87, just the name and the full stop 0.86, stored after an unrelated chat 0.80, with the sentence in context 0.90. The same two tokens as plain text: 0.27.
+  - **On the hybrid Qwen3.5-2B the attention slice needs the recurrent (DeltaNet) state too:** 2 positions plus the state 0.97, attention only 0.50 to 0.67, state only 0.00 use but 0.93 yes/no (recognition without recall). That state is about 4.7M numbers (~19 MB in fp32) whatever the text length, so it is not compact for one fact.
+  - **Separately stored slices collide when used together** (wrong partner's name 19% to 37% of the time, even for different subjects). Encoding them together fixes it. This is the first concrete job for the offline phase.
+  - Honest framing: the object is a standard KV cache used outside its normal rules. Prompt Cache, CacheBlend, EPIC and InfLLM do parts of it; our contribution is the explanation. Full numbers: `docs/dreaming/01-binding.md`, Results.
+  - Running now (addendum 6): binding-ID repair, and G-key retrieval with capacity (N = 10/20/60). A literature check is being written (`docs/dreaming/literature-exp1.md`).
 - **The paper is on arXiv**: *"What Survives When Activation Steering Is Used as Memory"* (`writeup/main.tex`, `main.pdf`). It commits the project to one reading: **the steer channel is a push, not a store.** A stored shift is a fixed average of an effect attention recomputes per question, so only question-independent content survives.
 - **The judge was validated by a cross-family panel** (gpt-oss, Gemma-4, Llama-3.1, Qwen3.6) instead of the human audit: C3 and C5 are robust; C2 is judge-sensitive; Llama-3.1 fails a sanity check and is excluded (§4).
-- **The episodic channel does not exist in code.** It was always a design (`docs/history/next-moves-v0.1.md` §A2). Nothing from the "other session" is in this repo.
-- **The next phase is "dreaming"**: an offline phase that gives the model's own binding circuits the material they need. Three experiments, specified in `docs/dreaming/` (§4b).
+- **The episodic channel now exists as experiment code** (`experiments/dream_bind/`: harvest, gated K,V reinstatement, the DeltaNet-state variants, the collision test). It was a design before (`docs/history/next-moves-v0.1.md` §A2). Nothing from the "other session" is in this repo.
+- **The phase is "dreaming"**: an offline phase that does what cannot be done in one forward pass at write time. Three experiments, specified in `docs/dreaming/` (§4b). Experiment 1 is done (above) and changed what dreaming means: for single facts it is keeping the right slice; the real offline jobs are binding related memories, abstracting leanings into the steer channel, and choosing what to keep.
+- **Two stories under one idea:** (1) understanding (paper 2: what binds a memory: steering vectors, cache slices, or hybrid state); (2) a memory system whose offline phase does what retrieval over text does not (binding, abstraction, selection).
 
 ## 2. Read first
 1. [README.md](README.md): the overview and reading order
 2. [docs/where-we-are.md](docs/where-we-are.md): the whole story, including Qwen3.5 and what a shift stores (stages 7–8)
 3. [docs/how-it-works.md](docs/how-it-works.md): the design end to end (written for Qwen2.5; the port changes only model, layers and thresholds)
-4. [docs/where-it-fails.md](docs/where-it-fails.md): every failure (now 16), its cause and possible fixes
+4. [docs/where-it-fails.md](docs/where-it-fails.md): every failure (now 17), its cause and possible fixes
 5. [docs/reference/metrics.md](docs/reference/metrics.md): **what every number in the reports means**, with traps. Read it before trusting any table.
 6. [docs/reference/literature.md](docs/reference/literature.md): the steering-reliability and introspection papers, and how they line up with our results
 7. [experiments/core_v1/PREREG.md](experiments/core_v1/PREREG.md) and [README.md](experiments/core_v1/README.md): the pre-registered claims behind the write-up, and how to reproduce them
@@ -107,15 +115,17 @@ Code:
 - **Llama-3.1-8B is excluded** by an objective check: it labels 92% of fact answers as "uses the fact", with the target string absent in 48% of those (others ≈ 1%).
 - Coherence agreement is high (Fleiss κ 0.90 on facts); direction agreement moderate (κ 0.45–0.69). No human labels were collected; the paper says so.
 
-## 4b. Next: the dreaming experiments (specified, not yet built)
+## 4b. The dreaming experiments (1 done, 2 and 3 specified)
 
-The paper settled that facts, premises and ownership fail because a push at the answer position has nothing the model's **binding** circuits can use. The binding literature (`docs/reference/literature.md`, group E) says binding is positional: in context, a shared order tag at entity and attribute positions resolved by position-finding attention heads (Feng & Steinhardt; Dai; Prakash); from weights, the attribute loaded onto the subject's own position and extracted by attention (Geva). So the fix is not a better vector: it is to put stored content at a *position* the model's circuits treat as context. That work happens offline, hence "dreaming".
+The paper settled that facts, premises and ownership fail because a push at the answer position has nothing the model's **binding** circuits can use. The binding literature (`docs/reference/literature.md`, group E) says binding is positional: in context, a shared order tag at entity and attribute positions resolved by position-finding attention heads (Feng & Steinhardt; Dai; Prakash); from weights, the attribute loaded onto the subject's own position and extracted by attention (Geva). So the fix is not a better vector: it is to put stored content at a *position* the model's circuits treat as context. That work happens offline, hence "dreaming". **Experiment 1 confirmed the first half (position, not vector) and replaced the second (the content is the attribute's own K,V slice, not a state at the subject).**
 
 | # | Doc | Question | Status |
 |---|---|---|---|
-| 1 | `docs/dreaming/01-binding.md` | **Stage 0 first:** attention knockout in `ctx` to learn whether an in-context fact sits at the subject or only at its own position (if the latter, the subject write is dead on arrival). Then: write the model's own subject-enriched state at the subject token; compare with *gated* segment reinstatement (an upper bound by P1). 7 clean-subject facts primary, 5 user-subject secondary. | specified; **run stage 0 first** |
+| 1 | `docs/dreaming/01-binding.md` | Can a fact be used if stored at a position instead of pushed? Stage 0 (where is the fact in context?), the subject write, gated reinstatement, the hybrid's recurrent state, a text control, and the two-fact collision. | **done 2026-10-13** (details in §5). Follow-ups running: binding-ID repair, G-key retrieval + capacity |
 | 2 | `docs/dreaming/02-scaffold.md` | Let a model (the 9B dreams for the 2B; the 9B end-to-end for the literal claim) generate opposite / alternatives / a general valence direction. Does C5 replicate without human references, beyond two null references? Does concept × sign fix the dislike flip? | specified; independent of 1 |
-| 3 | `docs/dreaming/03-consolidation.md` | With many memories: abstraction of leanings from episodes, reconsolidation, surprise-gated pruning vs write-everything (ground truth = *content-dependent* later need, not a random split), re-filing | design; depends on 1 and the capacity curve |
+| 3 | `docs/dreaming/03-consolidation.md` | With many memories: abstraction of leanings from episodes (into the steer channel), reconsolidation, surprise-gated selection vs write-everything (ground truth = *content-dependent* later need, not a random split), re-filing. Now also: binding related memories (the collision result). | design; depends on 1 (done) and the capacity curve (running) |
+
+**Note (2026-10-13):** the text below ("To be fully equipped...", "Facts a builder needs...") was written for building experiment 1 and is kept for experiments 2 and 3, which reuse the same pipeline. The statements about the subject write and "run stage 0 first" are historical.
 
 **To be fully equipped to build and run them, a new session should read, in this order:**
 1. `HANDOVER.md` (this file), all of it.
@@ -138,6 +148,17 @@ The paper settled that facts, premises and ownership fail because a push at the 
 - The specs were reviewed twice (2026-10-11) and revised: stage 0 knockout with thresholds (knockout on Qwen2.5 only, since Gated DeltaNet blocks can't be masked per token; patching on both), the H2 causal-mask bug, gated reinstatement, item tiers, S1 nulls, §2c ground truth (one author for both label classes; a cross-family dreamer; LongMemEval/LoCoMo as external labels). Read the revised versions, not any earlier copy.
 
 ## 5. Recently finished and reviewed
+
+### dream_bind (dreaming experiment 1): where does a fact live, and what can be stored? Positive, but not the planned way. (2026-10-11 to 13)
+- **Code and pre-registration:** `experiments/dream_bind/` (`PREREG.md` addenda 1 to 5; `run.py` stages knockout / patch / harvest / analytic / gen / collide). Qwen2.5-1.5B locally on the RTX 4060 (fp32); Qwen3.5-2B on DelftBlue (fp32). Clean use = majority of three judges (original 9B, gpt-oss, Gemma-4).
+- **Stage 0 (pre-registered): the answer reads the value from the attribute's own position, late.** Patching the question's subject flips 0.00 at every layer on both models; patching the attribute flips 1.00 until layer ~18 (Qwen2.5) or layer 14 to 18 (2B), then drops to ~0 (2B: 0.06 at layer 19). Qwen2.5 knockout: blocking the attribute costs 0.59 [0.41, 0.81] in the last window only; blocking the subject costs 0. Subject-alone net gain 0.00. Verdict: pointer-suspected, both models.
+- **The subject write is dead.** Analytic pre-pass: Qwen2.5 a nominal gain (1.56 [0.69, 2.56] nats at the best cell) matched by random (0.88) and swapped (0.75) controls; 2B none (0.29 [-0.05, 0.66]). In generation on Qwen2.5 the write gave clean use 0.00 and yes/no 0.50 (B1, B2 fail; B3, B4 hold).
+- **Reinstatement works (Qwen2.5, gated on a subject-name match):** R-full 0.87 clean use and 1.00 yes/no; R-min (the name's position and the full stop, K,V at every layer) 0.86 and 0.86; R-orphan (stored after an unrelated exchange) 0.80 and 1.00; ctx 0.90. Unrelated prompts unchanged 1.000 gated vs 0.064 ungated. A swapped slice writes the wrong value (41% of use answers). Self-claim about 0.01. Pre-registered verdict: **"orphaned; reinstatement wins"**.
+- **Text control:** the same two tokens as plain text (T-min) give 0.27 (Qwen2.5) and 0.24 (2B) against 0.87 and 0.97 for the stored slice, and 0.00 on the direct question on Qwen2.5. A slice carries more than its tokens. The full sentence as text equals R-full exactly (so this is prompt caching used across sessions).
+- **Hybrid Qwen3.5-2B:** the attention slice only (6 of 24 blocks) 0.50 full / 0.67 min, refusing direct questions (0.23). Adding the DeltaNet state: R-min-state 0.97, within noise of the full turn. State only: use 0.00 and direct question 0.00, but yes/no 0.93: recognition without recall. R-orphan-state 0.99. The state is ~4.7M numbers (~19 MB fp32), fixed size: not compact for one fact.
+- **Collisions (both models, gates forced open):** two separately stored slices put back together give the wrong partner's name in 0.19 to 0.37 of answers (confusable pairs 0.28 to 0.37; different subjects 0.19 to 0.28), whether the stored positions overlap or the second is shifted after the first. Encoding both in one pass gives ctx2-level results (Qwen2.5 correct 0.89 vs ctx2 0.93, confusion 0.05 vs 0.01). The two-position version is still confused on Qwen2.5 even when jointly encoded (confusion 0.20); on the 2B, min-joint with a joint state works (0.73 correct, 0.06 confusion). Reading (inferred, not measured): binding-ID collision.
+- **Not run:** the 9B, subj on the 2B (skipped by rule), and anything with a retrieval key other than the subject-name match.
+- **Reports:** see §6 for folders; each has `analysis/report.md`.
 
 ### xlayer_v1: read the fact late, inject it earlier ("mouth" vs "mind")? Negative.
 - **Setup:** 12 facts on Qwen3.5-2B.
@@ -201,6 +222,12 @@ The paper settled that facts, premises and ownership fail because a push at the 
 | `ref_v1_20261005_2347` | five references for preference shifts (`main/report.txt`, `main/vocab.txt` for the logit lens) |
 | `xlayer_v1_20261007_1311` | cross-layer injection for facts (`stageA/report.txt` grid, `stageB/report.txt` generation) |
 | `core_v1_20261007_1820` | **the pre-registered run on 2B + 9B**: `qwen35_2b/` and `qwen35_9b/` (prep, gen, score, analysis/report.md); `analysis/` (C7.md, claims_all.json, the audit sample); `panel/` (the cross-family judge re-labelling and its report) |
+| `dream_bind_stage0_20261011_2321` | experiment 1, stage 0 and the analytic pre-pass: `qwen25_15b/` and `qwen35_2b/` each with `report.md` (patching, knockout, subject alone), `analytic/report.md` (subject-write pre-pass), `prefix/report.md` (exploratory: the subject mention in the answer prefix) |
+| `dream_bind_gen_20261012_0038` | Qwen2.5 generation: subj arms, controls, R-full / R-min / R-orphan / R-swap (`qwen25_15b/analysis/report.md`) |
+| `dream_bind_gen2b_20261012_1456` | Qwen3.5-2B hybrid: R-full-state, R-full-kv6, R-min-kv6, R-orphan-kv6 (`qwen35_2b/analysis/report.md`) |
+| `dream_bind_state2b_20261012_1759` | 2B DeltaNet follow-up: R-min-state, R-state-only, R-orphan-state (`qwen35_2b/analysis/report.md`) |
+| `dream_bind_add5_20261013_1255` | text controls (`qwen25_15b/`, `qwen35_2b/`) and the two-fact collision (`qwen25_15b_collide/`, `qwen35_2b_collide/`), each with `analysis/report.md`; `panel/` has the judge labels |
+| `dream_bind_gen_smoke_local` | local smoke output (ignore) |
 
 ## 7. Key findings to remember
 - **Selectivity, not strength, was the original problem.** The fix was the **key**: the whitened gist plus a threshold.
@@ -219,6 +246,11 @@ The paper settled that facts, premises and ownership fail because a push at the 
 - **Overdose signature:** loops, fragments, garbled text, identity confusion. **The useful dose window is narrow: about α=1 per layer on three layers** (core_v1). At α=2, word counts keep rising while the text turns incoherent.
 - **Injected states feel like the model's own,** hence the self-attribution (Lindsey's prefill result).
 - **A fact memory is a word, not a statement.** It's an intention to say the name, present only in the last ~15% of layers. Injecting it earlier fades or garbles it (xlayer_v1; core_v1 C6 on both sizes). Facts probably live where they were said, reached by attention, which is the episodic channel's job.
+- **A fact lives at its own position, not at the subject** (dream_bind stage 0). The answer pulls the value from "Pepper" late in the network; "my dog" is a label. So writing a state at the subject cannot work (clean use 0.00), and the content channel is the attribute's own K,V slice, gated by a subject match.
+- **Two stored positions carry the fact; the same tokens as text do not.** Name + full stop as K,V: 0.86 clean use; as plain text: 0.27. Reinstating the whole turn equals prompt caching exactly. Our contribution is the explanation, not the mechanism (Prompt Cache, CacheBlend, EPIC, InfLLM do parts of it).
+- **On a hybrid, the recurrent state is recognition and the attention entries are recall.** State only: yes/no 0.93, use 0.00. But the state is ~19 MB and fixed in size, so it pays off only for long episodes.
+- **Separately stored facts collide when used together** (the wrong person's name 19% to 37% of the time). It is not about position; joint re-encoding fixes it. This is the first real job for the offline phase (failure 17).
+- **"Dreaming" for single facts reduces to keeping the right slice.** The offline work worth doing is binding related memories, abstracting leanings into the steer channel, and selecting what to keep.
 - **Scale didn't change the picture.** 2B and 9B agree on every claim except a technicality in C4.
 - **Measurement:**
   - word counts are inflated by loops; word lists count mentions and puns
@@ -229,14 +261,18 @@ The paper settled that facts, premises and ownership fail because a push at the 
   See `docs/reference/metrics.md`.
 
 ## 8. Next steps and ideas (in rough priority)
-1. **Experiment 1, dreaming as binding** (`docs/dreaming/01-binding.md`): the subject-position write with the model's own harvested state, plus segment reinstatement on Qwen2.5-1.5B. The first experiment that could make a fact *used*.
-2. **Experiment 2, scaffold removal and concept × sign** (`docs/dreaming/02-scaffold.md`): model-generated opposite / alternatives, a general valence direction, and the signed-concept write. Independent of 1; can run in parallel.
-3. **Experiment 3, consolidation** (`docs/dreaming/03-consolidation.md`): start with 2c, the surprise-predicts-need test, which decides whether the modulator idea survives. Then abstraction, re-filing, reconsolidation. Needs 1 and the capacity curve.
-4. **The workshop version of the paper** (ICLR 2027 workshops, list out 29 Nov; NAACL SRW as the alternative): a 4-page cut from `writeup/main.tex`. Fix the empty Appendix D header and the float placement first.
-5. **Paper debts a follow-up inherits:** a second model family (non-hybrid), human labels on a subset, isolated memories only.
-6. Still open from before, now subsumed by the above: a thermostat instead of a push (dose), phasic injection during thinking, finer dose sweeps, the capacity curve, a trained read adapter as the fallback.
+1. **Binding-ID repair** (running, addendum 6): measure the "which pair" direction in the states, and test whether adding it to one separately stored slice removes the swaps. If it does, **cheap consolidation** (no re-reading of text) is possible; if not, joint re-encoding is the answer.
+2. **G-key retrieval and capacity** (running, addendum 6): find the slice by the whole-conversation key instead of a subject-name match, with N = 10, 20, 60 facts. This also gives the capacity curve that was owed.
+3. **Selection by surprise** (experiment 3, part 2c): does how surprising a fact was predict whether it is needed later? With a slice per fact cheap but not free (and the 2B's state ~19 MB), this decides what the offline phase keeps.
+4. **Abstraction into the steer channel** (experiment 3): turn many episodes into a leaning and store it with the push, the one thing that channel does well.
+5. **The literature check** (`docs/dreaming/literature-exp1.md`, being written): read it before claiming novelty; the mechanism overlaps Prompt Cache, CacheBlend, EPIC and InfLLM.
+6. **Paper 1, v2:** add stage 0 (the fact lives at its own position) to the arXiv paper, since it directly supports the "push, not store" reading. **Workshop version** (ICLR 2027 workshops, list out 29 Nov; about 1 Feb deadline): a 4-page cut from `writeup/main.tex`; fix the empty Appendix D header and the float placement first.
+7. **Paper 2 (understanding): what binds a memory?** Steering vectors versus cache slices versus hybrid state, built on experiment 1 (position vs vector; slice vs tokens; state = recognition; collisions).
+8. **Experiment 2, scaffold removal and concept × sign** (`docs/dreaming/02-scaffold.md`): model-generated opposite / alternatives, a general valence direction, and the signed-concept write. Independent; can run in parallel.
+9. **Paper debts a follow-up inherits:** a second model family (non-hybrid), human labels on a subset, isolated memories only. The 9B has not been tried on the reinstatement arm.
+10. Still open from before: a thermostat instead of a push (dose), phasic injection during thinking, finer dose sweeps, a trained read adapter as the fallback (the user is open to it: frozen backbone plus a trained read adapter).
 
-**Do not** spend more time improving the steer vector itself. The paper says that channel carries a push, not content; it keeps that job (the abstracted leaning of experiment 3) and nothing else.
+**Do not** spend more time improving the steer vector itself. The paper says that channel carries a push, not content; it keeps that job (the abstracted leaning of experiment 3) and nothing else. **Do not** revisit the subject-position write: stage 0 and the generation run closed it.
 
 ## 9. Open decisions for the user
 - `experiments/v0/run.py` used to point to the parent-folder `Idea.md`; it now points to `docs/reference/original-method.md`. OK?

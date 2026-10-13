@@ -22,10 +22,29 @@ We cannot perform binding ourselves: any vector we compose offline is still one 
 
 1 and 2 are independent and can run as two jobs. 3 is where the steer channel and the modulator get their defined jobs back.
 
+**Status (2026-10-13).**
+- **Experiment 1: run, with a clear answer.** The subject-position write fails (clean use 0.00 on Qwen2.5, no gain on the 2B). The fact is read from the attribute's own position, late. What works is reinstating a stored slice of the model's own attention memory: 2 positions give 0.86 clean use on Qwen2.5 (the sentence in context: 0.90); on the hybrid Qwen3.5-2B, 2 positions plus the recurrent state give 0.97. Two facts stored separately collide (the wrong name 19% to 37% of the time); encoding them together fixes it. Details: [01-binding.md, Results](01-binding.md). Binding-ID repair and G-key retrieval with capacity are running.
+- **Experiment 2: specified, not run.** Independent of the above.
+- **Experiment 3: design only.** It now has more to build on (see below).
+
+## What changed (2026-10-13)
+
+The original picture was that dreaming gives the model's binding circuits the material they bind with, for example by writing an enriched state at the subject. For a single fact that turned out to be unnecessary. The model's own attention memory of the sentence already is that material, and the useful part of it is tiny: the name's position and the full stop after it. So for facts, **dreaming reduces to keeping the right slice** (and, on hybrids, the recurrent state). There is little to compose.
+
+The offline jobs that remain are the ones that cannot be done by keeping a slice:
+1. **Binding related memories.** Slices stored in separate sessions carry the same "first pair" tag and swap partners when used together (experiment 1, collisions). Re-encoding the memories that are used together gives each its own tag. Whether a cheap repair (adding a "which pair" direction to one slice) can replace re-reading is being tested.
+2. **Abstraction.** Turning many episodes into a leaning and storing that in the steer channel, which is the one job that channel does well (experiment 3).
+3. **Selection.** Choosing what to keep. A slice for each fact is cheap but not free (and a hybrid's recurrent state is about 19 MB regardless of length), so deciding what is worth storing, for example by how surprising it was, is real work that plain retrieval over text does not do.
+
+This also gives the project two stories under one idea: an **understanding** story (what binds a memory: steering vectors versus cache slices versus hybrids) and a **system** story (a memory whose offline phase does what retrieval over text cannot: binding, abstraction, selection).
+
+**Honest framing.** The stored object is a standard KV cache, used outside its normal rules. Prior systems work (Prompt Cache, CacheBlend, EPIC, InfLLM) does parts of this. What the experiment adds is the explanation of which part carries the value and why combining fails.
+
 ## What each outcome would mean
 
 - **1 works:** the first fact ever *used* by this project. Facts have a channel; the two-channel design is confirmed with a mechanism; "whose" comes for free from the turn structure.
 - **1 fails:** the orphan problem is real (a harvested state is still bound to the context it was computed in), and the content channel needs full reinstatement or a trained read path, both already designed in [next-moves §A2](../history/next-moves-v0.1.md).
+- **What happened (2026-10-13):** the second one, for the subject write, and the first one, for reinstatement. Facts now have a channel (a gated slice of the model's own attention memory), with "whose" coming from the user-turn segment. See "Status" and "What changed" above.
 - **2 works:** the paper's biggest stated limitation (hand-written references) is removed, and concept × sign turns C5 from a failure mode into a fix.
 - **3 works:** the modulator has something to modulate and a baseline it beats. That's the project's intended contribution.
 
