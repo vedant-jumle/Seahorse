@@ -76,7 +76,7 @@ def log(msg):
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--stage", nargs="+", required=True, choices=["patch", "knockout", "prefix", "analytic", "gen", "judge", "analyze", "report"])
+    p.add_argument("--stage", nargs="+", required=True, choices=["patch", "knockout", "prefix", "analytic", "gen", "collide", "judge", "analyze", "report"])
     p.add_argument("--model", required=True, choices=["qwen35_2b", "qwen25_15b"])
     p.add_argument("--out", required=True, help="the model's run dir, e.g. <run>/qwen25_15b")
     p.add_argument("--config", default=str(HERE / "config.yaml"))
@@ -1555,6 +1555,14 @@ def run_prompt(C, cfg, it, M, conds, text, *, S, cap, streams, first_ids=None):
             outs = gen_batch(C, chat_ids(tok, f"{it['experience']} {text}"), rows_of(specs), max_new=cap, streams=streams,
                              first_ids=first_ids)
             res[c] += [(s, j, o) for (_, s, j), o in zip(specs, outs)]
+        elif c.startswith("T-"):
+            if gate:
+                prior = it["experience"] if c == "T-full" else f"{it['target'].strip()}."
+                _, tids = render_ids(tok, [{"role": "user", "content": prior}, {"role": "user", "content": text}])
+                outs = gen_batch(C, torch.tensor(tids), rows_of(specs), max_new=cap, streams=streams, first_ids=first_ids)
+                res[c] += [(s, j, o) for (_, s, j), o in zip(specs, outs)]
+            else:
+                res[c] += [(s, j, None) for _, s, j in specs]
         elif c.startswith("R-") and c in M.R:
             if gate:
                 outs = gen_batch(C, qt_ids(C, text), rows_of(specs), prefix=M.R[c], max_new=cap, streams=streams,
@@ -1705,7 +1713,7 @@ def stage_gen(C, items, out, all_items):
                                  "gate": gate, "shortcut": o is None, "same": o is None or o["ids"] == nm[j]["ids"],
                                  "ids": None if o is None else o["ids"],
                                  "answer": None if o is None else C.tok.decode(o["ids"], skip_special_tokens=True).strip()})
-            if it["tier"] == "primary":
+            if it["tier"] == "primary" and C.gc.leak:
                 lk = gen_batch(C, qt_ids(C, text), rws, prefix=Ms[it["id"]].R[C.gc.leak], max_new=cap, streams=streams)
                 for j, o in enumerate(lk):
                     rows.append({"sec": "unrel", "uk": uk, "prompt": text, "item": it["id"], "cond": f"{C.gc.leak}:ungated",
@@ -1783,6 +1791,343 @@ def gen_plan(cfg, items, n_unrel=50, mc=None, gen_set=None):
     return {"main_answers_max": main, "yn_answers": yn, "unrel_answers_min": unrel, "total_long_max": main + unrel}
 
 
+# =============================================================== two-fact collision (PREREG addendum 5 (2))
+
+
+def collide_dir(out):
+    """The collision run's model dir, a sibling of the model's run dir (<run>/<model>_collide), so that the judge
+    and the panel read it like any model dir."""
+    return out.parent / f"{out.name}_collide"
+
+
+def rope_shift(C, K, delta):
+    """Stored keys K [B, kv_heads, S, head_dim] (already rotated at their positions) moved by `delta` positions:
+    RoPE rotations compose additively, so applying the model's own rotary embedding at position `delta` gives the
+    keys at position + delta (partial rotary and Qwen3.5's text mrope included)."""
+    import sys as _sys
+    S = K.shape[2]
+    pos = torch.full((1, S), int(delta), device=K.device, dtype=torch.long)
+    if is_hybrid(C):
+        pos = pos[None].expand(3, 1, S)
+    cos, sin = C.body.rotary_emb(K, pos)
+    layer = next(b for b in C.blocks if hasattr(b, "self_attn"))
+    mod = _sys.modules[type(layer.self_attn).__module__]
+    return mod.apply_rotary_pos_emb(K, K, cos, sin)[1]
+
+
+def _attn_kv(src, l):
+    if isinstance(src, list):
+        return src[l]
+    L = src.layers[l]
+    return L.keys, L.values
+
+
+def compose_prefix(C, parts, srcs, lin=None):
+    """A reinstatement prefix from several harvests: per attention layer, the concatenation of each part's entries
+    (source cache, indices, RoPE shift). Non-hybrid: a list of (K, V) per layer. Hybrid: a cache object whose
+    attention layers hold the composition and whose DeltaNet layers hold `lin`'s state."""
+    import copy
+    if not is_hybrid(C):
+        kv = {k: bind.kv_list(v) if not isinstance(v, list) else v for k, v in srcs.items()}
+        out = []
+        for l in range(len(kv[parts[0][0]])):
+            Ks, Vs = [], []
+            for name, idx, shift in parts:
+                K, V = kv[name][l]
+                ii = torch.as_tensor(idx, device=K.device, dtype=torch.long)
+                K, V = K[:, :, ii], V[:, :, ii]
+                Ks.append(rope_shift(C, K, shift) if shift else K)
+                Vs.append(V)
+            out.append((torch.cat(Ks, 2).contiguous(), torch.cat(Vs, 2).contiguous()))
+        return out
+    c = copy.deepcopy(srcs["J"])
+    for l, L in enumerate(c.layers):
+        if bind.is_linear_layer(L):
+            c.layers[l] = copy.deepcopy(lin.layers[l])
+        else:
+            Ks, Vs = [], []
+            for name, idx, shift in parts:
+                K, V = _attn_kv(srcs[name], l)
+                ii = torch.as_tensor(idx, device=K.device, dtype=torch.long)
+                K, V = K[:, :, ii], V[:, :, ii]
+                Ks.append(rope_shift(C, K, shift) if shift else K)
+                Vs.append(V)
+            L.keys, L.values = torch.cat(Ks, 2).contiguous(), torch.cat(Vs, 2).contiguous()
+    return c
+
+
+def collide_pairs(cfg):
+    """[(pair id, kind, member A, member B)]; a member = {id, experience, value, question, prefix, use, verify,
+    pair, kind, role, partner, partner_value}."""
+    import copy
+    facts = {f["id"]: f for f in yaml.safe_load(open(REPO / cfg["bench"] / "facts.yaml"))["facts"]}
+    items = {it["id"]: it for it in load_items(cfg)}
+    out = []
+    for p in cfg["collide"]["pairs"]:
+        if p["kind"] == "different":
+            mem = [{"id": items[p[k]]["id"], "experience": items[p[k]]["experience"], "value": items[p[k]]["target"],
+                    "question": items[p[k]]["question"], "prefix": items[p[k]]["prefix"], "use": list(items[p[k]]["use"]),
+                    "verify": list(facts[p[k]]["verify"])} for k in ("a", "b")]
+        else:
+            mem = [copy.deepcopy(p["a"]), copy.deepcopy(p["b"])]
+        A, B = mem
+        A.update(pair=p["id"], kind=p["kind"], role="A", partner=B["id"], partner_value=B["value"])
+        B.update(pair=p["id"], kind=p["kind"], role="B", partner=A["id"], partner_value=A["value"])
+        out.append((p["id"], p["kind"], A, B))
+    return out
+
+
+def harvest_pair(C, A, B):
+    """The R2 reinstatement prefixes of one pair: {condition: (prefix, question start)} + info."""
+    tok = C.tok
+    PA, PB = turn_pieces(tok, A["experience"]), turn_pieces(tok, B["experience"])
+    assert PA.H == PB.H
+    nh, nA, nB = len(PA.H), len(PA.Seg), len(PB.Seg)
+    att = []
+    for P, M in ((PA, A), (PB, B)):
+        t = text_ids(tok, M["value"]).tolist()
+        assert len(t) == 1, f"{M['id']}: value {M['value']!r} is not a single token"
+        hits = [i for i, x in enumerate(P.Seg) if x == t[0]]
+        assert len(hits) == 1, f"{M['id']}: value found {len(hits)} times in the experience turn"
+        att.append(hits[0])
+    plan = bind.pair_plan(nh, nA, nB, att[0], att[1])
+    srcs = {"A": run_cache(C, PA.H + PA.Seg), "B": run_cache(C, PB.H + PB.Seg), "J": run_cache(C, PA.H + PA.Seg + PB.Seg)}
+    out = {}
+    if is_hybrid(C):
+        lin = {"J": srcs["J"], "H": run_cache(C, PA.H)}
+        for name, (base, ls) in bind.hybrid_collide_names(plan).items():
+            parts, start = plan[base]
+            out[name] = (compose_prefix(C, parts, srcs, lin[ls]), start)
+    else:
+        for name, (parts, start) in plan.items():
+            out[name] = (compose_prefix(C, parts, srcs), start)
+    info = {"n_head": nh, "n_A": nA, "n_B": nB, "attr_A": att[0], "attr_B": att[1], "starts": {k: s for k, (_, s) in out.items()}}
+    return out, info
+
+
+def tf_last(C, ids, prefix=None):
+    """Last-position logits of `ids` (teacher-forced), optionally after a reinstatement prefix."""
+    start = prefix[1] if prefix else 0
+    if prefix is None:
+        cache = None if is_hybrid(C) else bind.make_cache([], 1)
+    elif isinstance(prefix[0], list):
+        cache = bind.make_cache(prefix[0], 1)
+    else:
+        cache = bind.expand_cache(prefix[0], 1)
+    pos = torch.arange(start, start + len(ids))[None].to(C.dev)
+    h = C.body(input_ids=ids[None].to(C.dev), past_key_values=cache, position_ids=pos, use_cache=True).last_hidden_state
+    return C.lm_head(h[:, -1]).float()[0]
+
+
+def stage_collide(C, items, out):
+    """The two-fact collision test (addendum 5 (2)): forced gates (oracle retrieval). Per member: the direct question
+    and 2 use prompts (1 greedy + 4 samples, seed set 1), the balanced yes/no probes (Yes = own value, No = the
+    partner's), and the teacher-forced readout at the measure prefix (log P(own), logit(own) - logit(partner))."""
+    cfg = C.cfg
+    gen_context(C, cfg)
+    t0 = time.time()
+    cd = collide_dir(out.parent if out.name == "collide" else out)
+    gdir = cd / "gen"
+    (gdir / "items").mkdir(parents=True, exist_ok=True)
+    conds = list(C.mc["collide_conds"])
+    pairs = collide_pairs(cfg)
+    if C.A.tiny:
+        pairs = [p for p in pairs if p[0] in ("dog_cat", "sisters")]
+    S = cfg["collide"]["samples"]
+    g = cfg["gen"]
+    cap, seeds = g["answer_cap"], g["seeds"]
+    checks, items_json = {"t2_equals_joint": [], "pairs": {}}, {}
+    joint_name = "R2-joint-state" if is_hybrid(C) else "R2-joint"
+    for pid, kind, A, B in pairs:
+        t1 = time.time()
+        R, info = harvest_pair(C, A, B)
+        checks["pairs"][pid] = info
+        # check: R2-joint == both sentences as separate prior user turns (T2), for both questions
+        for M in (A, B):
+            qt = qt_ids(C, M["question"])
+            a = tf_last(C, qt, R[joint_name])
+            _, t2 = render_ids(C.tok, [{"role": "user", "content": A["experience"]}, {"role": "user", "content": B["experience"]},
+                                       {"role": "user", "content": M["question"]}])
+            b = tf_last(C, torch.tensor(t2))
+            d = maxdiff(a, b)
+            checks["t2_equals_joint"].append({"member": M["id"], "max_abs_logit_diff": d})
+            assert d <= g["splice_tol"], f"{M['id']}: {joint_name} != T2 text ({d})"
+        for M in (A, B):
+            f = gdir / "items" / f"{M['id']}.jsonl.gz"
+            items_json[M["id"]] = {"id": M["id"], "experience": M["experience"], "group": "facts",
+                                   "measure": {"target": M["value"], "prefix": M["prefix"]}, "pair": pid, "kind": kind,
+                                   "role": M["role"], "partner": M["partner"], "partner_value": M["partner_value"],
+                                   "question": M["question"], "use": M["use"]}
+            if f.exists():
+                continue
+            rows = []
+            own, partner = int(text_ids(C.tok, M["value"])[0]), int(text_ids(C.tok, M["partner_value"])[0])
+            ctx2 = f"{A['experience']} {B['experience']}"
+            prompts = [("related", M["question"])] + [("use", u) for u in M["use"]]
+            prompts = prompts[:2] if C.A.tiny else prompts
+            for pi, (pk, text) in enumerate(prompts):
+                streams = {1: (cv1.seed_of(TAG + "/collide", text, seeds["base"]), S + 1)}
+                rws = [(j == 0, None if j == 0 else (1, j)) for j in range(S + 1)]
+                for c in conds:
+                    if c == "nomem":
+                        outs = gen_batch(C, chat_ids(C.tok, text), rws, max_new=cap, streams=streams)
+                    elif c == "ctx2":
+                        outs = gen_batch(C, chat_ids(C.tok, f"{ctx2} {text}"), rws, max_new=cap, streams=streams)
+                    else:
+                        outs = gen_batch(C, qt_ids(C, text), rws, prefix=R[c], max_new=cap, streams=streams)
+                    for j, o in enumerate(outs):
+                        rep = cv1.rep_rate(o["ids"], g["loop"]["n"])
+                        rows.append({"sec": "gen", "key": f"{M['id']}|{pk}|{pi}|{c}|1|{j}", "item": M["id"], "group": "facts",
+                                     "tier": kind, "pair": pid, "role": M["role"], "kind": pk, "pi": pi, "prompt": text,
+                                     "cond": c, "seedset": 1, "j": j, "ids": o["ids"],
+                                     "answer": C.tok.decode(o["ids"], skip_special_tokens=True).strip(), "n_tok": o["n_tok"],
+                                     "capped": o["capped"], "rep": round(rep, 4), "loop": rep >= g["loop"]["thr"],
+                                     "gate": True, "shortcut": False, "no_site": False})
+            # balanced yes/no: Yes = own value, No = the partner's value as the foil
+            probes = [(tpl.format(v=M["value"].strip()) + " Answer yes or no.", "Yes") for tpl in M["verify"]] + \
+                     [(tpl.format(v=M["partner_value"].strip()) + " Answer yes or no.", "No") for tpl in M["verify"]]
+            for text, cons in probes:
+                for c in conds:
+                    if c == "nomem":
+                        o = gen_batch(C, chat_ids(C.tok, text), [(True, None)], max_new=g["yn_cap"], first_ids=[C.yes, C.no])[0]
+                    elif c == "ctx2":
+                        o = gen_batch(C, chat_ids(C.tok, f"{ctx2} {text}"), [(True, None)], max_new=g["yn_cap"],
+                                      first_ids=[C.yes, C.no])[0]
+                    else:
+                        o = gen_batch(C, qt_ids(C, text), [(True, None)], prefix=R[c], max_new=g["yn_cap"],
+                                      first_ids=[C.yes, C.no])[0]
+                    ans = C.tok.decode(o["ids"], skip_special_tokens=True).strip()
+                    lpy, lpn = o["first"]
+                    rows.append({"sec": "yn", "item": M["id"], "group": "facts", "tier": kind, "pair": pid, "prompt": text,
+                                 "consistent": cons, "cond": c, "answer": ans, "yn": xr_parse_yn(ans),
+                                 "margin": (lpy - lpn) if cons == "Yes" else (lpn - lpy), "lp_yes": lpy, "lp_no": lpn})
+            # teacher-forced readout at the measure prefix
+            pre = text_ids(C.tok, M["prefix"])
+            for c in conds:
+                if c == "nomem":
+                    lg = tf_last(C, torch.cat([chat_ids(C.tok, M["question"]), pre]))
+                elif c == "ctx2":
+                    lg = tf_last(C, torch.cat([chat_ids(C.tok, f"{ctx2} {M['question']}"), pre]))
+                else:
+                    lg = tf_last(C, torch.cat([qt_ids(C, M["question"]), pre]), R[c])
+                lp = torch.log_softmax(lg, -1)
+                rows.append({"sec": "tf", "item": M["id"], "tier": kind, "pair": pid, "cond": c, "lp_own": lp[own].item(),
+                             "lp_partner": lp[partner].item(), "margin": (lg[own] - lg[partner]).item()})
+            write_jsonl_gz(f, rows)
+        log(f"collide: {pid} ({kind}) done in {(time.time() - t1) / 60:.1f} min; elapsed {(time.time() - t0) / 60:.1f} min")
+    (cd / "prep").mkdir(parents=True, exist_ok=True)
+    json.dump(items_json, open(cd / "prep" / "items.json", "w"), indent=1)
+    json.dump({"conds": conds, "is_hybrid": is_hybrid(C)}, open(gdir / "collide_conds.json", "w"))
+    checks["coherence_unique"] = coherence_nll(C, gdir)
+    checks["minutes"] = (time.time() - t0) / 60
+    return [], checks, {}
+
+
+def analyze_collide(cfg, cd, model_key):
+    """Addendum 5 (2) tables and rules from the saved files: per pair kind (confusable / different) and condition,
+    correct-target clean use (judges' majority), partner confusion (the partner's value in the answer, the member's
+    own value not), the judges' wrong_value, balanced yes/no with the partner as foil, the teacher-forced margin."""
+    from seahorse.stats import boot_ci, paired_diff
+    nb, seed = cfg["n_boot"], cfg["seeds"]["bootstrap"]
+    items = json.load(open(cd / "prep" / "items.json"))
+    G, YN, _, _, target, n_panel = load_labeled(cfg, cd, f"{model_key}_collide")
+    TF = []
+    for f in sorted((cd / "gen" / "items").glob("*.jsonl.gz")):
+        TF += [r for r in read_jsonl_gz(f) if r["sec"] == "tf"]
+    hyb = json.load(open(cd / "gen" / "collide_conds.json"))["is_hybrid"]
+    conds = list(dict.fromkeys(r["cond"] for r in G))
+    pv = {i: v["partner_value"].strip() for i, v in items.items()}
+    for r in G:
+        r["confusion"] = _has_word(r["answer"], pv[r["item"]]) and not _has_word(r["answer"], target[r["item"]])
+
+    def nested(kind, cond, fn, kinds=("related", "use")):
+        acc = defaultdict(list)
+        for r in G:
+            if items[r["item"]]["kind"] == kind and r["cond"] == cond and r["kind"] in kinds:
+                v = fn(r)
+                if v is not None:
+                    acc[(r["item"], r["pi"])].append(float(v))
+        d = defaultdict(dict)
+        for (i, p), vs in acc.items():
+            d[i][p] = sum(vs) / len(vs)
+        return dict(d)
+
+    def ci(n):
+        p, lo, hi, k = boot_ci(n, nb, seed)
+        return {"mean": p, "lo": lo, "hi": hi, "n": k}
+
+    def yn(kind, cond):
+        per = defaultdict(list)
+        for r in YN:
+            if items[r["item"]]["kind"] == kind and r["cond"] == cond:
+                per[r["item"]].append((r["consistent"], r["yn"]))
+        return {i: {0: bind.balanced_yn(v)} for i, v in per.items()}
+
+    def tfm(kind, cond):
+        return {r["item"]: {0: r["margin"]} for r in TF if r["tier"] == kind and r["cond"] == cond}
+
+    M = {"correct (majority)": lambda r: r["clean_maj"], "correct (orig judge)": lambda r: r["clean_orig"],
+         "partner confusion": lambda r: r["confusion"], "wrong value (judges)": lambda r: r["maj"]["wrong_value"],
+         "loop": lambda r: r["loop"]}
+    L = [f"# dream_bind: two-fact collision ({model_key}; PREREG addendum 5 (2), exploratory)", "",
+         f"Forced gates (oracle retrieval). Members x (direct question + 2 use prompts), seed set 1; clean use = majority "
+         f"of the original judge + gpt-oss + Gemma-4 (panel labels for {n_panel}/{len(G)} answers). Bootstrap over members "
+         f"then prompts ({nb}, seed {seed}).", ""]
+    T = {}
+    for kind in ("confusable", "different"):
+        L += [f"## {kind} pairs", "", "| condition | " + " | ".join(M) + " | yes/no (partner foil) | TF margin own − partner |",
+              "|---|" + "---|" * (len(M) + 2)]
+        for c in conds:
+            v = {m: ci(nested(kind, c, fn)) for m, fn in M.items()}
+            v["yn"], v["tf"] = ci(yn(kind, c)), ci(tfm(kind, c))
+            T[(kind, c)] = v
+            L.append(f"| {c} | " + " | ".join(fmt(v[m]) for m in M) + f" | {fmt(v['yn'])} | {fmt(v['tf'])} |")
+        L.append("")
+    sfx = "-jstate" if hyb else ""
+    joint = "R2-joint-state" if hyb else "R2-joint"
+    mjoint = "R2-min-joint-jstate" if hyb else "R2-min-joint"
+    rules, lines = {}, []
+    for full_or_min, jn, sep_base in (("full", joint, "R2-sep"), ("min", mjoint, "R2-min-sep")):
+        for scheme in ("overlap", "shift"):
+            sep = f"{sep_base}-{scheme}{sfx}"
+            if sep not in conds or jn not in conds:
+                continue
+            conf = lambda c: nested("confusable", c, M["partner confusion"])
+            cor = lambda kind, c: nested(kind, c, M["correct (majority)"])
+            d_coll = ci(paired_diff(conf(sep), conf(jn)))
+            d_cont = ci(paired_diff(cor("different", sep), cor("different", "ctx2")))
+            d_reen = ci(paired_diff(cor("confusable", jn), cor("confusable", sep)))
+            d_reen_diff = ci(paired_diff(cor("different", jn), cor("different", sep)))
+            key = f"{full_or_min}/{scheme}"
+            na = lambda d, ok: None if math.isnan(d["mean"]) else bool(ok)
+            rules[key] = {
+                "IDs collide (confusion sep - joint, CI > 0)": (d_coll, na(d_coll, d_coll["lo"] > 0)),
+                "content suffices (different: sep - ctx2 CI includes 0, |point| < 0.1)":
+                    (d_cont, na(d_cont, (d_cont["lo"] <= 0 <= d_cont["hi"]) and abs(d_cont["mean"]) < 0.1)),
+                "re-encoding helps (confusable: joint - sep correct, CI > 0)": (d_reen, na(d_reen, d_reen["lo"] > 0)),
+                "re-encoding (different pairs, reported)": (d_reen_diff, None)}
+            lines += [f"**{sep} vs {jn}**", ""]
+            lines += [f"- {k}: {fmt(v)}{'' if ok is None else (' → holds' if ok else ' → does not hold')}"
+                      for k, (v, ok) in rules[key].items()]
+            lines.append("")
+    L[4:4] = ["## Rules (addendum 5, exploratory)", "", *lines]
+    out = cd / "analysis"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.md").write_text("\n".join(L))
+    json.dump({"rules": {k: {kk: {"ci": v, "holds": ok} for kk, (v, ok) in r.items()} for k, r in rules.items()},
+               "tables": {f"{k}/{c}": v for (k, c), v in T.items()}, "n_panel_labels": n_panel, "n_answers": len(G)},
+              open(out / "verdict.json", "w"), indent=2, default=str)
+    log(f"collide analyze -> {out / 'report.md'}")
+    return rules
+
+
+def collide_plan(cfg, mc, n_prompts=3, n_probes=4):
+    n_members = 2 * len(cfg["collide"]["pairs"])
+    nc = len(mc["collide_conds"])
+    return {"members": n_members, "long_answers": n_members * n_prompts * nc * (cfg["collide"]["samples"] + 1),
+            "yn_answers": n_members * n_probes * nc}
+
+
 # --------------------------------------------------------------------------- judge (original) + analyze
 
 
@@ -1821,7 +2166,8 @@ def load_labeled(cfg, run_dir, model_key):
     G, YN = [], []
     for f in sorted((run_dir / "gen" / "items").glob("*.jsonl.gz")):
         for r in read_jsonl_gz(f):
-            (G if r["sec"] == "gen" else YN).append(r)
+            if r["sec"] in ("gen", "yn"):
+                (G if r["sec"] == "gen" else YN).append(r)
     UN = []
     for f in sorted((run_dir / "gen" / "unrel").glob("*.jsonl.gz")):
         UN += read_jsonl_gz(f)
@@ -1944,7 +2290,9 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
              ("R-swap-kv6", "nomem"), ("ctx", "R-full-kv6"),
              ("R-min-state", "R-full-state"), ("R-min-state", "R-min-kv6"), ("R-min-state", "nomem"),
              ("R-state-only", "nomem"), ("R-state-only", "R-min-kv6"), ("R-state-only", "R-min-state"),
-             ("R-orphan-state", "R-min-state"), ("R-orphan-state", "nomem"), ("R-swap-min-state", "nomem")]
+             ("R-orphan-state", "R-min-state"), ("R-orphan-state", "nomem"), ("R-swap-min-state", "nomem"),
+             ("T-min", "nomem"), ("T-min", "R-min"), ("T-min", "R-min-state"), ("R-min", "nomem"),
+             ("T-full", "R-full"), ("T-full", "R-full-state"), ("T-full", "ctx")]
     comps = [(x, y) for x, y in comps if x in conds and y in conds]
     PD = {}
     for a, b in comps:
@@ -2000,7 +2348,8 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
     cq = lambda c: nested(sel(c, "primary", ("related",)), measures["clean (majority)"])
     L += ["## Direct question (primary): does the model know that it knows?", "",
           "Clean use (majority) on the direct question per condition, paired contrasts, and every item's greedy answer.", ""]
-    for a_, b_ in [x for x in (("R-min-state", "R-min-kv6"), ("R-min-state", "R-full-state"), ("R-state-only", "nomem"),
+    for a_, b_ in [x for x in (("T-min", "nomem"), ("T-min", "R-min"), ("T-min", "R-min-state"),
+                               ("R-min-state", "R-min-kv6"), ("R-min-state", "R-full-state"), ("R-state-only", "nomem"),
                                ("R-state-only", "R-min-kv6"), ("R-orphan-state", "R-min-state"), ("R-full-kv6", "R-full-state"))
                    if x[0] in conds and x[1] in conds]:
         L.append(f"- {a_} − {b_}: {fmt(ci(paired_diff(cq(a_), cq(b_))))}")
@@ -2042,7 +2391,7 @@ def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, 
     R-min-kv6 vs R-full-kv6."""
     gcf = run_dir / "gen" / "gen_conds.json"
     gc = json.load(open(gcf)) if gcf.exists() else (cfg["models"][model_key].get("gen_conds") or {})
-    gated = [c for c in unrel_same if c.startswith("R-") and not c.endswith(":ungated")]
+    gated = [c for c in unrel_same if c.startswith(("R-", "T-")) and not c.endswith(":ungated")]
     B6 = all(unrel_same[c] >= 0.95 for c in gated) if gated else None
     rep_ = {"R-full-state - ctx (expected ~0)": PD.get(("R-full-state", "ctx")),
             "R-full-kv6 - R-full-state": PD.get(("R-full-kv6", "R-full-state")),
@@ -2051,7 +2400,12 @@ def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, 
             "R-min-state - R-min-kv6 (expected > 0)": PD.get(("R-min-state", "R-min-kv6")),
             "R-state-only - nomem (open)": PD.get(("R-state-only", "nomem")),
             "R-state-only - R-min-kv6 (open)": PD.get(("R-state-only", "R-min-kv6")),
-            "R-orphan-state - R-min-state (reported)": PD.get(("R-orphan-state", "R-min-state"))}
+            "R-orphan-state - R-min-state (reported)": PD.get(("R-orphan-state", "R-min-state")),
+            "T-min - nomem (addendum 5: expected ~0)": PD.get(("T-min", "nomem")),
+            "T-min - R-min (addendum 5: expected well below 0)": PD.get(("T-min", "R-min")),
+            "T-min - R-min-state (addendum 5: expected well below 0)": PD.get(("T-min", "R-min-state")),
+            "T-full - R-full (= by construction)": PD.get(("T-full", "R-full")),
+            "T-full - R-full-state (= by construction)": PD.get(("T-full", "R-full-state"))}
     if ("R-min-state", "R-full-state") in PD and not math.isnan(PD[("R-min-state", "R-full-state")]["mean"]):
         d = PD[("R-min-state", "R-full-state")]
         rep_["compact hybrid memory (CI of R-min-state - R-full-state includes 0 AND point > -0.1)"] = {
@@ -2071,13 +2425,17 @@ def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, 
                   "2B R-full-state - Qwen2.5 R-full": ci(paired_diff(cm("R-full-state"), q25))}
         except Exception as e:   # the reference run is missing or unlabeled: reported, not fatal
             b5 = {"error": f"{type(e).__name__}: {e}"}
-    V = {"labels": ["reported (no subj arm on the 2B: pre-registered skip; B1-B4 not applicable)"],
+    is2b = model_key.startswith("qwen35")
+    V = {"labels": ["reported (no subj arm on the 2B: pre-registered skip; B1-B4 not applicable)" if is2b else
+                    "reported (no subj arm in this run; B1-B4 not applicable)"],
          "B": {"B6": B6}, "reported": rep_, "B5_vs_qwen25": b5}
-    add4 = gc.get("gen_set") == "state"
-    L[4:4] = [f"## Verdicts (PREREG addendum {'4, exploratory: all reported, not decisive' if add4 else '3'})", "",
-              "**No subj arm on Qwen3.5-2B** (pre-registered skip: stage 0 pointer-suspected AND the analytic pre-pass "
-              "said NO GAIN), so B1-B4 do not apply. B5 on the 2B is reported, not decisive.", "",
-              f"- B6 (gated R conditions, unrel_same >= 0.95): {'holds' if B6 else ('fails' if B6 is not None else 'n/a')}",
+    add4 = gc.get("gen_set") in ("state", "text")
+    L[4:4] = [f"## Verdicts (PREREG addendum {({'state': '4', 'text': '5 (1)'}).get(gc.get('gen_set'), '3')}"
+              f"{', exploratory: all reported, not decisive' if add4 else ''})", "",
+              ("**No subj arm on Qwen3.5-2B** (pre-registered skip: stage 0 pointer-suspected AND the analytic pre-pass "
+               "said NO GAIN), so B1-B4 do not apply. B5 on the 2B is reported, not decisive." if is2b else
+               "**No subj arm in this run** (addendum 5's text controls), so B1-B4 do not apply."), "",
+              f"- B6 (gated R / T conditions, unrel_same >= 0.95): {'holds' if B6 else ('fails' if B6 is not None else 'n/a')}",
               *[f"- {k}: {fmt(v) if 'mean' in v else v}" for k, v in rep_.items() if v],
               *([f"- B5: {k}: {fmt(v) if isinstance(v, dict) and 'mean' in v else v}" for k, v in b5.items()] if b5 else
                 ([] if not ref else ["- B5: Qwen2.5 reference run not found (reported as missing)"])), ""]
@@ -2104,9 +2462,14 @@ def main(argv=None):
     for s in stages:
         assert s in mc["stages"] or A.random_model, f"stage {s} is not run on {A.model} (config stages {mc['stages']})"
     if "judge" in stages:          # no experiment model: the original judge on the saved answers
-        stage_judge(A, cfg, out)
+        for d_ in (out, collide_dir(out)):
+            if (d_ / "gen" / "items").exists():
+                stage_judge(A, cfg, d_)
     if "analyze" in stages:
-        stage_analyze(cfg, out, A.model)
+        if (out / "gen" / "items").exists():
+            stage_analyze(cfg, out, A.model)
+        if (collide_dir(out) / "gen" / "items").exists():
+            analyze_collide(cfg, collide_dir(out), A.model)
     stages = [s for s in stages if s not in ("judge", "analyze")]
     if not stages and ("judge" in A.stage or "analyze" in A.stage):
         return
@@ -2115,9 +2478,12 @@ def main(argv=None):
         all_items = load_items(cfg)
         fns = {"patch": stage_patch, "knockout": stage_knockout, "prefix": stage_prefix,
                "analytic": lambda C_, its, d_: stage_analytic(C_, its, d_, all_items),
-               "gen": lambda C_, its, d_: stage_gen(C_, its, d_, all_items)}
+               "gen": lambda C_, its, d_: stage_gen(C_, its, d_, all_items),
+               "collide": stage_collide}
         if "gen" in stages:
             log(f"gen plan: {json.dumps(gen_plan(cfg, items, mc=mc, gen_set=A.gen_set))}")
+        if "collide" in stages:
+            log(f"collide plan: {json.dumps(collide_plan(cfg, mc))}")
         with torch.inference_mode():
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
@@ -2132,7 +2498,7 @@ def main(argv=None):
                 t0 = time.time()
                 rows, checks, layouts = fns[st](C, items, out / st)
                 checks["coherence"] = coh
-                d = out / st
+                d = out / st if st != "collide" else collide_dir(out) / "gen"
                 d.mkdir(parents=True, exist_ok=True)
                 write_jsonl_gz(d / "results.jsonl.gz", rows)
                 json.dump(checks, open(d / "checks.json", "w"), indent=2)

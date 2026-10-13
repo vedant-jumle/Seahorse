@@ -577,6 +577,35 @@ def cache_summary(cache):
     return out
 
 
+def pair_plan(nh, nA, nB, aA, aB):
+    """Two-fact collision (addendum 5): which cache entries each R2 condition takes from which harvest, and where
+    the question starts. Harvests: 'A' = [head][A's turn], 'B' = [head][B's turn] (each its own session),
+    'J' = [head][A's turn][B's turn] (one session). Parts are (source, indices into that source, RoPE shift).
+      overlap  A and B at their stored positions (they share positions h .. h + max(nA, nB) - 1)
+      shift    B's keys re-rotated by +nA so that B follows A (as in the joint session)
+    Returns {condition: ([(source, indices, shift)], question start)}."""
+    assert 0 <= aA and aA + 1 < nA and 0 <= aB and aB + 1 < nB
+    head = list(range(nh))
+    segA, segB = list(range(nh, nh + nA)), list(range(nh, nh + nB))
+    minA, minB = [nh + aA, nh + aA + 1], [nh + aB, nh + aB + 1]
+    jB, jminB = list(range(nh + nA, nh + nA + nB)), [nh + nA + aB, nh + nA + aB + 1]
+    ov, sh = nh + max(nA, nB), nh + nA + nB
+    return {"R2-joint": ([("J", head + segA + jB, 0)], sh),
+            "R2-sep-overlap": ([("A", head + segA, 0), ("B", segB, 0)], ov),
+            "R2-sep-shift": ([("A", head + segA, 0), ("B", segB, nA)], sh),
+            "R2-min-joint": ([("J", head + minA + jminB, 0)], sh),
+            "R2-min-sep-overlap": ([("A", head + minA, 0), ("B", minB, 0)], ov),
+            "R2-min-sep-shift": ([("A", head + minA, 0), ("B", minB, nA)], sh)}
+
+
+def hybrid_collide_names(base):
+    """2B names: every R2 condition with the JOINT DeltaNet state ('-jstate'; R2-joint -> R2-joint-state), plus the
+    two attention-only probes with the head-only DeltaNet state (-kv6). Returns {name: (base plan key, lin source)}."""
+    out = {("R2-joint-state" if b == "R2-joint" else f"{b}-jstate"): (b, "J") for b in base}
+    out.update({"R2-joint-kv6": ("R2-joint", "H"), "R2-sep-shift-kv6": ("R2-sep-shift", "H")})
+    return out
+
+
 def gate_open(text, aliases):
     """G-match: the subject alias occurs (whole words, case-insensitive) in the user text."""
     return bool(find_all_aliases(text, aliases))

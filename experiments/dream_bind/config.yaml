@@ -12,7 +12,7 @@ models:
     thinking_template: true   # enable_thinking=False forced; the template tail is asserted
     text_only: true       # load the text decoder + tied lm_head only (no vision tower): fits a 10 GB slice in fp32
     eager: false          # no knockout on this model (spec section 2)
-    stages: [patch, prefix, analytic, gen, judge, analyze]   # prefix: exploratory (patching only here)
+    stages: [patch, prefix, analytic, gen, judge, analyze, collide]   # prefix: exploratory (patching only here)
     # arm R on the hybrid (PREREG addendum 3). No subj arm: pre-registered skip (stage 0 pointer-suspected AND the
     # analytic pre-pass said NO GAIN on this model).
     gen_conds:
@@ -32,13 +32,35 @@ models:
       swap_from: R-min-state    # R-swap-min-state = the partner's R-min-state under this item's gate
       swap_name: R-swap-min-state
       check: R-full-state
+    # PREREG addendum 5 (1): the plain-text controls; run with --gen-set text
+    gen_conds_text:
+      primary: [nomem, ctx, T-min, T-full, R-min-state, R-full-state]
+      secondary: [nomem, ctx, T-min, R-min-state]
+      seed2: [nomem, ctx, T-min, R-min-state]
+      leak: null
+      swap_from: R-min-state
+      swap_name: R-swap-min-state   # built, not generated
+      check: R-full-state
+    # PREREG addendum 5 (2): the two-fact collision test (run.py --stage collide); joint DeltaNet state everywhere,
+    # plus two attention-only probes with the head-only DeltaNet state
+    collide_conds: [nomem, ctx2, R2-joint-state, R2-sep-overlap-jstate, R2-sep-shift-jstate, R2-min-joint-jstate,
+                    R2-min-sep-overlap-jstate, R2-min-sep-shift-jstate, R2-joint-kv6, R2-sep-shift-kv6]
   qwen25_15b:
     model: Qwen/Qwen2.5-1.5B-Instruct
     n_blocks: 28          # full attention everywhere
     thinking_template: false
     text_only: false
     eager: true           # knockout and the subject-alone cell edit the eager attention mask
-    stages: [patch, knockout, prefix, analytic, gen, judge, analyze]
+    stages: [patch, knockout, prefix, analytic, gen, judge, analyze, collide]
+    # PREREG addendum 5 (1): the plain-text controls; run with --gen-set text
+    gen_conds_text:
+      primary: [nomem, ctx, T-min, T-full, R-min, R-full]
+      secondary: [nomem, ctx, T-min, R-min]
+      seed2: [nomem, ctx, T-min, R-min]
+      leak: null
+      swap_from: R-full         # built, not generated
+      check: R-full
+    collide_conds: [nomem, ctx2, R2-joint, R2-sep-overlap, R2-sep-shift, R2-min-joint, R2-min-sep-overlap, R2-min-sep-shift]
 
 dtype: fp32               # both models (Qwen2.5: RTX 4060 locally; Qwen3.5-2B: A100 MIG 10 GB slice)
 band: 5                   # bands and knockout windows: 5 consecutive blocks
@@ -94,6 +116,66 @@ judge:                     # the original judge (core_v1's judge_prompts.yaml an
   dtype: bfloat16
   max_new: 64
   batch: 48
+
+# PREREG addendum 5 (2): the two-fact collision test. Different-subject pairs reuse the items (question, prefix, use
+# prompts, verify templates from data/bench_v1/facts.yaml); confusable pairs are written here. Values are single
+# tokens on both tokenizers (asserted at run time); yes/no: Yes = own value, No = the partner's value.
+collide:
+  samples: 4               # 1 greedy + 4 samples, seed set 1 only
+  pairs:
+    - {id: dog_cat, kind: different, a: dog_name, b: cat_name}
+    - {id: sister_brother, kind: different, a: sister_name, b: brother_name}
+    - {id: friend_boss, kind: different, a: best_friend_name, b: boss_name}
+    - id: sisters
+      kind: confusable
+      a: {id: older_sister, experience: "My older sister's name is Petra.", value: " Petra",
+          question: "What's my older sister's name?", prefix: "Your older sister's name is",
+          use: ["Write a short birthday message to my older sister.", "Draft a text to my older sister about her visit next weekend."],
+          verify: ["Is my older sister called {v}?", "Is {v} my older sister's name?"]}
+      b: {id: younger_sister, experience: "My younger sister's name is Maria.", value: " Maria",
+          question: "What's my younger sister's name?", prefix: "Your younger sister's name is",
+          use: ["Write a short birthday message to my younger sister.", "Draft a text to my younger sister about her exams next week."],
+          verify: ["Is my younger sister called {v}?", "Is {v} my younger sister's name?"]}
+    - id: dogs
+      kind: confusable
+      a: {id: first_dog, experience: "My first dog was called Pepper.", value: " Pepper",
+          question: "What was my first dog called?", prefix: "Your first dog was called",
+          use: ["Write a short poem remembering my first dog.", "Draft a caption for an old photo of my first dog."],
+          verify: ["Was my first dog called {v}?", "Is {v} the name of my first dog?"]}
+      b: {id: second_dog, experience: "My second dog is called Rocky.", value: " Rocky",
+          question: "What's my second dog called?", prefix: "Your second dog is called",
+          use: ["Draft a quick note to the vet about my second dog's checkup tomorrow.", "Write a short, funny poem about my second dog."],
+          verify: ["Is my second dog called {v}?", "Is {v} the name of my second dog?"]}
+    - id: friends
+      kind: confusable
+      a: {id: friend_work, experience: "My friend from work is called Omar.", value: " Omar",
+          question: "What's my friend from work called?", prefix: "Your friend from work is called",
+          use: ["Draft a message inviting my friend from work to lunch on Friday.", "Write a short thank-you note to my friend from work for covering my shift."],
+          verify: ["Is my friend from work called {v}?", "Is {v} the name of my friend from work?"]}
+      b: {id: friend_school, experience: "My friend from school is called Kevin.", value: " Kevin",
+          question: "What's my friend from school called?", prefix: "Your friend from school is called",
+          use: ["Draft a message to my friend from school suggesting a reunion.", "Write a short birthday card for my friend from school."],
+          verify: ["Is my friend from school called {v}?", "Is {v} the name of my friend from school?"]}
+    - id: teachers
+      kind: confusable
+      a: {id: son_teacher, experience: "My son's teacher is called Hugo.", value: " Hugo",
+          question: "What's my son's teacher called?", prefix: "Your son's teacher is called",
+          use: ["Draft a short email to my son's teacher about the school trip.", "Write a thank-you card for my son's teacher at the end of term."],
+          verify: ["Is my son's teacher called {v}?", "Is {v} the name of my son's teacher?"]}
+      b: {id: daughter_teacher, experience: "My daughter's teacher is called Daniel.", value: " Daniel",
+          question: "What's my daughter's teacher called?", prefix: "Your daughter's teacher is called",
+          use: ["Draft a short email to my daughter's teacher about her reading homework.", "Write a thank-you card for my daughter's teacher at the end of term."],
+          verify: ["Is my daughter's teacher called {v}?", "Is {v} the name of my daughter's teacher?"]}
+    - id: grandmothers
+      kind: confusable
+      a: {id: grandmother_mother, experience: "My grandmother on my mother's side is called Esther.", value: " Esther",
+          question: "What's my grandmother on my mother's side called?", prefix: "Your grandmother on your mother's side is called",
+          use: ["Write a short speech for my grandmother on my mother's side at her birthday party.", "Draft a letter to my grandmother on my mother's side telling her about my new job."],
+          verify: ["Is my grandmother on my mother's side called {v}?", "Is {v} the name of my grandmother on my mother's side?"]}
+      b: {id: grandmother_father, experience: "My grandmother on my father's side is called Rosa.", value: " Rosa",
+          question: "What's my grandmother on my father's side called?", prefix: "Your grandmother on your father's side is called",
+          use: ["Write a short speech for my grandmother on my father's side at her birthday party.", "Draft a letter to my grandmother on my father's side asking about her garden."],
+          verify: ["Is my grandmother on my father's side called {v}?", "Is {v} the name of my grandmother on my father's side?"]}
 
 primary: [dog_name, cat_name, sister_name, brother_name, grandmother_name, best_friend_name, boss_name]
 secondary: [job, hometown, first_language, university, favourite_colour]

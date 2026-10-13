@@ -559,3 +559,113 @@ def test_hybrid_state_variants(tiny_hybrid):
         finally:
             C.A.gen_set = None
             run.gen_context(C, CFG)
+
+
+# ================================================= addendum 5: text controls and the two-fact collision
+
+
+def test_pair_plan_positions():
+    P = bind.pair_plan(nh=3, nA=8, nB=10, aA=5, aB=6)
+    assert P["R2-joint"] == ([("J", list(range(21)), 0)], 21)
+    assert P["R2-sep-overlap"] == ([("A", list(range(11)), 0), ("B", list(range(3, 13)), 0)], 13)
+    assert P["R2-sep-shift"] == ([("A", list(range(11)), 0), ("B", list(range(3, 13)), 8)], 21)
+    assert P["R2-min-joint"] == ([("J", [0, 1, 2, 8, 9, 17, 18], 0)], 21)
+    assert P["R2-min-sep-overlap"] == ([("A", [0, 1, 2, 8, 9], 0), ("B", [9, 10], 0)], 13)
+    assert P["R2-min-sep-shift"] == ([("A", [0, 1, 2, 8, 9], 0), ("B", [9, 10], 8)], 21)
+    names = bind.hybrid_collide_names(P)
+    assert names["R2-joint-state"] == ("R2-joint", "J") and names["R2-sep-shift-jstate"] == ("R2-sep-shift", "J")
+    assert names["R2-joint-kv6"] == ("R2-joint", "H") and names["R2-sep-shift-kv6"] == ("R2-sep-shift", "H")
+    assert len(names) == 8
+
+
+def _keys_at(C, ids, start, layer):
+    pos = torch.arange(start, start + len(ids))[None]
+    pkv = C.body(input_ids=torch.tensor(ids)[None], position_ids=pos, use_cache=True).past_key_values
+    return run._attn_kv(pkv, layer)[0] if hasattr(pkv, "layers") else bind.kv_list(pkv)[layer][0]
+
+
+def test_rope_shift_equals_recompute(tiny_real_tok):
+    C = tiny_real_tok
+    ids = run.chat_ids(C.tok, "My dog's name is Pepper.").tolist()
+    with torch.no_grad():
+        K0, K7 = _keys_at(C, ids, 0, 1), _keys_at(C, ids, 7, 1)
+        assert not torch.allclose(K0, K7, atol=1e-4)
+        assert torch.allclose(run.rope_shift(C, K0, 7), K7, atol=1e-5)
+
+
+def test_rope_shift_hybrid(tiny_hybrid):
+    C = tiny_hybrid
+    ids = run.chat_ids(C.tok, "My dog's name is Pepper.").tolist()
+    l = next(i for i, b in enumerate(C.blocks) if hasattr(b, "self_attn"))
+    with torch.no_grad():
+        K0, K9 = _keys_at(C, ids, 0, l), _keys_at(C, ids, 9, l)
+        assert not torch.allclose(K0, K9, atol=1e-4)
+        assert torch.allclose(run.rope_shift(C, K0, 9), K9, atol=1e-5)   # partial rotary + text mrope
+
+
+def _collide_pair(cfg, pid):
+    return next(p for p in run.collide_pairs(cfg) if p[0] == pid)
+
+
+def test_collide_pairs_config():
+    pairs = run.collide_pairs(CFG)
+    assert [k for _, k, _, _ in pairs].count("confusable") == 5 and [k for _, k, _, _ in pairs].count("different") == 3
+    for pid, kind, A, B in pairs:
+        assert A["partner_value"] == B["value"] and B["partner_value"] == A["value"] and A["value"] != B["value"]
+        for M in (A, B):
+            assert len(M["use"]) == 2 and len(M["verify"]) == 2 and M["value"].startswith(" ")
+            assert M["value"].strip() in M["experience"] and M["value"].strip() not in " ".join(M["use"])
+    tok = _qwen25_tok()
+    if tok is not None:
+        for _, _, A, B in pairs:
+            for M in (A, B):
+                assert len(tok(M["value"], add_special_tokens=False).input_ids) == 1, M["value"]
+
+
+def test_collide_harvest_and_t2(tiny_real_tok):
+    C = tiny_real_tok
+    C.mc = {**CFG["models"]["qwen25_15b"]}
+    _, _, A, B = _collide_pair(CFG, "sisters")
+    with torch.no_grad():
+        R, info = run.harvest_pair(C, A, B)
+        nh, nA, nB = info["n_head"], info["n_A"], info["n_B"]
+        n = lambda c: R[c][0][0][0].shape[2]
+        assert n("R2-joint") == n("R2-sep-shift") == n("R2-sep-overlap") == nh + nA + nB
+        assert n("R2-min-joint") == n("R2-min-sep-shift") == nh + 4
+        assert info["starts"]["R2-sep-overlap"] == nh + max(nA, nB) and info["starts"]["R2-sep-shift"] == nh + nA + nB
+        # the head + A part of a separate harvest is the joint harvest's (same computation); B's part differs
+        J, Sh = R["R2-joint"][0][1][0], R["R2-sep-shift"][0][1][0]
+        assert torch.allclose(J[:, :, :nh + nA], Sh[:, :, :nh + nA], atol=1e-5)
+        assert not torch.allclose(J[:, :, nh + nA:], Sh[:, :, nh + nA:], atol=1e-4)
+        # R2-joint == both sentences as separate prior user turns (T2): token-identical greedy
+        q = A["question"]
+        _, t2 = run.render_ids(C.tok, [{"role": "user", "content": A["experience"]}, {"role": "user", "content": B["experience"]},
+                                       {"role": "user", "content": q}])
+        a = run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R["R2-joint"], max_new=10)
+        b = run.gen_batch(C, torch.tensor(t2), [(True, None)], max_new=10)
+        assert a[0]["ids"] == b[0]["ids"]
+        # forced gates: the collision conditions splice whether or not the prompt names a subject
+        o = run.gen_batch(C, run.qt_ids(C, "Tell me a joke."), [(True, None)], prefix=R["R2-sep-shift"], max_new=4)
+        assert len(o[0]["ids"]) > 0
+        assert torch.allclose(run.tf_last(C, run.qt_ids(C, q), R["R2-joint"]),
+                              run.tf_last(C, torch.tensor(t2)), atol=1e-4)
+
+
+def test_collide_harvest_hybrid(tiny_hybrid):
+    C = tiny_hybrid
+    _, _, A, B = _collide_pair(CFG, "dogs")
+    with torch.no_grad():
+        R, info = run.harvest_pair(C, A, B)
+        assert set(R) == {"R2-joint-state", "R2-sep-overlap-jstate", "R2-sep-shift-jstate", "R2-min-joint-jstate",
+                          "R2-min-sep-overlap-jstate", "R2-min-sep-shift-jstate", "R2-joint-kv6", "R2-sep-shift-kv6"}
+        J = R["R2-joint-state"][0]
+        for c in R:
+            lin_ok = bind.linear_states_equal(R[c][0], J)
+            assert lin_ok == c.endswith(("-jstate", "-state")), c          # joint DeltaNet state, except the kv6 probes
+        assert not any(f for k, f in bind.cache_summary(R["R2-joint-kv6"][0]) if k == "lin")
+        q = B["question"]
+        _, t2 = run.render_ids(C.tok, [{"role": "user", "content": A["experience"]}, {"role": "user", "content": B["experience"]},
+                                       {"role": "user", "content": q}])
+        a = run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R["R2-joint-state"], max_new=10)
+        b = run.gen_batch(C, torch.tensor(t2), [(True, None)], max_new=10)
+        assert a[0]["ids"] == b[0]["ids"]
