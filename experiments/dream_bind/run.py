@@ -1799,6 +1799,12 @@ def stage_gen(C, items, out, all_items):
     prep = out.parent / "prep"
     prep.mkdir(parents=True, exist_ok=True)
     json.dump({i: L["by_id"][i] for i in by_id}, open(prep / "items.json", "w"), indent=1)
+    # free the stored reinstatement caches before scoring (on the 2B they hold ~1.5 GB of DeltaNet states)
+    import gc as _gc
+    del Ms, R, V, Vplac
+    _gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     nll = coherence_nll(C, out)
     checks["coherence_unique"] = nll
     checks["minutes"] = (time.time() - t0) / 60
@@ -2741,8 +2747,12 @@ def analyze_idrepair(cfg, cd, model_key):
     for c in dict.fromkeys(r["cond"] for r in ana):
         f = lambda fld: _ci({r["item"]: {0: float(r[fld])} for r in ana if r["cond"] == c}, nb, seed)
         L.append(f"| {c} | {fmt(f('tf_conf'))} | {fmt(f('margin'))} | {fmt(f('lp_own'))} | {fmt(f('yn_correct'))} |")
-    L += ["", f"Best cell (pre-registered pick): **{pick['best']['cell']}** (Δ TF confusion {pick['best']['d_conf']:.3f}, "
-          f"Δ margin {pick['best']['d_margin']:.3f})", ""]
+    L += ["", f"Best cell (pre-registered pick: the largest REDUCTION in TF confusion vs R2-sep, ties -> margin gain): "
+          f"**{pick['best']['cell']}** (TF-confusion reduction = R2-sep minus cell = {pick['best']['d_conf']:.3f}; "
+          f"margin gain {pick['best']['d_margin']:.3f})", "",
+          "| cell | TF-confusion reduction (R2-sep − cell; > 0 = less confusion) | margin gain |", "|---|---|---|",
+          *[f"| {c['cell']} | {c['d_conf']:.4f} | {c['d_margin']:.3f} |" for c in sorted(pick["cells"], key=lambda c: -c["d_conf"])],
+          ""]
     # generation for the best cell
     rules = {}
     if (g / "items").exists() and any((g / "items").glob("*.jsonl.gz")):

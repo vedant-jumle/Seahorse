@@ -11,7 +11,7 @@ models:
     n_blocks: 24          # full attention at 3, 7, 11, 15, 19, 23; Gated DeltaNet elsewhere
     thinking_template: true   # enable_thinking=False forced; the template tail is asserted
     text_only: true       # load the text decoder + tied lm_head only (no vision tower): fits a 10 GB slice in fp32
-    nll_tokens: 1500      # coherence-NLL token batch: the DeltaNet chunked kernel OOM'd at 6000 on the 10 GB slice (job 957431)
+    nll_tokens: 256       # coherence-NLL token batch (~one answer per batch): OOMs on the 10 GB slice at 6000 (job 957431) and 1500 (job 983801)
     eager: false          # no knockout on this model (spec section 2)
     stages: [patch, prefix, analytic, gen, judge, analyze, collide]   # prefix: exploratory (patching only here)
     # arm R on the hybrid (PREREG addendum 3). No subj arm: pre-registered skip (stage 0 pointer-suspected AND the
