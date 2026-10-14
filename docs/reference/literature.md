@@ -1,6 +1,6 @@
 # Seahorse: what other work says about our results
 
-*Seventeen papers that bear directly on our results, read during and after the Qwen3.5 experiments (think_v1, ref_v1, xlayer_v1, core_v1). For each: what it found, in plain words, and where it touches our results. At the end: the theory they give us, and a table of what is prior work and what is ours. The older background (complementary learning systems, steering in general, fast weights, neuromodulation) is in [core-idea.md](core-idea.md) and [where-we-are.md §2](../where-we-are.md#2-what-was-already-out-there). Written 2026-10-07; extended 2026-10-08; group E (how models bind entities to attributes) added 2026-10-11, after the paper went to arXiv.*
+*Seventeen papers that bear directly on our results, read during and after the Qwen3.5 experiments (think_v1, ref_v1, xlayer_v1, core_v1). For each: what it found, in plain words, and where it touches our results. At the end: the theory they give us, and a table of what is prior work and what is ours. The older background (complementary learning systems, steering in general, fast weights, neuromodulation) is in [core-idea.md](core-idea.md) and [where-we-are.md §2](../where-we-are.md#2-what-was-already-out-there). Written 2026-10-07; extended 2026-10-08; group E (how models bind entities to attributes) added 2026-10-11, after the paper went to arXiv; group F (trained fast-weight memory: FwPKM) added 2026-10-14. The Exp 1 literature check (hybrids, cache reuse, binding; 36 papers) is in [literature-exp1.md](../dreaming/literature-exp1.md).*
 
 The PDFs are in the parent folder's `papers/`.
 
@@ -11,6 +11,7 @@ The PDFs are in the parent folder's `papers/`.
 | C. Where facts live and how they're recalled | Geva et al.; ROME; MEMIT | Why a stored vector can't carry a usable fact |
 | D. Negation | Jang et al. | Why dislikes flip into likes |
 | E. How models bind entities to attributes | Feng & Steinhardt; Dai et al.; Prakash et al. (+ Geva from C) | Why a vector at the answer position can't be bound to a subject, a question or an owner; what the episodic channel has to reinstate |
+| F. Trained fast-weight memory | Zhao & Jones (FwPKM) | Our original design, working because the read is trained; attention out-competes memory; re-reading consolidates |
 
 ---
 
@@ -363,6 +364,45 @@ Their conclusion: *"entity tracking is performed by identifying and transporting
 For facts in the weights the route differs: early-middle MLPs load the attributes *onto the subject's own position* (knocking them out drops the attribute rate ~88%), the relation travels to the last position, and upper attention heads at the last position attend to the enriched subject and extract the attribute the question asks for. No cross-position tag is needed, because the content already sits at the subject.
 
 **Where it touches us.** It gives a second route for the episodic channel: write the attribute *at the subject token* ("my dog"), at early-middle layers, in session 2, and let the model's own extraction heads fetch it when the question comes. The risk is specific: the added vector must land in the subspace those heads read, which MLP enrichment normally produces. This is the "subject-position write" experiment.
+
+*(Update 2026-10-13: Exp 1 tested this route and it failed. In a chat, the answer reads the value from its own position, and the subject holds no copy. See [01-binding.md](../dreaming/01-binding.md) and [literature-exp1.md](../dreaming/literature-exp1.md).)*
+
+---
+
+# F. Trained fast-weight memory
+
+*Added 2026-10-14. The trained counterpart of what Seahorse set out to do without training.*
+
+## 16. Zhao & Jones (Sakana AI), "Fast-weight Product Key Memory" (FwPKM, arXiv 2601.00671, Feb 2026)
+
+**What they did.**
+- A memory layer for a model **trained from scratch**: about 112M parameters, a Qwen-Next-style mix of Gated DeltaNet and softmax attention, trained on 4K-token sequences.
+- The memory is a Product Key Memory (Lample et al. 2019): 512² = 262,144 slots. The query is split in two, each half scored against a small codebook, and only the top 8 slots are read per token.
+- **The values (and keys) are fast weights**, updated *during inference* by a gradient step on a local loss. After each chunk, each read slot is moved toward the value that actually came: `L = ½·g·‖v − v̂‖²`, which works like an explicit rewrite (delta rule). An extra entropy loss keeps slot usage balanced.
+- **The target is the next token's value** ("lookahead"): a slot learns "in this context, this comes next".
+- **The read is a gated add into the residual stream:** `o = g·v̂ + (1−g)·v`, with g learned per token.
+- Slow weights hold general knowledge ("semantic"), the fast slots hold the current context ("episodic").
+
+**What they found.**
+- Big perplexity drops on long-context data (LC64, LAMBADA) and on LongBench answers, for models without full attention (GDN, GDN+SWA).
+- **Needle-in-a-haystack** generalises from 4K training to 128K. Accuracy goes from under 10% after one read to over 70% after **re-reading the haystack** 2–4 times.
+- **Full attention out-competes the memory.** In models with unrestricted full attention, the learned gate clusters near 0: the model ignores FwPKM. Restricting attention's reach during training makes the model use it.
+- **Novelty detection.** In the upper FwPKM layer, the gate spikes on rare named entities ("Sakana AI", "David Ha", "Llion Jones"). The lower layer acts as a general recent-history buffer.
+- **Retention fails across domains.** Adapting to a new domain flushes what was stored for earlier ones. They name memory consolidation as future work.
+- Cheap in FLOPs (8 active rows), but slow in wall-clock without dedicated kernels.
+
+**Where it touches us.**
+- **It's our original design, working, because it's trained.** Seahorse began as a fast associative matrix written by the delta rule and read by adding back into the residual stream. In FwPKM that works for facts, because the model is **trained to read it**. Our frozen model never learned to read a push. That's the strongest evidence for core-idea's P5: *writes can be training-free; reads need training.* It points to the trained-read-adapter route for Seahorse.
+- **It stores "what comes next".** The lookahead target is the same kind of content our fact push turned out to hold ("say Pepper", C6). Useful in FwPKM because the model learned *when* to use it.
+- **Attention wins when it can reach the fact.** The gate collapsing near 0 under full attention matches Exp 1: in context, facts are fetched by attention from their own position. Memory gets used where attention can't reach, which fits our hybrid results too.
+- **Re-reading consolidates.** Repeated passes raise retrieval sharply. That's the trained analogue of Exp 1's joint re-encoding fix and of "dreaming as replay".
+- **Retention is the same open problem.** New writes flush old ones: our failure 6 (last write wins) and exp 3's motivation.
+- **Product keys could index a large store.** Two small codebooks address hundreds of thousands of slots with about a thousand comparisons. That's the obvious index if G-key retrieval doesn't scale.
+- **The novelty-gating result is a "what to store" signal** (exp 3, 2c): a trained gate learns to fire on rare entities. Our version would ask whether the frozen model's own signals do the same.
+
+**What it doesn't cover.** Frozen pretrained models; memory across sessions (fast weights carry across segments of one stream, not across separate conversations); binding, cache slices, or recognition vs recall. **Must cite** in any Seahorse system paper.
+
+**Also from its related work, not yet read:** Artificial Hippocampus Networks (Fang et al. 2025, fine-tuning hybrids with memory), Titans / Nested Learning (Behrouz et al.), Test-Time Regression, MIRAS, Ultra Sparse Memory.
 
 ---
 

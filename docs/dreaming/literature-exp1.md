@@ -334,6 +334,13 @@ Also correct two lines in [01-binding.md](01-binding.md) when it is next edited:
 - **The subject sentence.** "The question's subject carries nothing the answer needs" → "carries no copy of the value". (This note doesn't edit other files.)
 - **The "What was and was not new" paragraph.** It should add DASC (recall in attention on Qwen3-Next) and Prompt Cache's scaffolding (joint encoding).
 
+# Added later
+
+- **FwPKM (Zhao & Jones, Sakana AI, arXiv 2601.00671, 2026)**, read 2026-10-14, full notes in [literature.md group F](../reference/literature.md#f-trained-fast-weight-memory). Relevant here:
+  - **Finding 4:** in a GDN + attention hybrid, the learned gate ignores the memory when full attention can reach the context, and uses it when attention is restricted. That supports "recall runs through attention where attention can reach".
+  - **Finding 5:** re-reading the context 2–4 times raises needle retrieval from under 10% to over 70%. That's the trained analogue of joint re-encoding.
+  - **Not about cache slices, binding IDs, or recognition from a state,** so the novelty claims above stand.
+
 # Not read, partly read, or off-topic
 
 - **Off-topic:** dQwen3.5 (diffusion adaptation; architecture facts only). RF-Mem (terminology only).
