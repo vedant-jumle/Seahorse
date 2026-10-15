@@ -320,3 +320,61 @@ rerun from scratch in a new run directory. The first run (`dream_refs_20261011_2
    step; the alternatives prompt is tied to it, and the null-value prompt excludes it.
 
 The S1 rule, the nulls' construction, the grid and every decision rule are unchanged.
+
+**Amendment 2, 2026-10-15: prompts v3 (FINAL) and "dreaming failed" instead of a stop. Made after the v2 dream
+(job 952258) and validate (952259) and before any S1, S3 or generation result existed: validate stopped on
+has_young_kids, so prep + lens (952260) never ran.** The v2 run (`dream_refs_20261012_0016`) is kept, not used;
+v3 is dreamed, validated and prepped from scratch in a new run directory.
+
+*What v2 got wrong (from the dreamer's own outputs in `dream/dream.json`; nothing else was read).*
+- **has_young_kids:** the dreamer named the category "number of young children", so all 12 × 12 alternatives
+  were the same trait in another amount ("I have three toddlers at home."); every one is correctly rejected by
+  the key-word check, leaving 0 alternatives.
+- **celiac, diabetes:** the frame kept the consequence clause ("I have {X}, so I can't eat gluten.", "I have {X},
+  so I have to watch my sugar."), so every alternative had to be a condition with that consequence: near-synonyms
+  of the trait (wheat allergy, sprue; prediabetes, type 2 diabetes). Their centroid would cancel the trait.
+
+*Prompts v3 (`dream_prompts.yaml`, version 3). Prompt-wide, no item-specific wording.*
+- (a) **Category = the kind of thing the trait itself is** (what a different user would have instead of it),
+  never a number, amount, frequency, degree or property of the trait; different values must be different traits,
+  not the same trait in another amount or detail. The alternatives prompt adds: each must be a different
+  {category}, not the same one with another number, amount, degree or detail, and not a synonym, a sub-type, or a
+  milder or stronger form of it. New generic examples: "a hobby" (the birdwatcher, previously "a hobby and how
+  often one does it"), "a fear", and "I own three vintage motorbikes." → "something a person collects or owns",
+  not "a number of motorbikes".
+- (b) **The frame holds only the trait slot.** A clause giving a consequence of, or a reason for, the trait
+  (", so …", "because …", ", which means …", ", and therefore …") is left out of the value and of the frame. Example:
+  "I'm afraid of dogs, so I cross the street when I see one." → value "afraid of dogs", frame "I'm {X}.".
+- Opposite, paraphrase, null-value and topic prompts are unchanged.
+- **Not tuned toward the hand-written references.** While writing v3 I did not open core_v1's `items.yaml`
+  (counters, alternatives, lexicons) or the v2 `spotcheck.md` (which prints them side by side); the examples are
+  about no item. The existing test that no hand-written reference or lexicon word appears in any prompt passes.
+- **v3 is the final prompt version.** After v3 the dreamer's prompts do not change again, for this experiment
+  and for the PrefEval benchmark (addendum below). Whatever v3 produces is the result.
+
+*Validator changes (`refs.py`, `validate.py`; tested).*
+- **Frame validity** now also accepts a frame that drops a trailing clause: frame(value) must equal the
+  experience, or a prefix of it after which the experience continues with a clause that starts with , ; : or a
+  spaced dash, or with so / because / since / which / as / therefore / thus / hence / meaning / "and so" /
+  "and therefore" / "and that's why" (`refs.dropped_clause`). A leading part is never dropped, and the cut may not
+  fall inside a word. The dropped clause is recorded and flagged in `spotcheck.md`. The `with` state still uses
+  the full experience sentence; only the frame (and so the alternatives and null-frame sentences) is shorter.
+- **Dreaming failed, not a stop.** Per item and reference:
+  - the **opposite** fails if it is empty or fails a hard check (no passing greedy output or sample);
+  - the **alternatives** fail if fewer than **4** candidates pass every hard check (frame-miss fillers do not
+    count; an item without a valid frame has none).
+  A failed reference is not stored, and the item is **excluded, with a count, from the variants that need it**:
+  opposite → `gen:opposite`; alternatives → `gen:centroid`, `cs:concept_x_sign`, `cs:oracle`. `hand:opposite`,
+  nomem and ctx are unaffected. The run continues. Failures are a **reported outcome** (how often a model's own
+  references fail), per item and per variant, in `validation.json`, `spotcheck.md`, `report_A.md` and the phase B
+  report.
+- **Effect on the rules.** S1: a failed item is "dreaming failed" at every layer of that reference type,
+  counted neither as determinate nor as indeterminate (reported separately). S3: the valence reader uses the plain
+  shift, so every item stays; the generated-opposite reader (reported only) runs on items with a gen:opposite. S2 /
+  S4: each variant's group number is over the ctx-kept items not excluded for it; if fewer than half of a group's
+  ctx-kept items remain for a variant, the claims that use that (group, variant) are **"not testable (dreaming
+  failed)"** and do not hold.
+- The only structural stops left: fewer than 20 valence topics, or a dream that misses items.
+
+*Infrastructure (no effect on any number).* prep + lens runs on gpu-a100-small (the 2B in fp32 fits the 10 GB
+slice; same precision as the V100); job time limits are set to the estimate + 50%.

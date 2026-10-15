@@ -14,7 +14,20 @@
 # generated centroid subtracted the trait itself; and "the same kind as" was read loosely ("I really can't stand
 # {X}." -> loud noises, sticky floors). v2 asks for the whole distinctive part as the value, and for a CATEGORY
 # that the alternatives (and the null values, by contrast) are tied to. The changes are prompt-wide, not per item.
-version: 2
+#
+# v3 (2026-10-15, FINAL; a pre-outcome amendment, PREREG.md "Amendment 2"). Two failure modes of v2, fixed
+# prompt-wide (no item-specific wording; the hand-written references were not consulted while writing v3):
+#  (a) the category named a quantity or an attribute of the trait ("number of young children"), so every
+#      alternative was the same trait in another amount. v3: the category is the kind of thing the trait itself
+#      IS (what another user would have instead of it), never a number, amount, frequency, degree or property of
+#      it; the alternatives must be different traits, not the same one in another amount or detail, and not a
+#      synonym, sub-type, or milder / stronger form of it.
+#  (b) the frame kept a consequence clause ("I have {X}, so I can't eat ..."), which forced every alternative
+#      into near-synonyms of the trait. v3: a clause that gives a consequence of, or a reason for, the trait is
+#      left out of the value AND the frame; the frame holds only the slot and the words that introduce it.
+#      (refs.check_frame accepts such a frame: frame(value) = the experience with that trailing clause dropped.)
+# After v3 the prompts do not change again; items whose references fail are reported as "dreaming failed".
+version: 3
 
 frame:
   kind: single
@@ -24,9 +37,10 @@ frame:
     "{sentence}"
 
     1. VALUE: the part of the sentence that says what is particular about this user, copied exactly as it appears in the sentence. It is everything another user would have to change to describe themselves differently. If the sentence names a trait and then a detail of it, the value is the trait together with its detail, not the detail alone. Test: a different user, with a different value, must be able to say the frame truthfully. For "I'm a big fan of opera." the value is "opera"; for "I always take the stairs." it is "the stairs"; for "I'm a keen birdwatcher and go out every weekend." it is "a keen birdwatcher and go out every weekend" (not "every weekend").
-    2. FRAME: the whole sentence copied exactly, with the value replaced by {X}. For the examples: "I'm a big fan of {X}.", "I always take {X}." and "I'm {X}."
-    3. KEY WORDS: the one to three words of the value that name it (for the examples: ["opera"], ["stairs"] and ["birdwatcher"]).
-    4. CATEGORY: what kind of thing the value is, in a few words, broad enough that many different users would fill it differently (for the examples: "a kind of music", "a way of getting upstairs", "a hobby and how often one does it").
+    If the sentence goes on to give a consequence of the trait or a reason for it (a clause such as ", so ...", "because ...", ", which means ...", ", and therefore ..."), that clause is NOT part of the value and NOT part of the frame: leave it out of both. For "I'm afraid of dogs, so I cross the street when I see one." the value is "afraid of dogs" and the frame is "I'm {X}." (the clause ", so I cross the street when I see one" is dropped).
+    2. FRAME: the sentence copied exactly, with the value replaced by {X}, and with any consequence or reason clause left out, so that the frame holds only the slot and the words that introduce it. For the examples: "I'm a big fan of {X}.", "I always take {X}.", "I'm {X}." and "I'm {X}."
+    3. KEY WORDS: the one to three words of the value that name it (for the examples: ["opera"], ["stairs"], ["birdwatcher"] and ["dogs"]).
+    4. CATEGORY: the kind of thing the trait itself is, i.e. what a different user would have INSTEAD of it, broad enough that many different users would fill it differently. The category is never a number, an amount, a frequency or a degree, and never a property of this particular trait: different values of the category must be different traits, not the same trait in another amount or with another detail. For the examples: "a kind of music", "a way of getting upstairs", "a hobby" and "a fear". For "I own three vintage motorbikes." the category is "something a person collects or owns", not "a number of motorbikes".
 
     Reply with only this JSON object and nothing else:
     {"value": "...", "frame": "...", "key_words": ["..."], "category": "..."}
@@ -51,7 +65,7 @@ alternatives:
     Sentence: "{sentence}"
     Frame: "{frame}"
 
-    The value "{value}" is {category}. List 12 other things the speaker could have said in exactly this frame, each a different value that is also {category}, the way other users might fill it. Stay within {category}; do not switch to other kinds of things. Write each as the complete sentence with the frame unchanged and only {X} replaced.
+    The value "{value}" is {category}. List 12 other things the speaker could have said in exactly this frame, each a different value that is also {category}, the way other users might fill it. Stay within {category}; do not switch to other kinds of things. Each must be a different {category} from "{value}": not the same one with a different number, amount, degree or detail, and not a synonym, a sub-type, or a milder or stronger form of it. Write each as the complete sentence with the frame unchanged and only {X} replaced.
 
     Reply with only the 12 sentences, one per line, numbered 1 to 12.
   # used only if no valid frame could be obtained for the item (refs.select_frame returned None)
