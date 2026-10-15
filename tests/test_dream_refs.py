@@ -329,3 +329,94 @@ def test_dreamer_never_sees_hand_references(tmp_path):
     assert not errors and len(out) == 29 and all(len(v["alternatives"]) == 8 for v in out.values())
     assert all(v["null_swap"]["partner"] == items[i]["swap"] for i, v in out.items())
     assert len(valence["pairs"]) == 3 * len(valence["topics"])
+
+
+# ------------------------------------------------------------------ prompts v3 and dreaming failures (Amendment 2)
+
+
+def test_frame_may_drop_a_consequence_clause():
+    s = "I'm afraid of dogs, so I cross the street when I see one."
+    assert refs.dropped_clause("I'm afraid of dogs.", s) == "so i cross the street when i see one"
+    assert refs.dropped_clause("I'm afraid of dogs, so I cross the street when I see one", s) == ""
+    assert refs.dropped_clause("I own a boat", "I own a boat because I love sailing.") == "because i love sailing"
+    assert refs.dropped_clause("I own a boat", "I own a boat and so I sail.") == "and so i sail"
+    assert refs.dropped_clause("I own a boat", "I own a boat and a car.") is None          # not a consequence clause
+    assert refs.dropped_clause("I own a bo", "I own a boat, so I sail.") is None           # cut inside a word
+    assert refs.dropped_clause("I own a well", "I own a well-kept boat.") is None          # a hyphen inside a word
+    assert refs.dropped_clause("I cross the street when I see one.", s) is None            # a leading part: never
+    ok = '{"value": "afraid of dogs", "frame": "I\'m {X}.", "key_words": ["dogs"], "category": "a fear"}'
+    f, probs = refs.check_frame(refs.parse_json_obj(ok), s)
+    assert probs == [] and f["dropped"] == "so i cross the street when i see one" and f["category"] == "a fear"
+    f, probs = refs.check_frame(refs.parse_json_obj(ok), "I'm afraid of dogs.")
+    assert probs == [] and f["dropped"] == ""
+    bad = '{"value": "the street", "frame": "I cross {X} when I see one.", "key_words": ["street"]}'
+    assert "frame(value) != sentence" in refs.check_frame(refs.parse_json_obj(bad), s)[1]
+
+
+def test_dreaming_failed_rule():
+    good_opp = {"text": "I love dogs.", "ok": True, "hard": {"nonempty": True}}
+    bad_opp = {"text": "I'm not afraid of dogs.", "ok": False, "hard": {"nonempty": True, "no_new_negation": False}}
+    assert refs.dream_failures(good_opp, {"n_valid": 8}) == {"opposite": None, "centroid": None}
+    f = refs.dream_failures(bad_opp, {"n_valid": 3})
+    assert "no_new_negation" in f["opposite"] and f["centroid"] == "3 valid alternatives (< 4)"
+    assert refs.dream_failures({"text": "", "ok": False, "hard": {}}, {"n_valid": 4})["opposite"] == "empty opposite"
+    assert refs.dream_failures(good_opp, {"n_valid": 4})["centroid"] is None              # 4 is enough
+    assert refs.excluded_variants(f) == {"gen:opposite", "gen:centroid", "cs:concept_x_sign", "cs:oracle"}
+    assert refs.excluded_variants({"opposite": None, "centroid": "x"}) == {"gen:centroid", "cs:concept_x_sign",
+                                                                          "cs:oracle"}
+    # S1: a dreaming-failed item is neither determinate nor indeterminate, and does not count against the layer
+    items = [f"i{k}" for k in range(20)]
+    st = {l: {i: "pass" for i in items} for l in (20, 21, 23)}
+    st[20].update({"i0": "failed", "i1": "failed", "i2": "fail"})
+    r = refs.s1_rule(st)
+    assert r["per_layer"][20]["n_determinate"] == 18 and r["per_layer"][20]["n_dream_failed"] == 2
+    assert r["per_layer"][20]["n_indeterminate"] == 0 and r["verdict"] == "holds"
+
+
+def test_validator_records_dreaming_failure_and_continues(tmp_path):
+    dr = _load("dream_refs_dream2", EXP / "dream.py")
+    val = _load("dream_refs_validate2", EXP / "validate.py")
+    cfg = dr.load_cfg(EXP / "config_dream.yaml")
+    inputs = dr.dream_inputs(cfg)
+
+    class A:
+        mock, tiny, items, random_model = True, False, None, None
+    res = dr.run(cfg, A, dr.MockDreamer(), inputs, tmp_path / "dream")
+    first = inputs[0]["id"]
+    res["items"][first]["alternatives_raw"] = {"greedy": None, "samples": ["nothing useful"] * 3, "capped": []}
+    e = res["items"][first]["experience"]
+    res["items"][first]["opposite_raw"] = {"greedy": "", "samples": [], "capped": []}
+    items = val.load_items(yaml.safe_load(open(EXP / "config_dream.yaml")))
+    out, _, errors = val.validate(res, items, yaml.safe_load(open(EXP / "config_dream.yaml")))
+    assert not errors and len(out) == 29                                     # the run does not stop
+    v = out[first]
+    assert v["failed"]["opposite"] and v["failed"]["centroid"] and e
+    assert set(v["excluded_variants"]) == {"gen:opposite", "gen:centroid", "cs:concept_x_sign", "cs:oracle"}
+    assert any("DREAMING FAILED" in f for f in v["flags"])
+    summ = val.summary(out, _)
+    assert summ["dream_failed_any"] == 1 and summ["dream_failed_opposite"] == 1 and summ["dream_failed_centroid"] == 1
+    assert all(not any(x["failed"].values()) for i, x in out.items() if i != first)
+
+
+def test_item_conds_drop_failed_variants(run_mod):
+    cfg = yaml.safe_load(open(EXP / "config_qwen35_2b.yaml"))
+    cs = run_mod.conditions(cfg)
+    M = {20: {"design": 0, "gen_opp": 0}}                  # gen_cent (and so cs_*) failed
+    got = [c.cid for c in run_mod.item_conds(cs, M)]
+    assert got == ["nomem", "ctx"] + [f"{v}@{a:g}" for v in ("hand:opposite", "gen:opposite") for a in (0.5, 1, 2)]
+
+
+def test_claims_not_testable_after_dreaming_failures():
+    an = _load("dream_refs_analyze2", EXP / "analyze.py")
+
+    def row(g, v, d, lo, hi, n=8, ng=8):
+        return {"group": g, "variant": v, "alpha": 1, "matched": True, "loop": 0.0, "d_j_lean": d, "d_j_lean_lo": lo,
+                "d_j_lean_hi": hi, "wrong_items": 0.0, "n_items": n, "n_group": ng}
+    good = [row("dislikes", "gen:opposite", 0.2, 0.05, 0.35), row("dislikes", "gen:centroid", -0.3, -0.5, -0.1),
+            row("dislikes", "cs:concept_x_sign", 0.15, 0.02, 0.3), row("dislikes", "cs:oracle", 0.2, 0.05, 0.3),
+            row("leanings", "gen:opposite", 0.2, 0.05, 0.35, 15, 15), row("leanings", "cs:concept_x_sign", 0.1, -0.05, 0.2, 15, 15)]
+    assert an.claims(None, good, "/x")["S2"]["holds"]
+    few = [dict(r, n_items=3) if r["variant"] == "gen:centroid" else r for r in good]   # 3 of 8 remain
+    C = an.claims(None, few, "/x")
+    assert not C["S2"]["holds"] and C["not_testable"] == ["dislikes/gen:centroid"] and C["S4"]["holds"]
+    assert an.testable({"n_items": 4, "n_group": 8}) and not an.testable({"n_items": 0, "n_group": 0})

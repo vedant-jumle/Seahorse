@@ -87,14 +87,15 @@ def matched_table(R):
     highest alpha in {0.5, 1, 2} with loop <= 10%, as core_v1 C5)."""
     rows, matched = [], []
     for g in PREF:
-        items = R.kept(g)
-        if not items:
+        kept = R.kept(g)
+        if not kept:
             continue
         for v in VARIANTS:
             per, loops = {}, {}
+            items = [i for i in kept if v not in excluded_of(R, i)]     # Amendment 2: dreaming-failed items out
             for a in R.cfg["doses"]:
                 c = f"{v}@{a:g}"
-                o = {"group": g, "variant": v, "alpha": a, "cond": c, "n_items": len(items)}
+                o = {"group": g, "variant": v, "alpha": a, "cond": c, "n_items": len(items), "n_group": len(kept)}
                 for m in ("loop", "j_lean", "j_incoh", "lex_clean"):
                     o[m] = R.stat(m, c, items)[0]
                 for m in ("j_lean", "lex_clean"):
@@ -109,11 +110,29 @@ def matched_table(R):
     return rows, matched
 
 
+def excluded_of(R, iid):
+    """The variants an item is excluded from because its dreaming failed (PREREG Amendment 2)."""
+    return set((R.items[iid].get("dream") or {}).get("excluded_variants") or [])
+
+
+def testable(row):
+    """Amendment 2: a (group, variant) number enters a rule only if >= half of the group's ctx-kept items remain
+    after the dreaming-failed exclusions; otherwise the claim is 'not testable (dreaming failed)'."""
+    if "n_items" not in row:
+        return True
+    return row["n_items"] > 0 and row["n_items"] >= 0.5 * row.get("n_group", row["n_items"])
+
+
 def claims(R, matched, lens_dir):
     mt = {(r["group"], r["variant"]): r for r in matched}
     g = lambda grp, v, k: mt.get((grp, v), {}).get(k, NAN)
     C = {}
+    nt = [f"{grp}/{v}" for grp, v in (("dislikes", "gen:opposite"), ("dislikes", "gen:centroid"),
+                                      ("dislikes", "cs:concept_x_sign"), ("leanings", "cs:concept_x_sign"),
+                                      ("leanings", "gen:opposite")) if (grp, v) in mt and not testable(mt[(grp, v)])]
+    C["not_testable"] = nt
     s2 = g("dislikes", "gen:opposite", "d_j_lean_lo") > 0 and g("dislikes", "gen:centroid", "d_j_lean_hi") < 0
+    s2 = s2 and not any(x in nt for x in ("dislikes/gen:opposite", "dislikes/gen:centroid"))
     C["S2"] = {"holds": bool(s2), "rule": "dislikes (ctx-rule kept), each variant at its loop-matched alpha: gen:opposite's "
                "j_lean gain vs nomem > 0 (CI excludes 0) and gen:centroid's < 0 (CI excludes 0)",
                "evidence": {v: {k: mt.get(("dislikes", v), {}).get(k) for k in
@@ -121,6 +140,8 @@ def claims(R, matched, lens_dir):
                             for v in VARIANTS}}
     dis = g("dislikes", "cs:concept_x_sign", "d_j_lean_lo") > 0
     lean = g("leanings", "cs:concept_x_sign", "d_j_lean") >= g("leanings", "gen:opposite", "d_j_lean_lo")
+    dis, lean = dis and "dislikes/cs:concept_x_sign" not in nt, lean and not any(
+        x in nt for x in ("leanings/cs:concept_x_sign", "leanings/gen:opposite"))
     C["S4"] = {"holds": bool(dis and lean), "parts": {"dislikes_right_way": bool(dis), "leanings_not_worse": bool(lean)},
                "rule": "cs:concept_x_sign at its loop-matched alpha: dislikes' j_lean gain > 0 (CI excludes 0), AND on the "
                        "leanings its gain >= the lower CI bound of gen:opposite's gain (each at its own loop-matched alpha)",
@@ -214,7 +235,7 @@ def report_md(R, T, CL, others, repro, cv1_ctx):
     w("## Claims (PREREG.md rules; original judge decisive, panel reported)")
     w(cv1a.md_table(["claim", "verdict", "rule"],
                     [[k, (("**holds**" if v["holds"] else "fails") if "holds" in v else v.get("verdict")),
-                      v.get("rule", v.get("decided_in", ""))] for k, v in CL.items() if k != "decisions"]))
+                      v.get("rule", v.get("decided_in", ""))] for k, v in CL.items() if k not in ("decisions", "not_testable")]))
     w("")
     w(f"S4 reading: {CL['S4']['reading']}")
     w("")
@@ -230,10 +251,22 @@ def report_md(R, T, CL, others, repro, cv1_ctx):
     fl = [x for x in R.flags.values() if x["flagged"]]
     w(f"## ctx rule: flagged items (excluded from primary numbers): {', '.join(x['item'] for x in fl) or 'none'}")
     w("")
+    df = {i: it.get("dream", {}).get("excluded_variants") or [] for i, it in R.items.items()}
+    df = {i: v for i, v in df.items() if v}
+    w(f"## Dreaming failed (PREREG Amendment 2): {len(df)} items, each excluded from the variants named; "
+      "n_items below is the group's ctx-kept count, the variant's own count is lower by its exclusions")
+    for v in VARIANTS:
+        ex = sorted(i for i, vs in df.items() if v in vs)
+        if ex:
+            w(f"- {v}: {len(ex)} excluded ({', '.join(ex)})")
+    w("")
     w("## Loop-matched comparison (highest alpha with loop <= 10%)")
-    w(cv1a.md_table(["group", "variant", "alpha", "matched", "loop", "d_j_lean [95% CI]", "wrong items"],
-                    [[r["group"], r["variant"], f"{r['alpha']:g}", r["matched"], f(r["loop"], ".3f"), ci(r, "d_j_lean"),
-                      f(r["wrong_items"], ".2f")] for r in T["matched"]]))
+    w(cv1a.md_table(["group", "variant", "items", "alpha", "matched", "loop", "d_j_lean [95% CI]", "wrong items"],
+                    [[r["group"], r["variant"], f"{r['n_items']}/{r['n_group']}", f"{r['alpha']:g}", r["matched"],
+                      f(r["loop"], ".3f"), ci(r, "d_j_lean"), f(r["wrong_items"], ".2f")] for r in T["matched"]]))
+    if CL.get("not_testable"):
+        w(f"Not testable (fewer than half of the group's items remain after dreaming failures; the claims that use them "
+          f"do not hold): {', '.join(CL['not_testable'])}")
     w("")
     if cv1_ctx:
         w("Context only (core_v1's own 2B run, a different run with its own nomem; enters no rule): dislikes, "

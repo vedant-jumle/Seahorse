@@ -149,11 +149,45 @@ def fits(frame, s):
     return m.group(1).strip() if m and m.group(1).strip() else None
 
 
+# a dropped trailing clause (prompts v3) must start with one of these: punctuation or a consequence / reason word
+DROP_PUNCT = (",", ";", ":", "-")
+DROP_WORDS = {"so", "because", "since", "which", "as", "therefore", "thus", "hence", "meaning"}
+DROP_AND = {"so", "therefore", "thus", "hence", "that's", "thats", "because"}   # "and so ...", "and that's why ..."
+
+
+def dropped_clause(filled, sentence):
+    """prompts v3: the frame may leave out a trailing consequence / reason clause. Returns "" if the filled
+    frame reproduces the sentence, the dropped clause if the sentence is the filled frame followed by a clause
+    that starts with , ; : - or a consequence / reason word (so, because, since, which, as, therefore, thus,
+    hence, meaning, "and so", "and therefore", "and that's why"), else None. Case, whitespace and final
+    punctuation are ignored; the kept part must be a prefix of the sentence (a leading clause is never
+    dropped)."""
+    f, s = ckey(filled), ckey(sentence)
+    f, s = re.sub(r"\s+", " ", f), re.sub(r"\s+", " ", s)
+    if f == s:
+        return ""
+    if not f or not s.startswith(f):
+        return None
+    rest = s[len(f):]
+    r = rest.strip()
+    if not r:
+        return None
+    if r[0] in DROP_PUNCT and (r[0] != "-" or rest[0].isspace()):   # "well-known" is not a dropped clause
+        return r.lstrip("".join(DROP_PUNCT)).strip() or None
+    if not rest[0].isspace():          # the kept part ended inside a word
+        return None
+    w = r.split()
+    if w[0] in DROP_WORDS or (w[0] == "and" and len(w) > 1 and w[1] in DROP_AND):
+        return r
+    return None
+
+
 def check_frame(obj, sentence):
     """The dreamer's {"value", "frame", "key_words", "category"} -> (frame dict, problems). Valid iff no
-    problems: one slot, the frame with the value reproduces the sentence, key words present and inside the value.
-    The category (prompts v2) is optional: "" when absent, and then the alternatives prompt falls back to "the
-    same kind of thing as <value>"."""
+    problems: one slot, the frame with the value reproduces the sentence (prompts v3: or the sentence without a
+    trailing consequence / reason clause, see dropped_clause; the dropped clause is recorded), key words present
+    and inside the value. The category (prompts v2) is optional: "" when absent, and then the alternatives prompt
+    falls back to "the same kind of thing as <value>"."""
     probs = []
     if not isinstance(obj, dict):
         return None, ["no JSON object"]
@@ -163,15 +197,19 @@ def check_frame(obj, sentence):
     kw = [norm(str(k)) for k in (kw if isinstance(kw, list) else [kw]) if norm(str(k))]
     if not value:
         probs.append("empty value")
+    dropped = None
     if frame.count(SLOT) != 1:
         probs.append(f"frame has {frame.count(SLOT)} slots")
-    elif ckey(fill(frame, value)) != ckey(sentence):
-        probs.append("frame(value) != sentence")
+    else:
+        dropped = dropped_clause(fill(frame, value), sentence)
+        if dropped is None:
+            probs.append("frame(value) != sentence")
     if not kw:
         probs.append("no key words")
     elif any(not has_phrase(value, k) for k in kw):
         probs.append("a key word is not in the value")
-    return {"value": value, "frame": frame, "key_words": kw, "category": norm(str(obj.get("category") or ""))}, probs
+    return {"value": value, "frame": frame, "key_words": kw, "category": norm(str(obj.get("category") or "")),
+            "dropped": dropped or ""}, probs
 
 
 def select_frame(greedy, samples, sentence):
@@ -362,6 +400,36 @@ def select_null_values(greedy, samples, sentence, frame, alt_fillers, keep=8):
     return out[:keep], {"n_kept": min(len(out), keep)}
 
 
+# ------------------------------------------------------------------------------------ dreaming failed
+
+
+MIN_VALID_ALTERNATIVES = 4   # PREREG Amendment 2: fewer valid alternatives = dreaming failed for the centroid
+
+
+def dream_failures(opposite, alternatives_info, min_alts=MIN_VALID_ALTERNATIVES):
+    """PREREG Amendment 2: which references the dreaming failed to produce for an item. The opposite fails if
+    it fails a hard check (select_opposite returned it not ok, or it is empty); the alternatives fail if fewer
+    than `min_alts` candidates pass EVERY hard check (frame-miss fillers do not count; with no valid frame no
+    candidate can pass). Returns {"opposite": reason or None, "centroid": reason or None}."""
+    o = None
+    if not (opposite or {}).get("text"):
+        o = "empty opposite"
+    elif not opposite.get("ok"):
+        o = "opposite fails a hard check: " + ", ".join(k for k, v in opposite["hard"].items() if not v)
+    n = alternatives_info.get("n_valid", 0)
+    c = None if n >= min_alts else f"{n} valid alternatives (< {min_alts})"
+    return {"opposite": o, "centroid": c}
+
+
+# variants that need each reference (an item whose reference failed is excluded from these, with a count)
+NEEDS = {"opposite": ("gen:opposite",), "centroid": ("gen:centroid", "cs:concept_x_sign", "cs:oracle")}
+
+
+def excluded_variants(failures):
+    """{reference: reason or None} -> the set of variants the item is excluded from."""
+    return {v for ref, why in failures.items() if why for v in NEEDS[ref]}
+
+
 # --------------------------------------------------------------------------------------------- valence
 
 
@@ -499,12 +567,13 @@ def s1_rule(status_by_layer, share=S1_SHARE, min_det=S1_MIN_DET):
     indeterminate (the decision then falls to S2)."""
     per = {}
     for l, st in status_by_layer.items():
-        n_det = sum(s != "indeterminate" for s in st.values())
+        n_det = sum(s in ("pass", "fail") for s in st.values())
         n_pass = sum(s == "pass" for s in st.values())
+        n_failed = sum(s == "failed" for s in st.values())      # dreaming failed (Amendment 2): not counted
         sh = n_pass / n_det if n_det else float("nan")
         verdict = "indeterminate" if n_det < min_det else ("holds" if sh >= share else "fails")
         per[l] = {"n_items": len(st), "n_determinate": n_det, "n_pass": n_pass, "share_pass": sh, "verdict": verdict,
-                  "n_indeterminate": len(st) - n_det}
+                  "n_indeterminate": len(st) - n_det - n_failed, "n_dream_failed": n_failed}
     vs = [p["verdict"] for p in per.values()]
     overall = "fails" if "fails" in vs else ("holds" if vs and all(v == "holds" for v in vs) else "indeterminate")
     return {"per_layer": per, "verdict": overall}

@@ -243,8 +243,17 @@ def prep(C, L, R, out):
         own = [{"j": m["j"], "n": m["n"], "key": {l: m["key"][l].float() for l in C.layers},
                 "shifts": {CV1_NAMES[name]: {l: m["shifts"][name][l].float() for l in C.layers}
                            for name in CV1_NAMES}} for m in state0["moments"][iid]]
-        g = moments_at(C, pseudo(it, counter=r["opposite"]["text"], centroid=[a["text"] for a in r["alternatives"]]),
-                       L["placebo"])
+        # PREREG Amendment 2: a reference the dreaming failed to produce is not stored (the item is excluded from the
+        # variants that need it). core_v1's build_moments needs both references, so a failed one is replaced by a
+        # stand-in whose shift is discarded; with both failed only the plain shift is computed (its check stays).
+        fail = r.get("failed") or {"opposite": None, "centroid": None}
+        alts = [a["text"] for a in r["alternatives"]]
+        ok_o, ok_c = not fail["opposite"], not fail["centroid"]
+        if ok_o or ok_c:
+            g = moments_at(C, pseudo(it, counter=r["opposite"]["text"] if ok_o else alts[0],
+                                     centroid=alts if ok_c else [r["opposite"]["text"]]), L["placebo"])
+        else:
+            g = moments_at(C, pseudo(it, group="facts"), L["placebo"])
         ns = moments_at(C, pseudo(it, counter=r["null_swap"]["opposite"], centroid=r["null_swap"]["alternatives"]),
                         L["placebo"])
         nf_s = r["null_frame"]["sentences"]
@@ -252,7 +261,10 @@ def prep(C, L, R, out):
         paras = [moments_at(C, pseudo(it, experience=p["text"], group="facts"), L["placebo"]) for p in r["paraphrases"]]
         for j, m in enumerate(own):
             S = m["shifts"]
-            S["gen_opp"], S["gen_cent"] = g[j]["shifts"]["opposite"], g[j]["shifts"]["centroid"]
+            if ok_o:
+                S["gen_opp"] = g[j]["shifts"]["opposite"]
+            if ok_c:
+                S["gen_cent"] = g[j]["shifts"]["centroid"]
             S["null_swap_opp"], S["null_swap_cent"] = ns[j]["shifts"]["opposite"], ns[j]["shifts"]["centroid"]
             if nf:
                 S["null_frame_opp"], S["null_frame_cent"] = nf[j]["shifts"]["opposite"], nf[j]["shifts"]["centroid"]
@@ -270,12 +282,14 @@ def prep(C, L, R, out):
     for it in L["items"]:
         own = Mo[it["id"]]
         plain = {l: refs.mean_shift(own, "without", l) for l in C.layers}
-        gopp = {l: refs.mean_shift(own, "gen_opp", l) for l in C.layers}
+        gopp = {l: refs.mean_shift(own, "gen_opp", l) for l in C.layers} if "gen_opp" in own[0]["shifts"] else None
         true = refs.TRUE_SIGN[it["group"]]
-        sv, so = refs.read_signs(plain, v), refs.read_signs(plain, gopp)
+        sv = refs.read_signs(plain, v)
+        so = refs.read_signs(plain, gopp) if "gen_opp" in own[0]["shifts"] else None
         signs[it["id"]] = {"group": it["group"], "true": true, "valence": sv, "opp": so}
-        refs.signed_shifts(own, "gen_cent", "cs_sign", {l: sv[l]["sign"] for l in C.layers})
-        refs.signed_shifts(own, "gen_cent", "cs_oracle", {l: true for l in C.layers})
+        if "gen_cent" in own[0]["shifts"]:
+            refs.signed_shifts(own, "gen_cent", "cs_sign", {l: sv[l]["sign"] for l in C.layers})
+            refs.signed_shifts(own, "gen_cent", "cs_oracle", {l: true for l in C.layers})
     state = {k: state0[k] for k in ("layers", "tail_len", "head", "mu", "W", "thr", "sd", "med", "med_all")}
     state.update(moments=Mo, valence=v, valence_info=vinfo, signs=signs, items=[it["id"] for it in L["items"]],
                  refs_sha=R.get("_sha"), cv1_state_sha=checks["cv1_state_sha"])
@@ -284,8 +298,9 @@ def prep(C, L, R, out):
     for it in L["items"]:
         d = {k: it[k] for k in ("id", "group", "experience", "counter", "centroid", "lexicon", "followups", "related",
                                 "paraphrase", "ambiguous", "prompts", "swap", "mech")}
-        d["dream"] = {k: R["items"][it["id"]][k] for k in ("frame", "opposite", "alternatives", "paraphrases",
-                                                          "null_frame", "null_swap", "flags")}
+        d["dream"] = {k: R["items"][it["id"]].get(k) for k in ("frame", "opposite", "alternatives", "paraphrases",
+                                                               "null_frame", "null_swap", "flags", "failed",
+                                                               "excluded_variants")}
         items_out[it["id"]] = d
     json.dump(items_out, open(pdir / "items.json", "w"), indent=1)
     checks["counters"] = dict(C.chk)
@@ -339,6 +354,11 @@ def s1_tables(state, L, layers):
             ms = state["moments"][it["id"]]
             for l in layers:
                 H = refs.mean_shift(ms, hn, l)
+                if gn not in ms[0]["shifts"]:   # dreaming failed for this reference (Amendment 2): not counted
+                    status[l][it["id"]] = "failed"
+                    rows.append({"ref": ref, "item": it["id"], "group": it["group"], "layer": l, "cos_gen": None,
+                                 "cos_null_swap": None, "cos_null_frame": None, "status": "failed"})
+                    continue
                 cg = refs.cosine(refs.mean_shift(ms, gn, l), H)
                 cs_ = refs.cosine(refs.mean_shift(ms, sn, l), H)
                 cf = refs.cosine(refs.mean_shift(ms, fn, l), H) if fn in ms[0]["shifts"] else None
@@ -367,11 +387,13 @@ def s3_tables(state, L, layers, n_boot=2000, seed=7):
     true = {i: S[i]["true"] for i in allp}
     out = {}
     for reader in ("valence", "opp"):
-        pred = {l: {i: S[i][reader][l]["sign"] for i in allp} for l in layers}
-        marg = {l: {i: S[i][reader][l]["cos"] for i in allp} for l in layers}
-        out[reader] = {"signed": {l: refs.s3_layer(pred[l], marg[l], true, signed, boot) for l in layers},
-                       "all29": {l: refs.s3_layer(pred[l], marg[l], true, allp, boot) for l in layers},
-                       "per_item": {i: {l: {"pred": pred[l][i], "cos": marg[l][i]} for l in layers} for i in allp}}
+        have = [i for i in allp if S[i][reader] is not None]   # the opp reader needs a gen:opposite (Amendment 2)
+        sg = [i for i in signed if i in have]
+        pred = {l: {i: S[i][reader][l]["sign"] for i in have} for l in layers}
+        marg = {l: {i: S[i][reader][l]["cos"] for i in have} for l in layers}
+        out[reader] = {"signed": {l: refs.s3_layer(pred[l], marg[l], true, sg, boot) for l in layers},
+                       "all29": {l: refs.s3_layer(pred[l], marg[l], true, have, boot) for l in layers},
+                       "per_item": {i: {l: {"pred": pred[l][i], "cos": marg[l][i]} for l in layers} for i in have}}
         out[reader]["rule"] = refs.s3_rule(out[reader]["signed"])
     out["verdict"] = "holds" if out["valence"]["rule"]["holds"] else "fails"
     out["true"] = true
@@ -441,6 +463,15 @@ def report_a(cfg, L, state, lens, s1, s3, vl, chk, prep_checks, V, layers):
         if V.get("valence_deviation"):
             a(f"Deviation: {V['valence_deviation']}.")
             a("")
+        df = V.get("dream_failed") or {}
+        a(f"**Dreaming failed** (PREREG Amendment 2; a reported outcome, the item is excluded from the variants that "
+          f"need the failed reference): {len(df)} of {V.get('summary', {}).get('n_items', '?')} items.")
+        a("")
+        if df:
+            a(md_table(["item", "opposite", "centroid", "excluded from"],
+                       [[i, x["failed"]["opposite"] or "ok", x["failed"]["centroid"] or "ok",
+                         ", ".join(x["excluded_variants"])] for i, x in df.items()]))
+            a("")
     a("## S5: `without` needs no generation")
     a("")
     a("`without` is the same follow-up with the experience sentence left out: mechanical, no human and no model writes "
@@ -456,13 +487,15 @@ def report_a(cfg, L, state, lens, s1, s3, vl, chk, prep_checks, V, layers):
     for ref, rule in s1["rules"].items():
         a(f"**{ref}: {rule['verdict'].upper()}**")
         a("")
-        a(md_table(["layer", "items", "determinate", "pass", "share pass", "indeterminate", "layer verdict"],
+        a(md_table(["layer", "items", "determinate", "pass", "share pass", "indeterminate", "dreaming failed",
+                    "layer verdict"],
                    [[l, p["n_items"], p["n_determinate"], p["n_pass"], _f(p["share_pass"], ".2f"), p["n_indeterminate"],
-                     p["verdict"]] for l, p in rule["per_layer"].items()]))
+                     p.get("n_dream_failed", 0), p["verdict"]] for l, p in rule["per_layer"].items()]))
         a("")
     a(f"**S1 overall: {s1['verdict'].upper()}**")
     a("")
-    a("Per item (cosine with the hand-written shift of: gen / null_swap / null_frame; status), opposite then centroid:")
+    a("Per item (cosine with the hand-written shift of: gen / null_swap / null_frame; status, DF = dreaming failed, "
+      "excluded: PREREG Amendment 2), opposite then centroid:")
     a("")
     by = {}
     for r in s1["rows"]:
@@ -476,7 +509,7 @@ def report_a(cfg, L, state, lens, s1, s3, vl, chk, prep_checks, V, layers):
             d = by[(ref, it["id"])]
             rows_.append([it["id"], it["group"]] + [f"{_f(d[l]['cos_gen'])} / {_f(d[l]['cos_null_swap'])} / "
                                                     f"{_f(d[l]['cos_null_frame'])}" for l in layers]
-                         + ["/".join(d[l]["status"][:4] for l in layers)])
+                         + ["/".join("DF" if d[l]["status"] == "failed" else d[l]["status"][:4] for l in layers)])
         a(md_table(hdr, rows_))
         a("")
     if s1["para"]:
@@ -567,10 +600,19 @@ def memories(C, it, moments):
         keys = torch.cat([m["key"][l] for m in moments]).to(C.dev)
         M[l] = {}
         for mem, name in MEM_SHIFT.items():
+            if name not in moments[0]["shifts"]:     # dreaming failed (Amendment 2): no memory, no condition
+                continue
             S = torch.stack([m["shifts"][name][l].to(C.dev).float() for m in moments])
             M[l][mem] = dk.build({it["id"]: core.memory_chunks(S, keys)}, [it["id"]], "delta", lam, C.dev, C.chk)
             assert torch.equal(M[l][mem].Kst, M[l]["design"].Kst)
     return M
+
+
+def item_conds(conds, M):
+    """The item's conditions: those whose memory exists (a variant whose reference the dreaming failed to
+    produce is excluded for that item; PREREG Amendment 2)."""
+    have = set(next(iter(M.values())))
+    return [c for c in conds if c.kind in ("nomem", "ctx") or c.mem in have]
 
 
 def load_prep(C, out, L):
@@ -600,14 +642,15 @@ def gen(C, L, out):
                 log(f"gen: {it['id']} already done, skipped")
                 continue
             prompts = it["prompts"][:cfg.get("n_prompts", len(it["prompts"]))]
-            rows, gates = cv1.gen_main(C, it, Ms[it["id"]], conds, prompts) if "main" in C.A.sections else ([], [])
-            yn = cv1.gen_yn(C, it, Ms[it["id"]], prim) if "yn" in C.A.sections else []
+            ci, pi_ = item_conds(conds, Ms[it["id"]]), item_conds(prim, Ms[it["id"]])
+            rows, gates = cv1.gen_main(C, it, Ms[it["id"]], ci, prompts) if "main" in C.A.sections else ([], [])
+            yn = cv1.gen_yn(C, it, Ms[it["id"]], pi_) if "yn" in C.A.sections else []
             cv1.write_jsonl_gz(f, rows + gates + yn)
             el = time.time() - t0
             log(f"gen: {it['id']} done: {len(rows)} rows | {C.n_rows} rows, {el / 60:.1f} min, "
                 f"eta {el / (i + 1) * (len(sel) - i - 1) / 60:.1f} min")
     if "unrel" in C.A.sections:
-        conds_of = {it["id"]: prim for it in L["items"]}
+        conds_of = {it["id"]: item_conds(prim, Ms[it["id"]]) for it in L["items"]}
         unrel = L["unrelated"][:cfg.get("n_unrel", len(L["unrelated"]))]
         for uk, text in enumerate(unrel):
             f = gdir / "unrel" / f"u{uk:02d}.jsonl.gz"

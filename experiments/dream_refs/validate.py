@@ -10,8 +10,11 @@ Outputs: RUN/validate/refs.json        the references prep uses (generated, null
          RUN/validate/validation.json  every validator flag, per item, and the summary counts
          RUN/spotcheck.md              per item: experience, hand vs generated opposite, hand vs generated
                                        alternatives, paraphrases, nulls, flags (for the user to read)
-Exit code 1 (the chain stops) only on structural failures: an item with no alternative at all, an item with
-an empty opposite, or fewer than min_topics_fatal valence topics.
+Dreaming failures (PREREG Amendment 2, 2026-10-15): an item whose opposite fails a hard check (or is empty) or
+that has fewer than refs.MIN_VALID_ALTERNATIVES valid alternatives is recorded as "dreaming failed" for that
+reference and excluded, with a count, from the variants that need it (refs.NEEDS); the run continues. Failures
+are a reported outcome. Exit code 1 (the chain stops) only on fewer than min_topics_fatal valence topics, or on
+a dream that misses items.
 """
 
 import argparse
@@ -81,6 +84,12 @@ def validate_item(d, keep):
         flags.append("a paraphrase drops a key word")
     if fr is not None and ninfo["n_kept"] < keep["null_values"]:
         flags.append(f"only {ninfo['n_kept']} null_frame values")
+    if fr is not None and fr.get("dropped"):
+        flags.append(f"frame drops the clause \"{fr['dropped']}\" (prompts v3)")
+    failed = refs.dream_failures(opp, ainfo, keep.get("min_valid_alternatives", refs.MIN_VALID_ALTERNATIVES))
+    for ref, why in failed.items():
+        if why:
+            flags.append(f"DREAMING FAILED ({ref}): {why}")
     # the sentences prep writes before the follow-up end in punctuation, like every hand-written reference
     opp["text"] = refs.as_sentence(opp["text"])
     for a in alts + paras:
@@ -90,7 +99,7 @@ def validate_item(d, keep):
            "opposite": opp, "alternatives": alts, "alternatives_info": ainfo, "paraphrases": paras,
            "paraphrases_info": pinfo, "null_frame": {"sentences": nulls, "info": ninfo,
                                                      "opposite": nulls[0] if nulls else None},
-           "flags": flags}
+           "failed": failed, "excluded_variants": sorted(refs.excluded_variants(failed)), "flags": flags}
     return out
 
 
@@ -121,10 +130,6 @@ def validate(dream, items, cfg, partial=False):
         v["overlap"] = {"opposite_jaccard": refs.jaccard(v["opposite"]["text"], it["counter"]),
                         "opposite_exact": refs.ckey(v["opposite"]["text"]) == refs.ckey(it["counter"]),
                         "alternatives_shared": overlap([a["text"] for a in v["alternatives"]], it["centroid"])}
-        if not v["alternatives"]:
-            errors.append(f"{iid}: no alternatives")
-        if not v["opposite"]["text"]:
-            errors.append(f"{iid}: empty opposite")
         out[iid] = v
     kw = [k for v in out.values() if v["frame"] for k in v["frame"]["key_words"]]
     words, phrases = refs.item_value_words([it["experience"] for it in items.values()], kw,
@@ -153,6 +158,10 @@ def summary(out, val):
             "paraphrases_full_4": sum(v["paraphrases_info"]["n_kept"] >= 4 for v in out.values()),
             "null_frame_available": sum(bool(v["null_frame"]["sentences"]) for v in out.values()),
             "items_with_flags": sum(bool(v["flags"]) for v in out.values()),
+            "frame_drops_clause": sum(bool(v["frame"] and v["frame"].get("dropped")) for v in out.values()),
+            "dream_failed_opposite": sum(bool(v["failed"]["opposite"]) for v in out.values()),
+            "dream_failed_centroid": sum(bool(v["failed"]["centroid"]) for v in out.values()),
+            "dream_failed_any": sum(any(v["failed"].values()) for v in out.values()),
             "valence_topics": len(val["topics"]), "valence_pairs": len(val["pairs"])}
 
 
@@ -186,8 +195,13 @@ def spotcheck_md(out, val, items, dream, summ):
             w("")
             w(f"**Experience:** {v['experience']}")
             w("")
-            w(f"**Frame:** `{fr['frame']}` · value `{fr['value']}` · key words {fr['key_words']} ({fr['source']})"
-              if fr else "**Frame:** none valid")
+            if any(v["failed"].values()):
+                w("**DREAMING FAILED:** " + "; ".join(f"{r}: {why}" for r, why in v["failed"].items() if why)
+                  + f" -> excluded from {', '.join(v['excluded_variants'])}")
+                w("")
+            w(f"**Frame:** `{fr['frame']}` · value `{fr['value']}` · key words {fr['key_words']} · category "
+              f"\"{fr.get('category', '')}\"" + (f" · dropped clause \"{fr['dropped']}\"" if fr.get("dropped") else "")
+              + f" ({fr['source']})" if fr else "**Frame:** none valid")
             w("")
             o = v["opposite"]
             w("| | hand-written | generated |")
@@ -245,6 +259,8 @@ def main(argv=None):
                "dreamer": dream.get("model"), "items": out, "valence": val}, open(vd / "refs.json", "w"), indent=1)
     json.dump({"summary": summ, "errors": errors, "valence_info": val["info"], "valence_deviation": val["deviation"],
                "flags": {i: v["flags"] for i, v in out.items()},
+               "dream_failed": {i: {"failed": v["failed"], "excluded_variants": v["excluded_variants"]}
+                                for i, v in out.items() if any(v["failed"].values())},
                "opposite_checks": {i: {"hard": v["opposite"]["hard"], "soft": v["opposite"]["soft"]} for i, v in out.items()},
                "alternatives_info": {i: v["alternatives_info"] for i, v in out.items()},
                "overlap": {i: v["overlap"] for i, v in out.items()}},
