@@ -378,3 +378,122 @@ v3 is dreamed, validated and prepped from scratch in a new run directory.
 
 *Infrastructure (no effect on any number).* prep + lens runs on gpu-a100-small (the 2B in fp32 fits the 10 GB
 slice; same precision as the V100); job time limits are set to the estimate + 50%.
+
+## Addendum: the PrefEval benchmark (2026-10-15, committed before any benchmark data was generated)
+
+*So that the results are not only on our 29 hand-written items. Nothing below has been run on PrefEval when this
+is committed; the code is `prefeval/` (tests: `tests/test_dream_refs_prefeval.py`).*
+
+**Benchmark.** PrefEval (Zhao et al., ICLR 2025, arXiv:2502.09597), the **explicit** split: 1000 rows
+(preference, question, explanation, topic; 20 topics). Each question is written so that a generic answer violates
+the stated preference; two thirds of the preferences are dislikes or avoidances, so it tests the dislike flip (C5)
+and concept × sign at scale. Data: HF `siyanzhao/prefeval_explicit` at revision `1b20e0f9…`, converted to
+`prefeval/upstream/prefeval_explicit.jsonl` (sha256 `826cd8b8…`; all 1000 rows equal the GitHub repo's). PrefEval's
+four judge prompts are copied verbatim into `prefeval/upstream/` (repo commit `50795054…`) with their licence
+(CC BY-NC 4.0; `NOTICE.md`). **There are no hand-written references for the benchmark**: this is where scaffold
+removal has to work on its own.
+
+**Sample (fixed).** N = **200**, stratified by **topic × polarity**, proportional allocation (largest remainder),
+then `random.Random(f"20261015|{topic}/{polarity}").sample` within each stratum (`bench.stratified_sample`, seed
+**20261015**). The dataset's `preference_type` is the same for all 1000 rows ("explicit_preference"), so it cannot
+stratify; the polarity label takes its place. **Polarity** (`bench.polarity`, lexical, fixed now): `avoid` if the
+preference has an avoidance / dislike cue (avoid, dislike, hate, can't stand, not, no, never, allergic, refuse,
+aversion, a negated liking such as "don't like" / "not interested in" / "prefer not", a "<thing>-free" diet, …) and
+no liking cue; `like` if it has a liking cue (prefer, love, enjoy, like, only, fan of, …) and no avoidance cue;
+`mixed` if both; `other` if neither. Population: 669 avoid, 215 mixed, 88 like, 28 other. The sample (written to
+`prefeval/sample.json` right after this commit; a test asserts it equals the rule) has 132 avoid, 43 mixed, 19
+like, 6 other. **Why 200:** at core_v1's rate the 11,000 answers below take ~1.5 V100-hours, but the panel's
+22,000 prompts per judge take 7–12 h for gpt-oss (0.5–0.85 prompts/s) and ~6 h for Gemma-4; 200 keeps each panel
+judge in one job and gives 132 avoid items for the dislike rule.
+
+**Dreaming (phase A).** The same dreamer (Qwen3.5-9B, bf16, thinking off, the same sampler and seeds) and the
+**FINAL v3 reference prompts, unchanged**: frame, opposite, alternatives. The experience sentence is the PrefEval
+preference text, as given. The dreamer sees **only that sentence** (not the question, not the topic). Paraphrases
+and null-frame values are not dreamed (S1 needs hand references, which the benchmark does not have).
+
+**Follow-ups (the one new prompt, `prefeval/prompts.yaml`).** A memory is written at the user's next messages and
+keyed by their gist (core_v1); PrefEval has only the preference and one test question, and **the test question is
+never used for writing or for keys.** The dreamer writes neutral follow-ups from the preference alone: 12 samples
+at T = 0.7, each listing 4 "short messages the same user might send later … about the same area of life … neutral
+statements … do not mention or hint at the preference … do not ask for recommendations". Candidates are ranked by
+how many samples propose them (as the alternatives); **hard checks** (`bench.check_followup`): 4–25 words; a
+statement (no "?"); not a request (recommend, suggest, advice, tip, idea); no liking / disliking word; no negation;
+none of the preference's key words (the dreamer's frame key words; all of its content words if it has no valid
+frame); and **against the test question**: content-word Jaccard ≤ 0.25 and no shared proper noun (the lexical check;
+the key cosine between each follow-up and the question is computed in prep and reported, not used). The 3 best
+that pass are kept; **≥ 2 are required**.
+
+**Dreaming failed** (as Amendment 2): the opposite (empty / hard check), the alternatives (< 4 valid), the
+follow-ups (< 2 valid). Exclusions per variant: opposite → `gen:opposite`; alternatives → `gen:centroid`,
+`cs:concept_x_sign`; follow-ups → every memory variant (nothing to write or key). nomem and ctx are generated for
+every item. Failure counts per reference and polarity are a reported outcome.
+
+**Memory (core_v1's, unchanged).** Qwen3.5-2B fp32, block outputs 20 / 21 / 23; one entropy-weighted pooled write per
+follow-up (template tail excluded; `cv1.build_moments`, the same code path); pooled_w256 keys of the follow-ups;
+delta rule; the item's q0.95 threshold on core_v1's generic prompts per layer; two-pass gating; `h ← h + α·g·M·q`.
+The calibration (mu, whitening, generic keys) is recomputed with core_v1's code and must reproduce core_v1's saved
+mu / W and three items' thresholds (relative / absolute < 1e-3), else the job stops. Shifts: `gen:opposite` = with −
+dreamed opposite; `gen:centroid` = with − mean of the dreamed alternatives; `cs:concept_x_sign` = s_ℓ · gen:centroid
+with s_ℓ = sign(⟨without_ℓ, v_ℓ⟩), where **v_ℓ is the general valence direction of the 29-item v3 run** (its prep
+state; no PrefEval item enters it).
+
+**Conditions (fixed).** Per item, one prompt (the test question): `nomem`; `ctx` (core_v1's ceiling: the
+preference and the question in one user turn); `gen:opposite`, `gen:centroid`, `cs:concept_x_sign` at **α ∈
+{0.5, 1, 2}** per layer (**α = 1 primary**, the known window; 0.5 and 2 reported). 11 conditions × (1 greedy + 4
+samples), core_v1's sampler and random streams (seed tag "core_v1"), every non-ctx condition of a question in one
+batch. **Answer cap 200 tokens** in every condition (PrefEval uses 300; core_v1 120 is too short for a
+recommendation list). No seed set 2, no yes/no probes (PrefEval has none). **Selectivity:** core_v1's 50 unrelated
+prompts (greedy + 2 samples) for nomem and the α = 1 cells (`unrel_same`, KL, gate false fire). Total 11,000 judged
+answers.
+
+**Measures.**
+- **Primary: preference-following accuracy** per answer, PrefEval's definition (their
+  `get_preference_following_accuracy_generation_task.py`): not unhelpful and not any violation type, which is
+  **helpful AND not violating**. Labels from PrefEval's `check_violation.txt` and `check_helpful.txt`, verbatim, with
+  their evaluator system prompt; the yes/no is read from the `<answer>` tag (`bench.parse_answer_tag`); an answer
+  whose violation or helpfulness label does not parse has no accuracy (parse rates reported).
+- **Judges:** the original judge (Qwen3.5-9B, bf16, thinking off, greedy, ≤ 160 new tokens) runs all four PrefEval
+  rubrics (acknowledgement, violation, helpfulness; hallucination for acknowledged answers, filled with the
+  acknowledged restatement, as PrefEval). The panel (gpt-oss and Gemma-4 through Ollama, core_v1's settings, no JSON
+  constraint since PrefEval asks for XML, one retry) runs violation and helpfulness, the two that decide accuracy;
+  primary cells first. **Majority** per label of the three (a tie, if a label is missing, goes to the original).
+  The **original judge is decisive**, as in core_v1 and dream_refs, unless its parse rate on violation or
+  helpfulness is < 0.8 (then the majority decides); a claim whose verdict differs between the original and the
+  majority is reported as **judge-sensitive**.
+- **Also reported:** violation and unhelpful rates and PrefEval's error types; acknowledgement and hallucination
+  (original judge); **j_lean** with core_v1's preference rubric (trait = the preference text; original judge); loop
+  rate, judged incoherence, NLL under the no-memory 2B; **the gate open rate on the test questions** (the gate at
+  the last prompt position, any of the 3 layers; per subset; computed in phase A without generation) and on the
+  unrelated prompts; `unrel_same` and KL; the key cosine between follow-ups and questions; the valence sign vs the
+  polarity label.
+
+**Statistics.** Cell = one preference (the mean of its 5 seed-set-1 answers); group number = the mean over
+preferences; gains paired per preference against nomem; **95% percentile CIs from 2000 bootstrap resamples of
+preferences, seed 7** (`seahorse.stats.boot_ci` with one prompt per item). No ctx-rule exclusion and no gate-based
+exclusion: every sampled preference counts (intention to treat); the gate-open subset is reported.
+
+**Subsets.** all; **avoid** (the dislike / avoid subset, reported separately and used by P2); mixed; like; other;
+gate-open.
+
+**Decision rules (α = 1; each variant on its items left after dreaming failures).**
+- **P1, "scaffold-free memory helps on a benchmark":** on all preferences, `gen:opposite − nomem` accuracy gain,
+  95% CI > 0.
+- **P2, "concept × sign fixes dislikes at scale":** on the avoid subset, `cs:concept_x_sign − nomem` CI > 0 **AND**
+  `gen:centroid − nomem` CI < 0 (the flip that concept × sign is meant to fix is present with the unsigned
+  centroid).
+- **Not testable:** a (subset, variant) with fewer than half of the subset's items left after dreaming failures
+  does not enter a rule (the claim does not hold), and this is reported.
+- Reported beside them, not decisive: `cs:concept_x_sign − nomem` on all; `ctx − nomem` (the ceiling: if it is not
+  above 0, the benchmark does not separate memory from none for this model, and that is said); α = 0.5 and 2; the
+  mixed / like / other subsets; the gate-open subset.
+
+**Phasing.** Phase A: a 4-item smoke (dream → validate → prep) on the real models, then the 200 items: dream →
+validate → prep (the shifts, memories, thresholds, the gate on every question and on the unrelated prompts, the
+valence signs, the logit lens) → `report_A.md` and `spotcheck.md`. **Then the run pauses** for the user's spot
+check. Phase B (`prefeval/submit_B.sh`): gen → score → panel → analyze. Nothing in phase A changes the grid.
+
+**Known limitations, stated now.** The polarity label is lexical and imperfect ("mixed" holds many "avoid X, prefer
+Y" preferences). The dreamer and the original judge are the same model; the panel is the cross-family check. The 9B
+dreams for the 2B. The follow-ups are dreamed, so how often the gate opens depends on them (that is why it is
+reported). Answers are capped at 200 tokens, and PrefEval's prompts do not say an answer may be cut off; the cap is
+the same in every condition, so gains are paired.
