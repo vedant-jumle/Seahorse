@@ -208,3 +208,15 @@ def test_dreamer_sees_only_the_preference():
     for r in raw:
         assert q[r["item"]] not in r["prompt"]
     assert set(res["items"]) == {x["id"] for x in inputs[:3]}
+
+
+def test_panel_output_lock(tmp_path):
+    import pytest
+    for name, path in (("pe_panel_lock", PE / "panel.py"), ("dr_panel_lock", PE.parent / "panel.py")):
+        pan = _load(name, path)
+        out = tmp_path / f"{name}.jsonl"
+        held = pan.exclusive(out)
+        with pytest.raises(SystemExit):
+            pan.exclusive(out)                 # a second writer on the same file is refused
+        held.close()
+        pan.exclusive(out).close()             # free again once the first one exits

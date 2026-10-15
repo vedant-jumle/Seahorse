@@ -38,6 +38,20 @@ def tasks_for(run):
     return J, pj.build_tasks(run, J, models=MODELS)
 
 
+def exclusive(path):
+    """An exclusive, non-blocking flock on <path>.lock for the life of the process: a second job judging into
+    the same file exits at once instead of interleaving appends (which tore a line in experiment 1)."""
+    import fcntl
+    f = open(str(path) + ".lock", "w")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit(f"another job is writing {path}; refusing to append concurrently")
+    f.write(str(__import__("os").getpid()))
+    f.flush()
+    return f
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", required=True, help="dream_refs run root (holds qwen35_2b/)")
@@ -47,12 +61,14 @@ def main(argv=None):
     ap.add_argument("--format", default="schema", choices=["schema", "json", "none"])
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--deadline-min", type=float, default=None, help="stop starting new prompts after N minutes")
     a = ap.parse_args(argv)
     J, tasks = tasks_for(a.run)
     if a.limit:
         tasks = tasks[:a.limit]
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    lock = exclusive(out / f"{a.judge}.jsonl")   # never two writers on one output file (held until exit)
     if not pj.wait_ready(a.url):
         sys.exit(f"Ollama not reachable at {a.url}")
     if tasks:
@@ -60,7 +76,8 @@ def main(argv=None):
             pj.chat(a.url, a.judge, tasks[0]["prompt"], J["preference"]["schema"], pj.SEED)
         except Exception as e:
             print(f"warm-up failed: {e}")
-    res = pj.run_tasks(a.url, a.judge, tasks, J, out / f"{a.judge}.jsonl", a.workers, fmt=a.format)
+    res = pj.run_tasks(a.url, a.judge, tasks, J, out / f"{a.judge}.jsonl", a.workers, fmt=a.format,
+                       deadline=time.time() + a.deadline_min * 60 if a.deadline_min else None)
     print(json.dumps(res))
 
 

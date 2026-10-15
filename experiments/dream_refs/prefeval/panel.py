@@ -143,6 +143,21 @@ def run_tasks(url, tag, tasks, out_path, workers=16, post=chat, log=print, every
     return res
 
 
+def exclusive(path):
+    """An exclusive, non-blocking flock on <path>.lock for the life of the process: a second job judging into
+    the same file exits at once instead of interleaving appends (which tore a line in experiment 1)."""
+    import fcntl
+    import os
+    f = open(str(path) + ".lock", "w")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit(f"another job is writing {path}; refusing to append concurrently")
+    f.write(str(os.getpid()))
+    f.flush()
+    return f
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", required=True)
@@ -158,6 +173,7 @@ def main(argv=None):
         tasks = tasks[:a.limit]
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    lock = exclusive(out / f"{a.judge}.jsonl")   # never two writers on one output file (held until exit)
     if not pj.wait_ready(a.url):
         sys.exit(f"Ollama not reachable at {a.url}")
     if tasks:

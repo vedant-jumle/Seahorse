@@ -11,6 +11,7 @@
 #   JUDGE       gptoss | gemma4
 #   FORMAT_DIR  optional: a dir with format_<judge>.txt (core_v1's chosen output constraint); default schema
 #   WORKERS     concurrent requests (default 16)
+#   DEADLINE_MIN  optional: stop starting new prompts after this many minutes (resumable)
 set -eo pipefail
 
 RUN=${RUN:?set RUN}
@@ -46,5 +47,5 @@ done
 echo "ollama up on port $PORT"
 FMT=$(cat "${FORMAT_DIR:-/nonexistent}/format_$JUDGE.txt" 2>/dev/null || echo schema)
 python experiments/dream_refs/panel.py --run "$RUN" --judge "$JUDGE" --out "$RUN/panel" --url "http://127.0.0.1:$PORT" \
-  --workers "$WORKERS" --format "$FMT"
+  --workers "$WORKERS" --format "$FMT" ${DEADLINE_MIN:+--deadline-min $DEADLINE_MIN}
 echo "Done: panel $JUDGE -> $RUN/panel"

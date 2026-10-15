@@ -497,3 +497,8 @@ Y" preferences). The dreamer and the original judge are the same model; the pane
 dreams for the 2B. The follow-ups are dreamed, so how often the gate opens depends on them (that is why it is
 reported). Answers are capped at 200 tokens, and PrefEval's prompts do not say an answer may be cut off; the cap is
 the same in every condition, so gains are paired.
+
+**2026-10-15, phase B approved.** The user's phase-A spot check (both sets) was a review of a summary with examples,
+not of every item; the known failures were acknowledged before approval: opposites that keep a consequence clause
+(e.g. "I enjoy virtual reality experiences due to motion sickness issues."), frames that keep it (celiac, diabetes),
+and has_young_kids dreaming-failed (centroid). Nothing in the grid or the rules changed.
