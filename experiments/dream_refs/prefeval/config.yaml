@@ -1,0 +1,40 @@
+# PrefEval benchmark for experiment 2 (dream_refs), PREREG.md "Addendum: PrefEval". The 2B, the write, the keys,
+# the gate, the sampler and the judges are core_v1's / dream_refs' (config_qwen35_2b.yaml); what differs is the
+# items (a stratified sample of PrefEval's explicit preferences), the conditions (no hand references exist) and
+# the answer cap (PrefEval's answers are recommendation lists; 200 tokens, PrefEval itself uses 300).
+name: qwen35_2b
+model: Qwen/Qwen3.5-2B
+dtype: float32
+n_blocks: 24
+reference_layers: [20, 21, 23]
+layers: [20, 21, 23]
+# core_v1's items file: used ONLY for the 50 unrelated prompts (selectivity) and the placebo sentence
+items: experiments/core_v1/items.yaml
+bench: data/bench_v1
+generic: experiments/v0/generic_prompts.txt
+cv1_prep: /scratch/vvjumle/seahorse_runs/core_v1_20261007_1820/qwen35_2b/prep   # calibration check only
+# the sample (PREREG addendum): stratified by topic x polarity, proportional, fixed seed
+data: experiments/dream_refs/prefeval/upstream/prefeval_explicit.jsonl
+sample: {n: 200, seed: 20261015, file: experiments/dream_refs/prefeval/sample.json}
+# dreaming (dream.py): the dream_refs dreamer and its FINAL v3 reference prompts, plus the follow-up prompt
+dream_config: experiments/dream_refs/config_dream.yaml
+followup_prompts: experiments/dream_refs/prefeval/prompts.yaml
+followups: {keep: 3, min: 2}
+min_valid_alternatives: 4
+judge: {model: Qwen/Qwen3.5-9B, dtype: bfloat16, max_new: 64, batch: 48}
+pe_judge: {max_new: 160, batch: 48}      # the PrefEval rubrics (an explanation, then the answer tag)
+seeds: {base: 0, second: 1, rand: 1234, bootstrap: 7, audit: 11}
+doses: [0.5, 1, 2]
+primary_alpha: 1
+seed2: []
+samples: 4
+answer_cap: 200
+yn_cap: 10
+unrel_samples: 2
+sampler: {temp: 1.0, top_p: 0.95, top_k: 20, presence: 1.5}
+key: {thr_q: 0.95, white_eps: 0.01, cont_len: 20, gen_cont_len: 20, rls_lambda: 0.1}
+loop: {n: 4, thr: 0.3}
+max_batch: 96
+kl_batch: 16
+nll_tokens: 24000
+check_tol: 0.05

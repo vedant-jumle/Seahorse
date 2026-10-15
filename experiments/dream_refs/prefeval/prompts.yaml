@@ -1,0 +1,20 @@
+# PrefEval benchmark (experiment 2 addendum): the ONE prompt that is new for the benchmark. The reference prompts
+# (frame, opposite, alternatives) are dream_refs' FINAL v3 prompts (../dream_prompts.yaml), used unchanged.
+#
+# Writing a memory needs follow-up moments (core_v1: the write is pooled over the user's next messages, and the
+# keys are those messages' gists). PrefEval gives only the preference and one test question; the test question is
+# never used for writing or for keys and the dreamer never sees it (nor the topic label). The dreamer writes
+# neutral follow-ups from the preference sentence alone; bench.select_followups checks them, including against the
+# test question (lexical overlap and shared names).
+version: 1
+
+followups:
+  kind: list
+  max_new: 200
+  template: |-
+    Here is a sentence a user said about themselves:
+    "{sentence}"
+
+    Write 4 short messages the same user might send to an assistant later in the same conversation, about the same area of life as the sentence (for example their plans, errands, purchases, outings or routine in that area). Each message is a neutral statement about the user's own situation or plans, one sentence of 6 to 20 words, like "I'm repainting my spare room this weekend." Do not mention, repeat or hint at the preference in the sentence, do not say what the user likes or dislikes, and do not ask a question or ask for recommendations.
+
+    Reply with only the 4 messages, one per line, numbered 1 to 4.

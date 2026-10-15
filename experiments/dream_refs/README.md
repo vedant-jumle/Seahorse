@@ -91,3 +91,31 @@ PYTHONPATH=src conda run -n torch python experiments/dream_refs/dream.py --tiny 
 ```
 In `--tiny` mode the "core_v1 state" is made by core_v1's own prep on the tiny subset, and the judge labels are
 deterministic stand-ins (marked FAKE), so every stage runs end to end.
+
+## The PrefEval benchmark (`prefeval/`, PREREG addendum)
+
+The same pipeline on 200 preferences sampled from PrefEval's explicit split (stratified by topic and polarity),
+where no hand-written reference exists. The dreamer (prompts v3, unchanged) writes each preference's opposite and
+alternatives, plus neutral follow-ups that carry the write and the keys (the test question is never used for
+either). Conditions: nomem, ctx, gen:opposite, gen:centroid, cs:concept_x_sign at alpha 0.5 / 1 / 2. Measure:
+PrefEval's preference-following accuracy (their violation and helpfulness prompts, `prefeval/upstream/`, CC BY-NC
+4.0) under the original judge, gpt-oss, Gemma-4 and their majority.
+
+| File | What |
+|---|---|
+| `prefeval/upstream/` | PrefEval's judge prompts, the data (1000 rows) and their licence, verbatim (`NOTICE.md`) |
+| `prefeval/bench.py` | polarity label, stratified sampler (`python bench.py` writes `sample.json`), follow-up checks, judge parsing, PrefEval's accuracy, majority |
+| `prefeval/sample.json` | the pre-registered sample |
+| `prefeval/prompts.yaml` | the follow-up prompt (the only new prompt) |
+| `prefeval/dream.py`, `validate.py` | dreaming and its checks -> `validate/refs.json`, `spotcheck.md` |
+| `prefeval/run.py` | `prep` (writes, memories, the gate on each test question and on the unrelated prompts -> `report_A.md`), `gen`, `score`, `analyze` |
+| `prefeval/panel.py`, `panel.slurm` | gpt-oss / Gemma-4 on the violation and helpfulness rubrics |
+| `prefeval/job.slurm`, `submit_A.sh`, `submit_B.sh` | DelftBlue chains (phase A has a 4-item smoke first) |
+
+```
+bash experiments/dream_refs/prefeval/submit_A.sh <dream_refs v3 run root> [<its prep_lens job id>]
+# spot check RUN/spotcheck.md, read RUN/report_A.md, then:
+bash experiments/dream_refs/prefeval/submit_B.sh RUN
+# local smoke: dream.py --mock --tiny --out /tmp/pe/dream; validate.py --run /tmp/pe;
+#   run.py --stage prep gen score analyze --tiny --random-model qwen2 --out /tmp/pe/qwen35_2b
+```
