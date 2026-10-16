@@ -20,6 +20,7 @@
 \usepackage{xcolor}
 \usepackage{pifont}
 \usepackage{tikz}
+\usepackage[section]{placeins}
 \usetikzlibrary{arrows.meta,positioning,calc}
 
 \title{What Survives When Activation Steering Is Used as Memory}
@@ -65,7 +66,7 @@ Our account of what this memory can hold is simple. In context, attention recomp
 \end{itemize}
 The memory is nevertheless selective: about 98\% of unrelated replies are token-for-token identical to those with no memory, against 6--10\% when the gate is forced open.
 
-Our contributions are: (1) a gated, training-free activation memory for user content, and its link to associative-memory model editing; (2) the fixed-average account and the three predictions it makes; (3) a pre-registered test of these predictions on two model scales, with controls and a cross-family judge panel; and (4) the reference effect, a concrete way in which a naive activation memory inverts what the user said. Together, the results support the procedural/declarative split assumed by \citet{zhao2026npm} and explain it: activation memory suits dispositions, while facts need weights or retrieval.
+Our contributions are: (1) a gated, training-free activation memory for user content, and its link to associative-memory model editing; (2) the fixed-average account and the three predictions it makes; (3) a pre-registered test of these predictions on two model scales, with controls and a cross-family judge panel; and (4) the reference effect, a concrete way in which a naive activation memory inverts what the user said. Together, the results support the procedural/declarative split assumed by \citet{zhao2026npm} and explain it: a pushed activation shift suits dispositions, while facts must be placed where attention can reach them: in context, as restored cached states, or in weights.
 
 \section{Method}
 \label{sec:method}
@@ -106,7 +107,7 @@ where $[\cdot]$ is 1 if true and 0 otherwise, $\theta$ is the 95th percentile of
 \section{Why a stored shift keeps some content and not other}
 \label{sec:theory}
 
-In context, an experience affects a later reply through attention. At each new position the model attends back to the tokens of the experience and computes what it needs for the question at hand. \citet{liu2024icv} make this explicit: the attention output is a mixture of the query's own state and the context's states, with weights that depend on the query. \citet{geva2023dissecting} show the same for facts: the attribute is not present at the subject's position in ready-made form; upper-layer attention extracts it, driven by the question.
+In context, an experience affects a later reply through attention. At each new position the model attends back to the tokens of the experience and computes what it needs for the question at hand. \citet{liu2024icv} make this explicit: the attention output is a mixture of the query's own state and the context's states, with weights that depend on the query. \citet{geva2023dissecting} show the same for facts: the attribute is not present at the subject's position in ready-made form; upper-layer attention extracts it, driven by the question. A direct test on in-context facts (Appendix~\ref{app:stage0}) finds the same: the answer reads the value from the position where it was stated, and the subject's position holds no copy of it.
 
 A stored shift removes the recomputation. It is one vector per moment, averaged over the follow-up's tokens, and it is added unchanged at every position where the gate is open. Whatever part of the experience's effect varies with the question is averaged away; what is constant across questions remains. This gives three predictions.
 
@@ -199,12 +200,12 @@ The logit lens shows the cause directly (Figure~\ref{fig:lensdis} in the appendi
 
 \paragraph{Conditional and personalised steering.} CAST gates a steering vector on the similarity between the current state and a learned condition \citep{lee2025cast}; our gate is the same idea with the condition written from a single experience. In-context vectors compress demonstrations into a vector \citep{liu2024icv}, and context steering amplifies the effect of a user's context on the output probabilities \citep{he2025cos}; both need the context present. BiPO trains a personalised steering vector for a chosen behaviour \citep{cao2024bipo}. Context steering notes, informally, that a single context also makes its topic more likely and that a contrasting pair isolates the attribute \citep{he2025cos}; we show the consequence for stored memories systematically.
 
-\paragraph{Memory in activations and weights.} Neural Procedural Memory stores an agent's skills as retrieved steering vectors and leaves declarative content to text \citep{zhao2026npm}; our results support that division and explain it. Facts can be written usefully into weights by key--value updates at the subject's position in middle-layer MLPs \citep{meng2022rome,meng2023memit}; our store uses the same update in activations, without optimising the stored value. Factual recall itself relies on question-driven attention in upper layers \citep{geva2023dissecting}, which a stored shift cannot reproduce. Retrieval-augmented generation and agent memory systems keep facts in context \citep{lewis2020rag,packer2023memgpt}. Our store is also a fast-weight memory, the same delta-rule mechanism that linear-attention layers implement \citep{schlag2021linear}.
+\paragraph{Memory in activations and weights.} Neural Procedural Memory stores an agent's skills as retrieved steering vectors and leaves declarative content to text \citep{zhao2026npm}; our results support that division and explain it. Facts can be written usefully into weights by key--value updates at the subject's position in middle-layer MLPs \citep{meng2022rome,meng2023memit}; our store uses the same update in activations, without optimising the stored value. Factual recall itself relies on question-driven attention in upper layers \citep{geva2023dissecting}, which a stored shift cannot reproduce. Retrieval-augmented generation and agent memory systems keep facts in context \citep{lewis2020rag,packer2023memgpt}. A related line keeps facts as cached \emph{states}: retrieving stored key--value blocks into attention \citep{xiao2024infllm,fountas2025emllm}, reusing cached chunks across prompts and positions \citep{gim2024promptcache,yao2025cacheblend,hu2025epic}, or training a model to attend to explicit or sparse key--value memories \citep{yang2024memory3,wang2025kblam}. All of these keep content at positions attention can reach, which is the property a pushed shift lacks. In context, attributes are bound to entities and fetched by position \citep{feng2024binding,prakash2024entity,prakash2026lookbacks}, so content must sit at a position to be bound. Our store is also a fast-weight memory, the same delta-rule mechanism that linear-attention layers implement \citep{schlag2021linear}. A trained version of that design, a delta-rule fast-weight memory read through a gated residual addition, does carry facts \citep{zhao2026fwpkm}, because the read path is trained with the model; a frozen model was never trained to read a pushed shift.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-A gated activation memory beside a frozen model can carry broad leanings into a later session, selectively and only within a narrow strength window. It cannot carry facts or premises: a stored fact is the word to say, present only at the end of the network. And the way the memory is written determines what it means: unless the opposite experience is subtracted, a stored dislike is recalled as a like. We read all three results as consequences of one fact: a stored shift is a fixed average of an effect that attention recomputes, in context, for each question. Activation memory is therefore a natural home for dispositions, while facts need weights or retrieval. A practical next step is to store the concept and its sign separately, so that the direction of a preference no longer depends on a hand-written opposite.
+A gated activation memory beside a frozen model can carry broad leanings into a later session, selectively and only within a narrow strength window. It cannot carry facts or premises as a pushed shift: a stored fact is the word to say, present only at the end of the network. And the way the memory is written determines what it means: unless the opposite experience is subtracted, a stored dislike is recalled as a like. We read all three results as consequences of one fact: a stored shift is a fixed average of an effect that attention recomputes, in context, for each question. A pushed activation shift is therefore a natural home for dispositions, while facts must be placed where attention can reach them: in context, as restored cached states, or in weights. A practical next step is to store the concept and its sign separately, so that the direction of a preference no longer depends on a hand-written opposite; follow-up experiments find that this works when the sign is known, while reading the sign automatically remains open.
 
 \section*{Limitations}
 \label{sec:limits}
@@ -213,7 +214,7 @@ A gated activation memory beside a frozen model can carry broad leanings into a 
 
 \paragraph{Judges.} The primary labels come from an LLM judge from the same family as the graded models. The cross-family panel shows that C3 and C5 do not depend on the judge, but not that the labels are correct; no human labels were collected. Llama-3.1-8B was excluded from the panel after the fact because it failed an objective check (Appendix~\ref{app:judge}); its verdicts are reported. The panel itself was not pre-registered.
 
-\paragraph{Design.} Each memory is written from three hand-written follow-ups, and the opposite and centroid references are hand-written. A practical system would need these references without human input. We test isolated memories only; with many memories in one store, interference may change the picture. The theoretical account in Section~\ref{sec:theory} is an interpretation that fits the results, not a proof.
+\paragraph{Design.} Each memory is written from three hand-written follow-ups, and the opposite and centroid references are hand-written. A practical system would need these references without human input; in follow-up experiments (reported separately), references generated by a larger model of the same family reproduce the reference effect. We test isolated memories only; with many memories in one store, interference may change the picture. The theoretical account in Section~\ref{sec:theory} is an interpretation that fits the results, not a proof.
 
 \section*{Ethical Considerations}
 The memory studied here stores information about users inside a model's activations. Such stores raise the same privacy questions as any user memory (consent, inspection and deletion), with the added difficulty that an activation shift is not human-readable. Our results also show two failure modes that matter for deployment: a naive memory can recall a dislike as a like, and an injected memory can be presented by the model as its own trait. All experiments use synthetic user statements written by the author; no personal data was collected.
@@ -278,6 +279,7 @@ C5 dislikes & 2B & yes & yes & yes & no & no & yes & yes \\
 The design choices were fixed in earlier, smaller experiments that were not pre-registered. On Qwen2.5-1.5B, unwhitened per-token keys made the memory fire on unrelated prompts; whitened pooled keys with a calibrated threshold made unrelated replies identical to no memory. Selecting which tokens to write by attention, by entropy or at random made no difference. On Qwen3.5-2B, a sweep over layers 4--23 found fact-specific effects only in the last five layers, and three late layers together carried much more than any single one. An earlier version of the reference comparison (11 preference items) first showed the dislike reversal that core experiment C5 tests.
 
 \section{Additional figures}
+\label{app:figs}
 
 \begin{figure}[h]
   \centering
@@ -292,6 +294,35 @@ The design choices were fixed in earlier, smaller experiments that were not pre-
   \caption{Logit lens of the stored dislike shifts at every block: mean logit of words on the liked side minus the disliked side (positive: avoids the disliked thing). The centroid and \emph{without} shifts point at the disliked thing in the late layers.}
   \label{fig:lensdis}
 \end{figure*}
+
+\FloatBarrier
+\section{Where an in-context fact is read from}
+\label{app:stage0}
+
+Section~\ref{sec:theory} explains why facts fail with the account of \citet{geva2023dissecting}, which concerns facts stored in the weights. We also measured the in-context case directly, in a follow-up experiment that was pre-registered separately and run after the main study; it is reported here only as supporting evidence for P1.
+
+\paragraph{Setup.} The fact is in context (\textit{``My dog's name is Pepper. What's my dog's name?''}), and the answer is read at the teacher-forced prefix \textit{``Your dog's name is''}. We run the same prompt with a counter value (\textit{Rocky}) in an identical token layout and patch the residual stream of one block, or a band of five blocks, from the true-value run into the counter-value run at one site: the subject token of the question (\textit{``dog''}, after the name) or the attribute's own position (\textit{``Pepper''}). The read-out is the share of the flip in $\mathrm{logit}(\textit{Pepper}) - \mathrm{logit}(\textit{Rocky})$ that the patch recovers, averaged over the 7 primary fact items with 95\% bootstrap CIs over items. On Qwen2.5-1.5B we also remove attention from the answer position to each site over windows of five layers (attention knockout); Qwen3.5-2B's Gated DeltaNet blocks fold every past token into one state, so no single edge can be removed there.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Site patched & Qwen2.5-1.5B & Qwen3.5-2B \\
+\midrule
+subject token (\textit{dog}), best cell & 0.00 [0.00, 0.00] & 0.00 [0.00, 0.01] \\
+attribute position (\textit{Pepper}), best cell & 1.00 [1.00, 1.00] & 1.00 [1.00, 1.01] \\
+\midrule
+Knockout, answer $\to$ subject, best window & 0.00 [0.00, 0.00] & -- \\
+Knockout, answer $\to$ attribute, last window & 0.59 [0.41, 0.81] & -- \\
+\bottomrule
+\end{tabular}
+\caption{Share of the true-vs-counter logit flip recovered by patching one site, and share of the in-context gain lost by blocking attention to it. Patching the subject recovers nothing at any block or band on either model; patching the attribute recovers everything up to the late blocks. Blocking the answer's attention to the attribute costs 0.59 only in the last window (layers 23--27); the rest flows through relay tokens.}
+\label{tab:stage0}
+\end{table}
+
+\paragraph{Result.} Patching the question's subject token recovers 0.00 of the flip at every block and band on both models (Table~\ref{tab:stage0}). Patching the attribute's own position recovers 1.00 up to the late blocks: on Qwen2.5-1.5B it falls only in the last blocks, and on Qwen3.5-2B it drops sharply at block 19 of 24. Blocking the answer's attention to the subject costs nothing in any window; blocking its attention to the attribute costs 0.59 [0.41, 0.81] of the in-context gain, and only in the last window. An exploratory check of the subject mention in the answer prefix (\textit{``Your \textbf{dog}'s name is''}) also recovers at most 0.03. The answer therefore reads the value from the position where it was stated, late, and the subject's position holds no copy of it (it may still carry a pointer in the sense of \citet{prakash2026lookbacks}). A vector pushed at other positions has nothing to imitate.
+
+\paragraph{Caveats.} These are different models from the main runs (Qwen2.5-1.5B and Qwen3.5-2B, not the 9B), 7 items, and a later pre-registration.
 
 \section{Pre-registration and reproduction}
 \label{app:prereg}

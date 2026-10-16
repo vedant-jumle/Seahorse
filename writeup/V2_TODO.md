@@ -62,6 +62,9 @@ Reviewers will ask "why not store the KV cache?". Add, briefly:
 ## 5. CHECK: layout
 `HANDOVER.md` flagged, for the workshop cut, an **empty Appendix D header and float placement**. The appendices are A Items, B Judges, C Preliminary, D Additional figures, E Pre-registration, so D is likely "Additional figures" with floats drifting away from its header. Check in v1's PDF and fix if present (e.g. `[h!]`/`\FloatBarrier` from `placeins`, or move the floats under the header).
 
+## Status (2026-10-16)
+- Sections 1–5 applied in commit (see git log). Both builds clean. v2 zip at `writeup/arxiv/arxiv_source_v2.zip` (git-ignored). Awaiting the user's PDF review before upload.
+
 ## Done when
 - §1 is applied everywhere the generalisation appears.
 - §2's appendix and sentence are in, with numbers re-checked against the reports.
