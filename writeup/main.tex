@@ -304,16 +304,19 @@ Section~\ref{sec:theory} explains why facts fail with the account of \citet{geva
 \paragraph{Setup.} The fact is in context (\textit{``My dog's name is Pepper. What's my dog's name?''}), and the answer is read at the teacher-forced prefix \textit{``Your dog's name is''}. We run the same prompt with a counter value (\textit{Rocky}) in an identical token layout and patch the residual stream of one block, or a band of five blocks, from the true-value run into the counter-value run at one site: the subject token of the question (\textit{``dog''}, after the name) or the attribute's own position (\textit{``Pepper''}). The read-out is the share of the flip in $\mathrm{logit}(\textit{Pepper}) - \mathrm{logit}(\textit{Rocky})$ that the patch recovers, averaged over the 7 primary fact items with 95\% bootstrap CIs over items. On Qwen2.5-1.5B we also remove attention from the answer position to each site over windows of five layers (attention knockout); Qwen3.5-2B's Gated DeltaNet blocks fold every past token into one state, so no single edge can be removed there.
 
 \begin{table}[h]
-\centering\small
+\centering\footnotesize
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{@{}lcc@{}}
 \toprule
-Site patched & Qwen2.5-1.5B & Qwen3.5-2B \\
+ & Qwen2.5-1.5B & Qwen3.5-2B \\
 \midrule
-subject token (\textit{dog}), best cell & 0.00 [0.00, 0.00] & 0.00 [0.00, 0.01] \\
-attribute position (\textit{Pepper}), best cell & 1.00 [1.00, 1.00] & 1.00 [1.00, 1.01] \\
+\multicolumn{3}{@{}l}{\emph{Patching (share of flip recovered, best cell)}} \\
+subject token (\textit{dog}) & 0.00 [0.00, 0.00] & 0.00 [0.00, 0.01] \\
+attribute position (\textit{Pepper}) & 1.00 [1.00, 1.00] & 1.00 [1.00, 1.01] \\
 \midrule
-Knockout, answer $\to$ subject, best window & 0.00 [0.00, 0.00] & -- \\
-Knockout, answer $\to$ attribute, last window & 0.59 [0.41, 0.81] & -- \\
+\multicolumn{3}{@{}l}{\emph{Attention knockout (share of gain lost)}} \\
+answer $\to$ subject, best window & 0.00 [0.00, 0.00] & -- \\
+answer $\to$ attribute, last window & 0.59 [0.41, 0.81] & -- \\
 \bottomrule
 \end{tabular}
 \caption{Share of the true-vs-counter logit flip recovered by patching one site, and share of the in-context gain lost by blocking attention to it. Patching the subject recovers nothing at any block or band on either model; patching the attribute recovers everything up to the late blocks. Blocking the answer's attention to the attribute costs 0.59 only in the last window (layers 23--27); the rest flows through relay tokens.}
