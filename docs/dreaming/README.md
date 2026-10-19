@@ -19,6 +19,7 @@ We cannot perform binding ourselves: any vector we compose offline is still one 
 | 1 | [01-binding.md](01-binding.md) | Can a fact be **used** if its representation is written at the subject's position (or reinstated as a segment), rather than pushed at the answer? | nothing; run now |
 | 2 | [02-scaffold.md](02-scaffold.md) | Can the model **generate its own references** (opposite, alternatives, valence) so that writing needs no human? Does concept × sign fix the dislike flip? | nothing; independent of 1 |
 | 3 | [03-consolidation.md](03-consolidation.md) | With many memories, can an offline pass **abstract** leanings from episodes, **resolve** contradictions and **prune**, and beat "write everything"? | 1 (a content channel), the capacity curve |
+| idea | [04-combining-channels.md](04-combining-channels.md) | Parked (2026-10-19): use the steer and the slice **together**. First: can a slice carry a preference, dislikes included, with no references? | 1 and 2 (both done) |
 
 1 and 2 are independent and can run as two jobs. 3 is where the steer channel and the modulator get their defined jobs back.
 
