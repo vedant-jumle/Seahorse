@@ -255,7 +255,7 @@ Also relevant but not read in this project (arXiv IDs from memory):
 - Schlag et al., fast weights (2102.11174)
 - DeltaNet (2406.06484)
 
-The PDFs of the papers that were read are in `../papers/` (not in the repo).
+The PDFs of the papers that were read are in `../papers/` (not in the repo; index: `../papers/README.md`).
 
 ---
 

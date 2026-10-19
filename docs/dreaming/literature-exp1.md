@@ -1,6 +1,6 @@
 # Experiment 1 against the literature
 
-*A focused reading of 36 papers against the five findings of experiment 1 (dream_bind: 7 primary single-fact items, Qwen2.5-1.5B and Qwen3.5-2B). For each finding: is it new, partly known or known, and which papers come closest. Then one short note per paper, a check of the earlier search-agent report, and what we can and must say in a write-up. Written 2026-10-13. The PDFs are in the parent folder's `papers/`. Page numbers are PDF pages. I read the PDFs as extracted text (pdftotext). Figures were not looked at as images, so anything shown only in a figure is marked as such or left out.*
+*A focused reading of 36 papers against the five findings of experiment 1 (dream_bind: 7 primary single-fact items, Qwen2.5-1.5B and Qwen3.5-2B). For each finding: is it new, partly known or known, and which papers come closest. Then one short note per paper, a check of the earlier search-agent report, and what we can and must say in a write-up. Written 2026-10-13. The PDFs are in the parent folder's `papers/` (index: `papers/README.md`). Page numbers are PDF pages. I read the PDFs as extracted text (pdftotext). Figures were not looked at as images, so anything shown only in a figure is marked as such or left out.*
 
 Tone and terms follow [../reference/literature.md](../reference/literature.md). "Slice" = cached keys and values (K,V) of a few positions, computed in the original context. "State" = the Gated DeltaNet (GDN) recurrent state. "Recall" = producing the value ("Pepper"). "Recognition" = verifying it (balanced yes/no).
 
@@ -273,7 +273,7 @@ Relation tags: **same** (shows our result), **supports**, **adjacent**, **contra
 
 ## D. Familiarity
 
-**"Bogacz Familiarity Capacity.pdf" is not Bogacz et al.** It is **Cortes, Greve, Barrett & van Rossum, "Dynamics and robustness of familiarity memory"** (arXiv 0710.1333, 2007), which builds on Bogacz & Brown (2003). *Adjacent (theory) to 4.*
+**"neuroscience/Bogacz Familiarity Capacity.pdf" is not Bogacz et al.** It is **Cortes, Greve, Barrett & van Rossum, "Dynamics and robustness of familiarity memory"** (arXiv 0710.1333, 2007), which builds on Bogacz & Brown (2003). *Adjacent (theory) to 4.*
 - Familiarity capacity is "proportional to the number of synapses", recall "to the square root" (p.3). Later stated as N² vs N (p.15).
 - One Hopfield network supports both: recollection as the attractor, familiarity as the energy transient after the probe (p.15).
 - Rename the file or cite it correctly. Bogacz et al. 2001 is not in the folder.

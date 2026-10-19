@@ -145,7 +145,7 @@ The paper settled that facts, premises and ownership fail because a push at the 
 7. `experiments/xlayer_v1/xl.py`: the two-pass gating and cross-layer injection code (experiment 1 injects at a *position*, which needs the same no-memory first pass).
 8. `tools/audit/` and `results/core_v1_20261007_1820/panel/panel_report.md`: how the judge panel is run and read.
 9. `docs/how-it-works.md` §2–§7 if the key / whitening / threshold machinery is unfamiliar.
-10. The papers, if the mechanism needs checking: `../papers/Dissecting Factual recall.pdf`, `Binding IDs in LLMs.pdf`, `Entity Tracking Circuit.pdf`, `Representational Analysis of Binding.pdf`.
+10. The papers, if the mechanism needs checking: `../papers/facts-binding-interp/Dissecting Factual recall.pdf`, `Binding IDs in LLMs.pdf`, `Entity Tracking Circuit.pdf`, `Representational Analysis of Binding.pdf` (all in `../papers/facts-binding-interp/`; index: `../papers/README.md`).
 
 **Facts a builder needs that aren't obvious from the code:**
 - Qwen3.5-2B has full attention only at blocks **3, 7, 11, 15, 19, 23** (`layer_types` in the model config); the rest are Gated DeltaNet with no KV cache. A residual-stream write works at any block; a KV splice only at those six. Use **Qwen2.5-1.5B** (28 full-attention layers, already calibrated in `diag_keys`) for the reinstatement arm.

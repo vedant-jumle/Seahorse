@@ -2,7 +2,7 @@
 
 *Seventeen papers that bear directly on our results, read during and after the Qwen3.5 experiments (think_v1, ref_v1, xlayer_v1, core_v1). For each: what it found, in plain words, and where it touches our results. At the end: the theory they give us, and a table of what is prior work and what is ours. The older background (complementary learning systems, steering in general, fast weights, neuromodulation) is in [core-idea.md](core-idea.md) and [where-we-are.md §2](../where-we-are.md#2-what-was-already-out-there). Written 2026-10-07; extended 2026-10-08; group E (how models bind entities to attributes) added 2026-10-11, after the paper went to arXiv; group F (trained fast-weight memory: FwPKM) added 2026-10-14. The Exp 1 literature check (hybrids, cache reuse, binding; 36 papers) is in [literature-exp1.md](../dreaming/literature-exp1.md).*
 
-The PDFs are in the parent folder's `papers/`.
+The PDFs are in the parent folder's `papers/` (index: `papers/README.md`).
 
 | Group | Papers | Why they matter |
 |---|---|---|
