@@ -1,6 +1,6 @@
 # Seahorse: where it fails, and why
 
-*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01. Updated 2026-10-07 with the Qwen3.5 results (think_v1, ref_v1): failures 13–16, plus updates to 1, 2, 4 and 7. Updated 2026-10-08 with cross-layer injection (xlayer_v1) and the pre-registered run on Qwen3.5-2B and 9B (core_v1): updates to 1, 2, 4, 10, 11, 12 and 13. Updated 2026-10-11: failure 11's judge check was done by a cross-family panel instead of by hand (note at the end of failure 11). Updated 2026-10-13 with dreaming experiment 1 (dream_bind): failures 1, 2 and 15 have a working route through a stored attention slice, and there is a new failure 17 (separately stored facts collide). Related papers: [literature.md](reference/literature.md).*
+*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01. Updated 2026-10-07 with the Qwen3.5 results (think_v1, ref_v1): failures 13–16, plus updates to 1, 2, 4 and 7. Updated 2026-10-08 with cross-layer injection (xlayer_v1) and the pre-registered run on Qwen3.5-2B and 9B (core_v1): updates to 1, 2, 4, 10, 11, 12 and 13. Updated 2026-10-11: failure 11's judge check was done by a cross-family panel instead of by hand (note at the end of failure 11). Updated 2026-10-13 with dreaming experiment 1 (dream_bind): failures 1, 2 and 15 have a working route through a stored attention slice, and there is a new failure 17 (separately stored facts collide). Updated 2026-10-19 with addendum 6 of experiment 1 and the finished experiment 2: updates to 7, 8, 9, 13 and 17, and a new failure 18 (retrieval errors become confident wrong facts). Related papers: [literature.md](reference/literature.md).*
 
 ---
 
@@ -14,19 +14,20 @@
 | 4 | Preferences are either faint or crude | **Open** | Clean writing cancels too much; plain writing carries too much |
 | 5 | It fired everywhere | **Fixed** | Keys of unrelated situations looked alike, and nothing set a bar |
 | 6 | The last memory written won | **Fixed** | Step-by-step writing lets new memories overwrite old ones |
-| 7 | It fires only where it was filed | **Open** | A memory is filed under its follow-up sentences, not under the experience |
-| 8 | More memories means weaker memories | **Partly open** | All memories share one table and must compromise |
-| 9 | It needs a hand-made comparison to write anything | **Open (the biggest gap to real use)** | A "shift" is defined as a difference from a counterfactual we supply |
+| 7 | It fires only where it was filed | **Open (partly fixed for facts: a subject-span key finds the slice)** | A memory is filed under its follow-up sentences, not under the experience |
+| 8 | More memories means weaker memories | **Partly open (slices: retrieval holds to 59 facts)** | All memories share one table and must compromise |
+| 9 | It needs a hand-made comparison to write anything | **Mostly fixed for effects (a model writes the references); open for the sign** | A "shift" is defined as a difference from a counterfactual we supply |
 | 10 | Too much strength breaks the text | **Managed** | An added vector can overpower the model's own state |
 | 11 | We fooled ourselves with our measurements | **Fixed** | Unbalanced questions, template artefacts, narrow scores |
 | 12 | We don't know how far any of this generalises | **Partly open** | Two small models, a handful of scenarios |
-| 13 | Dislikes turn into likes | **Open (understood)** | Negation is faint inside the model; most references keep the concept and lose the direction |
+| 13 | Dislikes turn into likes | **Fixed with the true sign; open for reading the sign** | Negation is faint inside the model; most references keep the concept and lose the direction |
 | 14 | Single-item preferences flood or do nothing | **Open** | A constant push at every word suits whole-answer leanings, not one word in one place |
 | 15 | The model claims the memory as its own | **Open for the steer channel; fixed by the user-turn slice** | Injected states read as the model's own thoughts; nothing stores *whose* a memory is |
 | 16 | Turning memory up during thinking floods the thinking | **Open** | A constant push on every thinking word is an overdose, not a thought |
-| 17 | Separately stored facts collide when used together | **Open (understood; joint re-encoding fixes it)** | Slices stored in separate sessions carry the same order tag, so the model can't tell them apart (inferred) |
+| 17 | Separately stored facts collide when used together | **Open (joint re-encoding fixes it; the cheap tag repair fails)** | Slices stored in separate sessions carry the same order tag (the tag exists, but adding it back does not fix the swaps) |
+| 18 | Retrieval errors become confident wrong facts | **Open (new)** | A wrong slice is used as if it were the right one: it pushes the right answer down and the model states the wrong value |
 
-The failures cluster into five root causes (E, binding, was added with dreaming experiment 1), discussed at the end:
+The failures cluster into five root causes (E, binding, was added with dreaming experiment 1; 18 joins E and C), discussed at the end:
 - the limits of **adding a vector**
 - **what gets written**
 - **where it gets filed**
@@ -215,6 +216,8 @@ That second point gives up one of the original idea's hippocampal properties (re
 
 **Update (Qwen3.5-2B, think_v1).** On the newer model, the gate opened on every related and ambiguous preference prompt tested (12 of 12). For example, the hiking memory fired on *"Suggest a birthday gift I'd enjoy."*. But those prompts were written to sit fairly close to the follow-ups. The grocery and coffee questions that Norway missed before haven't been retested.
 
+**Update (2026-10-19, dream_bind addendum 6): for facts stored as slices, the filing problem is mostly solved by choosing the key.** A key built from the subject's own words in the experience ("my dog") finds the right slice 0.85 to 0.92 of the time (Qwen2.5-1.5B, 59 facts), against 0.42 to 0.61 for a key built from the whole experience text, which is the "filed under the follow-ups" key of this failure. So filing under *what the memory is about* works better than filing under *the situation it was written in*. It does not help the steer channel's leanings (not retested), and 16 of the 59 facts had no subject alias and fell back to the whole-text key. Details: [01-binding.md](dreaming/01-binding.md), addendum 6 B.
+
 ---
 
 ## 8. More memories means weaker memories
@@ -228,6 +231,8 @@ That second point gives up one of the original idea's hippocampal properties (re
 **What we don't know.** How this curve continues. Six is the most we've tested; the benchmark's 60-fact pool is ready for the real capacity curve.
 
 **What might fix it.** Better-separated keys (so memories overlap less), separate subspaces per memory, or sparse, selective storage (store fewer, more salient moments). The neuromodulation idea was partly motivated by this.
+
+**Update (2026-10-19, dream_bind addendum 6): the capacity curve for slices.** For the episodic channel (a stored slice per fact, Qwen2.5-1.5B), the right slice is found 0.85 to 0.92 of the time with 10, 20 and 59 facts stored, with no sign of collapse, and each slice is its own object rather than a share of one table. With the right slice, the answer is as good as having the sentence in context (+9.47 nats vs +9.48). The cost of more facts is wrong picks (8% to 15% at N = 59, failure 18), not weaker memories. Not measured: more than 59 facts, and the 52 pool facts are weaker even with the right slice (0.62 vs 0.83 to 0.87 for the 7 hand-picked ones; unexplained). The steer channel's six-memory curve above is unchanged.
 
 ---
 
@@ -243,6 +248,12 @@ That second point gives up one of the original idea's hippocampal properties (re
 - Alternatively, train a small network to predict the shift from the conversation alone, using our hand-made comparisons as training data.
 
 This is the largest gap between the current system and the project's goal of "memory formed from experience".
+
+**Update (2026-10-19, experiment 2): model-written references reproduce the effects.** A 9B model, shown only the experience sentence, wrote the opposite and the eight alternatives (the "without" needs no writing). The memories built from them behave like the hand-made ones. On 7 dislikes the generated opposite moves answers the right way (+0.19 [+0.01, +0.40]; the hand-written opposite +0.23) and the generated centroid the wrong way (-0.39 [-0.55, -0.21]; core_v1's hand-written one -0.38), under every judge (S2). On PrefEval (200 preferences, no hand-written references at all) the generated opposite improves preference-following by +0.03 to +0.10 at α = 1 depending on the judge, against +0.43 for the experience in context (P1 holds). It is small, but it needs no human. Two caveats:
+- The generated references are different sentences from ours: only 10 of 29 opposites reproduce the hand-written shift closely (cosine test S1 fails), so "the same memory" is not the claim, "the same effect" is.
+- The dreamer is a 9B model writing for the 2B, and it still makes mistakes (it kept consequence clauses: "I have celiac disease, so I can eat gluten", "I enjoy virtual reality experiences due to motion sickness issues"; one item, has_young_kids, produced no usable alternatives).
+
+What is still not done without a human or an outside rule is the **sign**: whether a preference is a leaning toward or away from its concept (see failure 13). The earlier idea of a general like/dislike direction (ref_v1 note above) was built and **fails**: it reads the sign of only about half of the items (accuracy 0.44 to 0.52 on 23 signed items). Details: [02-scaffold.md](dreaming/02-scaffold.md), Results.
 
 **Update (ref_v1).** Two pieces of the scaffold now have candidate replacements:
 - **The *what*** can come from subtracting the average of *other* things a user might say, which needs no hand-written opposite. In ref_v1 this "disclosure" reference carried the concept about as well as "without".
@@ -341,6 +352,13 @@ The numbers are the judged lean gain vs no memory; all CIs exclude 0.
 
 **What might fix it.** Store *what* and *which way* separately, and apply the concept **with a sign** ("−jazz"), so we do the linking rather than the model. Simply *adding* the two parts probably won't work: a sum puts "jazz" and "hate" side by side but can't say "hate *about* jazz", and jazz is the louder one.
 
+**Update (2026-10-19, experiment 2): concept × sign works with the true sign; the automatic sign fails.** The proposed fix was built: the concept comes from the model-generated alternatives (the centroid) and the sign is applied separately (for a dislike, the concept is subtracted).
+- **With the true sign** (the "oracle"), dislikes move the right way, +0.39 [+0.19, +0.59] at α = 2 (all 7 items right), where the unsigned generated centroid pushes all 7 the wrong way (-0.39 at α = 1). Leanings: +0.27 [+0.10, +0.45], the best leaning memory so far (this is the same shift as the unsigned centroid, since a leaning's true sign is +).
+- **With the sign read automatically it fails** (S3, S4). A valence direction (the mean of "I love X" minus "I can't stand X" over 120 pairs) reads all 8 dislikes correctly as negative but also reads **restriction-type leanings as negative**: vegetarian, vegan, lactose intolerant, celiac, diabetes, a tight budget, has_young_kids. Accuracy 0.44 to 0.52 on 23 signed items (chance 0.5). With that sign the leanings come out at -0.09 [-0.29, +0.09].
+- **Why:** "avoid" is not "dislike". "I'm vegan" is a restriction, and a direction built from love/hate pairs puts restriction words ("avoid", "can't") on the "hate" side. The sign needed is the sign *relative to the stored concept* (a vegan's life leans toward a diet and away from a food), which a sentence-level valence cannot give.
+- **At scale (PrefEval, 200 preferences)** the automatic sign calls nearly everything negative (all 132 avoid items right, but 18 of 19 "like" items wrong). Concept × sign gains on the avoid subset under every judge (+0.05 to +0.13 at α = 1), and **hurts the like items** under the original judge (-0.075, not significant). Whether it beats the unsigned centroid on the avoid subset is judge-sensitive: the centroid loses under gpt-oss, Gemma-4 and the majority (-0.13), but is flat under the original judge.
+- So the dislike flip is fixed *given* a sign. Reading the sign is the remaining piece. Details: [02-scaffold.md](dreaming/02-scaffold.md), Results.
+
 ## 14. Single-item preferences flood or do nothing
 
 **What you see.** "I live in Norway" either changes nothing or produces *"The price of a 'decent' winter coat Norway Norway Norway…"*. Singapore barely moves under any setting. Vegetarian, by contrast, reshapes whole menus.
@@ -405,16 +423,56 @@ Repetition in the thinking is 95–98%. A weak dose during the answer recovers s
 
 **What might fix it.**
 - **Joint re-encoding** (works): re-read the text of the memories that will be used together, in one pass, and store the result. It is the first concrete job for the offline "dreaming" phase. It costs a forward pass over text we already have.
-- **Binding-ID repair** (being tested, PREREG addendum 6): measure the "which pair" direction and add it to one separately stored slice. If it works, consolidation needs no re-reading.
+- **Binding-ID repair** (tested, PREREG addendum 6; **fails**, see the update below): measure the "which pair" direction and add it to one separately stored slice. If it had worked, consolidation would need no re-reading.
 - Retrieve only the slice that matches the question (G-key), so that two are rarely put back at once. This avoids the collision rather than fixing it.
 
 Folders: `results/dream_bind_add5_20261013_1255/{qwen25_15b_collide,qwen35_2b_collide}/`. Details: [01-binding.md](dreaming/01-binding.md).
+
+**Update (2026-10-19, addendum 6): the tag was measured, and the cheap repair does not work.** On Qwen2.5-1.5B, the "which pair" direction (the mean difference between the second and first pair's states, as Feng and Steinhardt build it) is real in the **late layers (19 to 27)**: adding it flips which partner the model prefers in 75% of held-out contexts [69%, 81%], against 0% for a random direction and 0% in early or middle layers. So there is a tag, and it can be moved.
+
+But adding it to one of two separately stored slices does not remove the swaps:
+
+| Two-position slices, stored separately | Teacher-forced confusion | Margin own minus partner (nats) |
+|---|---|---|
+| as stored | 0.38 | 1.25 |
+| + the ID direction | 0.44 | 1.77 [-0.23, 4.02] |
+| + a random direction | 0.31 | 1.27 |
+| + the reversed sign | 0.38 | 0.66 |
+| encoded together (the fix that works) | 0.00 | 13.30 |
+
+The margin moves the right way for the right sign (the reversed sign hurts, a random direction does nothing), but confusion does not fall. In generation, the best cell by the pre-registered pick (the only cell where confusion fell, by 1 of 16 members) changes confusion by **-0.02 [-0.14, 0.11]**; two-position slices encoded together give 0.19 against 0.30 stored apart. "Repair works" does not hold. Reading: the collision is only partly a binding-tag effect, or the tag has to be set at more places than the stored positions. **Cheap consolidation by tag editing is out; joint re-encoding is still the way**, and a selective recompute (re-reading only the positions that carry the tag) is untested. The retrieval route (find only the right slice, failure 18) avoids the collision rather than repairing it.
+
+---
+
+## 18. Retrieval errors become confident wrong facts
+
+**What you see.** With 59 facts stored as slices, a question about someone's name is answered from the slice picked by the key. When the pick is right the answer is as good as having the sentence in the prompt. When it is wrong, the model states the wrong fact and does not hedge.
+
+| Qwen2.5-1.5B, 59 facts stored | Result |
+|---|---|
+| right slice found, direct questions (subject-span key) | 0.85 to 0.92 |
+| a wrong slice used instead | 0.08 to 0.15 |
+| gain in log-probability of the right name with the right slice (oracle) | **+9.47** nats, same as the sentence in context (+9.48) |
+| gain when a wrong slice is used (swap control) | **-2.62** nats: worse than no memory |
+| wrong value stated when a wrong slice is injected | 0.86 to 0.90 |
+| clean use on the use prompts, right slice / the key's pick | 0.87 / **0.49**, confabulation 0.16 [0.00, 0.43] |
+
+(Use prompts are for the 7 hand-picked facts, so the intervals are wide. On the direct-question-style prompts the picks cost less: 0.83 right slice, 0.74 key's pick, no wrong values.)
+
+**Why.** The slice carries the value and its address together. Used under the wrong question, the model reads the value as the answer to the question it was asked, because nothing in the slice says "this is about someone else". The gate guards against firing on unrelated prompts (false fire 0 to 4%) but not against firing the wrong memory on a related one. Same family as failure 17: slices have no notion of ownership beyond the tag.
+
+**What might fix it.**
+- **A verification step.** The right slice is in the top 2 about 0.9 of the time; check the pick before using it (for example by scoring the candidates, or by a yes/no probe, which a recurrent state supports on the 2B).
+- A better key. The whole-text key is much worse (0.42 to 0.61) and a learned key is untried.
+- Abstain: if two candidates are close, use neither. A miss ("I don't know") is cheaper than a wrong name.
+
+Folder: `results/dream_bind_add6_20261014_1608/qwen25_15b_gkey/`. Details: [01-binding.md](dreaming/01-binding.md), addendum 6 B.
 
 ---
 
 ## The patterns underneath
 
-The seventeen failures come from five root causes (E was added with dreaming experiment 1).
+The eighteen failures come from five root causes (E was added with dreaming experiment 1).
 
 **A. Adding a vector is a nudge, not a statement** (failures 1, 2, 4, 10, 14, 16). The memory acts by adding to the model's state at every word. That's enough to change what comes to mind and which way a broad preference leans. It isn't enough to:
 - supply a premise
@@ -431,17 +489,17 @@ Pushed too hard, it overwhelms rather than informs: loops, fragments, a flooded 
 
 Producing the right parts still needs counterfactuals we write by hand. Getting the *content* of a memory right, from a single real conversation, is unsolved, but we now know what "right" has to contain.
 
-**C. Where it gets filed** (failures 5, 6, 7, 8). Keys decide when a memory fires and how much memories interfere. Most of our progress came from fixing keys (5, 6). Most of what remains (7, 8) is still about keys: memories filed under the wrong situations, or crowding each other.
+**C. Where it gets filed** (failures 5, 6, 7, 8, 18). Keys decide when a memory fires and how much memories interfere. Most of our progress came from fixing keys (5, 6). Most of what remains (7, 8) is still about keys: memories filed under the wrong situations, or crowding each other.
 
 **D. How we measured** (failure 11, and the uncertainty in 12). Twice we nearly drew the wrong conclusion from a flawed measurement. Balanced, sampled, controlled tests are now non-negotiable.
 
-**E. Binding** (failures 1, 2, 15, 17). The model ties an attribute to its owner through positions and order tags. A push has no position, so it can't bind (1, 2, 15); a stored slice has one, so it can, but slices stored apart share the same tag and collide (17). Experiment 1 showed both halves.
+**E. Binding** (failures 1, 2, 15, 17, 18). The model ties an attribute to its owner through positions and order tags. A push has no position, so it can't bind (1, 2, 15); a stored slice has one, so it can, but slices stored apart share the same tag and collide (17), and a slice put under the wrong question is read as its answer (18). Experiment 1 showed both halves; addendum 6 found the tag direction but could not repair the collision with it.
 
 ## Which failures matter most for the project
 
-1. **Failure 9 (the hand-made comparison).** Without solving it, the system isn't "memory formed from experience", which is the project's central claim.
-2. **Failures 13 and 15 (direction and ownership).** A memory that turns dislikes into likes, or that the model takes as its own, is worse than none. Concept × sign, and a notion of *whose*, are the next design step.
+1. **Failure 9 (the hand-made comparison).** Now mostly closed for effects (a model writes the references, experiment 2). What is left is the sign (13) and the choice of what to store.
+2. **Failures 13 and 15 (direction and ownership).** A memory that turns dislikes into likes, or that the model takes as its own, is worse than none. Ownership is fixed for facts by the user-turn slice. Concept × sign fixes direction with the true sign; reading the sign relative to the stored concept is the next design step.
 3. **Failures 2 and 14 (exact content).** Broad leanings now work well; single words don't. Either a different way of applying the memory (thermostat, middle layers) fixes this, or it's the episodic channel's job.
-4. **Failure 7 (filing).** A memory that only comes back in near-copies of its original situations won't feel like memory.
+4. **Failure 7 (filing) and 18 (wrong picks).** A memory that only comes back in near-copies of its original situations won't feel like memory, and a memory that comes back under the wrong question is worse than none.
 
 Failure 1 (premises) is real, but it's the *other* channel's job. It defines this channel's scope rather than counting against it.

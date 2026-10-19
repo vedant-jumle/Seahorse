@@ -1,6 +1,6 @@
 # Experiment 1: dreaming as binding (the subject-position write)
 
-*Can a fact be used if the model's own representation of it is written at the subject's position, rather than pushed at the answer? Exact process. Written 2026-10-11; revised the same day after review (stage 0 knockout pre-test, H2 fixed, gated reinstatement, item tiers, a `subj` arm on Qwen2.5), and again before stage 0 ran (the sufficiency safeguard in §2). **Run 2026-10-11 to 13: see "Results" below. The subject-position write (the plan in this file) is dead; the content channel turned out to be reinstating a stored slice of the model's own attention memory. The spec text from §2 on is kept as written, with dated notes where the results superseded it.***
+*Can a fact be used if the model's own representation of it is written at the subject's position, rather than pushed at the answer? Exact process. Written 2026-10-11; revised the same day after review (stage 0 knockout pre-test, H2 fixed, gated reinstatement, item tiers, a `subj` arm on Qwen2.5), and again before stage 0 ran (the sufficiency safeguard in §2). **Run 2026-10-11 to 13: see "Results" below. The subject-position write (the plan in this file) is dead; the content channel turned out to be reinstating a stored slice of the model's own attention memory. The spec text from §2 on is kept as written, with dated notes where the results superseded it. Addendum 6 (binding-ID repair, G-key retrieval with capacity, the split of the 2B's recurrent state) was run on 2026-10-14 and is reported at the end of Results; a literature check is in [literature-exp1.md](literature-exp1.md).***
 
 ---
 
@@ -12,9 +12,9 @@ The comparison arm reinstates the experience sentence as a short segment of posi
 
 **The risk this experiment has to face first.** Geva's subject enrichment is about facts in the *weights*. A fact said earlier in the *chat* reaches the answer by the in-context route: a shared order tag on "dog" and "Pepper", and attention from the answer back to Pepper's position (Feng & Steinhardt; Dai; Prakash). If that's what happens here, the state at "dog" holds a **pointer** (a tag to a position that won't exist in session 2), not the fact, and H1 is orphaned before it's generated. Stage 0 settles this before anything is built.
 
-## Results (2026-10-11 to 13)
+## Results (2026-10-11 to 14)
 
-*Everything below comes from the report files in `results/dream_bind_*` (local, untracked; each folder has a `jobs.txt`, and the numbers are from the `report.md` files named in each part). "Clean use" = the fact used correctly in a coherent answer, by majority of three judges (the original Qwen3.5-9B judge, gpt-oss, Gemma-4), on the use prompts of the 7 primary items. Brackets are 95% intervals. "ctx" = the experience sentence sitting in the same user turn (the ceiling). Pre-registration: `experiments/dream_bind/PREREG.md`, addenda 1 to 5.*
+*Everything below comes from the report files in `results/dream_bind_*` (local, untracked; each folder has a `jobs.txt`, and the numbers are from the `report.md` files named in each part). "Clean use" = the fact used correctly in a coherent answer, by majority of three judges (the original Qwen3.5-9B judge, gpt-oss, Gemma-4), on the use prompts of the 7 primary items. Brackets are 95% intervals. "ctx" = the experience sentence sitting in the same user turn (the ceiling). Pre-registration: `experiments/dream_bind/PREREG.md`, addenda 1 to 5 (addendum 6 and 6b, added 2026-10-14, are exploratory: everything is reported, nothing is decisive beyond the stated rules).*
 
 **The short version.**
 1. In a chat, the answer reads the value from the attribute's own position ("Pepper"), late in the network. The question's subject ("my dog") holds no copy of the value (it may still carry a pointer, the order-ID tag of Prakash et al.'s lookbacks, which a Pepper/Rocky patch can't see). So there is nothing at the subject to harvest and write back. The subject write fails (clean use 0.00).
@@ -22,6 +22,11 @@ The comparison arm reinstates the experience sentence as a short segment of posi
 3. That slice carries more than its tokens. The same two tokens as plain text give 0.27.
 4. On the hybrid model (Qwen3.5-2B), the attention slice alone is not enough. Its recurrent state is needed too. The state alone gives recognition without recall: the model says "yes, that is her name" but cannot say the name.
 5. Two facts stored separately and put back together get mixed up (the wrong person's name 19% to 37% of the time). Encoding them together fixes it. That is a real job for the offline phase.
+
+**Update (2026-10-19), addendum 6 added three more points:**
+6. **The cheap repair does not work.** The "which pair" direction (Feng and Steinhardt) is real in the late layers (it flips which partner the model prefers in 75% of held-out contexts, against 0 for a random direction). But adding it to one separately stored slice does not reduce the swaps in generation (change in confusion -0.02 [-0.14, 0.11]). So the swap is only partly a tag effect, and consolidation still means re-reading the text.
+7. **Finding the slice by key works and scales to 59 facts.** Keyed on the subject's words, the right slice is found 85% to 92% of the time at N = 10, 20 and 59, with no collapse. When the right one is used the answer is as good as the sentence in context; when a wrong one is used, the model states the wrong fact with confidence.
+8. **On the 2B, recognition lives in the recurrent state, not in the convolution buffer.** Recurrent state alone: yes/no 0.86; convolution buffer alone: 0.50 (nothing); both: 0.93. The two-position slice plus the recurrent state alone, without the buffer, gives clean use 0.97 and yes/no 1.00.
 
 ### Stage 0: where does the answer read the fact? (pre-registered, both models)
 
@@ -132,11 +137,19 @@ On the 2B (every condition uses the joint DeltaNet state, so only the six attent
 - **The two-position version is partly confused even when stored together on Qwen2.5** (min-joint confusion 0.20; so "IDs collide" for the min versions is 0.08 [-0.08, 0.27], not significant). On the 2B, min-joint works (0.73 / 0.06), and the separate min versions still collide (+0.17 [0.05, 0.31]).
 - **The attention-only probes on the 2B stay weak** (joint-kv6 0.19, sep-shift-kv6 0.16 on confusable pairs): the state matters here too.
 - **Interpretation (inferred, not tested):** in context the model tags each entity-attribute pair with an order-based binding ID (the "first pair", the "second pair"; Feng and Steinhardt; Dai). Slices stored in separate sessions all carry the same tag, so when two are put back, the question cannot tell them apart. Joint encoding gives them different tags. We have not yet measured the tag; that is the next experiment.
+  - **Update (2026-10-19):** the tag was measured in addendum 6 (below). The direction exists in the late layers, but adding it to a separate slice did not remove the swaps. The binding-ID reading is therefore supported (the direction flips partners) but not sufficient (the cheap repair fails).
 - **What the joint encoding is.** Re-reading the text of both sentences in one pass and storing the result. That is "dreaming" in its plainest form, and it costs a model pass over text we already have. It does not need an abstraction, but it does need to be done offline, for the memories that will be used together.
 
 ### What was and was not new
 
 The stored object is a standard KV cache (plus the recurrent state on hybrids), used outside its normal rules: cut down to two positions, moved across sessions, gated by a match on the subject, and combined from separate sessions. Prior systems work does parts of this: Prompt Cache (reusing cached segments), CacheBlend (fusing separately cached segments), EPIC (position-independent caching), InfLLM (retrieving blocks of cache). We did not invent the mechanism. What this experiment adds is the explanation for each rule: which part of the cache carries the value (the attribute's own position, read late), why the subject write fails (the subject holds a pointer or nothing), what the recurrent state adds (recognition, not recall), and why combining separately stored slices fails (the binding ID). A literature check is being written up in `docs/dreaming/literature-exp1.md`.
+
+**Update (2026-10-19): the literature check is done** ([literature-exp1.md](literature-exp1.md), 36 papers; FwPKM added in [literature.md group F](../reference/literature.md#f-trained-fast-weight-memory)). Verdicts:
+- **New:** recognition from the recurrent state (no paper probes a yes/no on a restored state), and the partner swaps with the binding-ID explanation (cache-reuse papers report only generic quality loss).
+- **Partly known:** the 2-token slice. Sparse KV as memory exists (Memory3, KBLaM) but only with training. The training-free version and the comparison with the same tokens as text are ours.
+- **Mostly known:** the transplant across positions (Prompt Cache, Feng and Steinhardt) and the read site (Lookbacks, Entity Tracking). That recall runs through attention in hybrids is also known (Michalak and Abreu, Bick et al., DASC on Qwen3-Next).
+- **Two corrections to this file:** the subject carries "no copy of the value", not "nothing the answer needs" (it may hold an order-ID pointer; the collision result shows a pointer matters with two facts), and Prompt Cache's "scaffolding" is our joint-encoding fix, so joint encoding is not a new fix.
+- **FwPKM** (a trained fast-weight memory) learns to use its memory only when attention cannot reach the context, and re-reading the context 2 to 4 times helps its recall (the trained analogue of joint re-encoding). It supports "reads need training" as a design direction.
 
 ### What happened to the spec's questions
 
@@ -145,11 +158,108 @@ The stored object is a standard KV cache (plus the recurrent state on hybrids), 
 - *Does position matter (wrongpos)?* Moot for the same reason, but the collision test shows that *which position tag* a slice carries matters.
 - *Is the unified-vs-split channel design right?* Yes, with a mechanism: a content channel is a stored attention slice (plus state on hybrids); the steer channel stays for leanings.
 
-### Running now (addendum 6, not yet reported)
+### Addendum 6 (run 2026-10-14; exploratory, PREREG addenda 6 and 6b)
 
-1. **Binding-ID repair.** Measure the "which pair" direction in the models' states, and test whether adding it to one separately stored slice stops the swaps. If it works, consolidation is cheap: no re-reading of text.
-2. **G-key retrieval and capacity.** Find the right slice by the whole-conversation key rather than by a string match on the subject, with N = 10, 20 and 60 facts stored.
-3. **Literature check.** `docs/dreaming/literature-exp1.md`.
+Folder: `results/dream_bind_add6_20261014_1608/`. Three parts, each with its own `analysis/report.md`: [A, binding-ID repair](../../results/dream_bind_add6_20261014_1608/qwen25_15b_idrepair/analysis/report.md) (Qwen2.5), [B, G-key retrieval and capacity](../../results/dream_bind_add6_20261014_1608/qwen25_15b_gkey/analysis/report.md) (Qwen2.5), [C, the 2B's state split](../../results/dream_bind_add6_20261014_1608/qwen35_2b/analysis/report.md). (The `results/` folder is local and untracked.)
+
+#### A. Binding-ID repair: the direction is real, the cheap repair fails
+
+Setup (Qwen2.5-1.5B): take the "which pair" direction as Feng and Steinhardt do, the mean difference between the states of the second pair and the first pair in jointly encoded contexts, at the entity and attribute positions. Check that it means what we think (swap it into held-out contexts and see whether the model prefers the partner's value), then add it to one of two separately stored slices and see whether the swaps go down. The Dai variant (a projection on the order-correlated component) is run beside it. Controls: a random direction, the reversed sign, the wrong token.
+
+**Validation: does the direction flip the binding?** Share of held-out contexts where adding it changes which of the two values the model prefers (own minus partner):
+
+| Layers | Feng direction, swapped at the attribute | Random direction | Dai direction |
+|---|---|---|---|
+| early | 0.00 | 0.00 | 0.00 |
+| mid | 0.00 (0.43 when swapped at both) | 0.00 | 0.00 |
+| **late (19 to 27)** | **0.75** [0.69, 0.81] | **0.00** | 0.25 [0.20, 0.31] |
+| all layers | 0.64 [0.57, 0.70] | 0.00 | 0.16 |
+
+The direction is valid in the late layers and not in early or mid ones; the pre-registered pick was therefore "late".
+
+**Repair, teacher-forced** (16 two-fact members from addendum 5, separately stored, positions overlapping; confusion = the partner's value ranked above the own value):
+
+| Condition | Confusion | Margin own minus partner (nats) |
+|---|---|---|
+| joint encoding (the fix that works) | 0.00 | 13.30 |
+| separate (R2-sep-overlap) | 0.38 | 1.25 [0.29, 2.20] |
+| separate + ID direction | 0.44 | 1.77 [-0.23, 4.02] |
+| separate + random direction | 0.31 | 1.27 |
+| separate + the reversed sign | 0.38 | 0.66 [-0.39, 1.73] |
+| separate + ID on the wrong token | 0.38 | 1.24 |
+
+- **The margin moves the right way, and only for the right sign.** The ID direction raises the margin by about 0.5 nats, the reversed sign lowers it, a random direction and the wrong token do nothing. So the direction is doing something specific.
+- **But confusion does not fall** (0.38 to 0.44, with 16 members each is one or two items). The right answer's log-probability even drops (from -0.58 to -1.09).
+- **The pre-registered pick** (the cell with the largest fall in confusion) was the two-position slice with the Dai direction, the only cell where confusion fell, by 0.06 (one member of 16). That is correct under the rule; an earlier reading of the sign of this pick was ours and has been corrected.
+- **In generation** (that cell, 1440 answers, three judges' majority): partner confusion 0.28 [0.16, 0.42] against 0.30 [0.17, 0.44] without the direction, and 0.25 with a random direction. **Change in confusion: -0.02 [-0.14, 0.11].** Joint encoding of the same two-position slice: 0.19 [0.05, 0.37].
+- **Pre-registered verdict: "repair works" does not hold.** The cheap tag consolidation fails.
+
+What it means: the tag is a real thing in the late layers, but a simple addition at the stored positions does not put it where the lookup reads it, or the collision is only partly a tag effect (the earlier "binding-ID collision" reading is supported by the flip, not shown sufficient). Joint re-encoding stays the working consolidation.
+
+#### B. G-key retrieval and capacity (Qwen2.5-1.5B, N = 10, 20, 59)
+
+Setup: 59 facts (the 7 hand-picked primary items plus a 52-fact pool). The store holds N of them, each filed under a key; the question's own key (read at the last user token, at key layers 5, 10, 14, 19) must pick the right one, with the threshold at the 95th percentile of generic prompts' best match, as in core_v1. **K1** = a key built from the subject's words in the experience; **K2** = a key from the whole experience text. "Correct" = the right slice is the best match; "wrong slice" = another fact's slice wins; "miss" = nothing passes the gate.
+
+| N | K1, correct (layers 5 / 10 / 14 / 19) | K2, correct | top-2 correct (K1) | false fire on unrelated prompts |
+|---|---|---|---|---|
+| 10 | 0.90 / 0.80 / 0.80 / 0.90 | 0.50 to 0.70 | 0.90 to 1.00 | 0.00 to 0.04 |
+| 20 | 0.90 / 0.85 / 0.85 / 0.85 | 0.40 to 0.60 | 0.90 to 1.00 | 0.00 to 0.04 |
+| 59 | **0.92 / 0.88 / 0.88 / 0.85** [CIs about +/- 0.08] | 0.59 / 0.54 / 0.61 / 0.42 | 0.88 to 0.93 | 0.02 to 0.04 |
+
+- **Retrieval holds up to 59.** The subject-span key finds the right slice for direct questions 0.85 to 0.92 of the time with no collapse as N grows (a miss is almost never the failure: 0.00 at N = 59). The whole-text key is much worse (0.42 to 0.61 at N = 59). The 16 facts whose follow-up has no usable subject alias fall back to the whole-text key.
+- **Top-2 is about 0.9**, so a second look (a verification step) could remove most of the remaining wrong picks.
+- **Use prompts are weaker than direct questions** (0.67 to 0.92 correct, on only the hand-written facts, so wide intervals).
+- **False fire is 0 to 4%** on core_v1's unrelated prompts.
+
+**What the right slice does, and what the wrong one does** (teacher-forced, direct question; gain in log-probability of the right name against no memory):
+
+| Condition | Gain (nats) | Wrong value when a wrong slice is injected |
+|---|---|---|
+| ctx (sentence in the prompt) | 9.48 [8.84, 10.12] | |
+| **oracle** (the right slice, all 59) | **9.47** [8.84, 10.10] | |
+| G-key at N = 59 | 8.32 [7.17, 9.35] | 0.86 [0.57, 1.00] (of 7 wrong picks) |
+| swap (always a wrong slice) | **-2.62** [-3.41, -1.90] | 0.90 [0.81, 0.97] |
+
+The oracle slice is as good as the sentence in context for every one of the 59 facts. A wrong slice does worse than nothing: it pushes the right answer down and the model states the wrong fact (0.86 to 0.90 of the time).
+
+**Generation at N = 59** (clean use by the judges' majority; 820 answers):
+
+| Prompts | no memory | ctx | oracle (right slice) | G-key |
+|---|---|---|---|---|
+| primary facts, use prompts | 0.00 | 0.90 [0.74, 1.00] | 0.87 [0.71, 1.00] | **0.49** [0.14, 0.80], wrong value 0.16 [0.00, 0.43] |
+| primary facts, related prompts | 0.00 | 0.94 | 0.83 [0.71, 0.94] | 0.74 [0.49, 0.94], wrong value 0.00 |
+| pool facts (52), related prompts | 0.00 | 0.86 [0.74, 0.96] | **0.62** [0.49, 0.75] | 0.59 [0.44, 0.74] |
+
+- **The cost of retrieval is on the use prompts:** 0.87 with the right slice, 0.49 with the key's pick, and 16% confident wrong values. Intervals are wide (7 items).
+- **The pool is the open question.** Even with the right slice (oracle), the 52 pool facts reach only 0.62 against 0.86 in context, while the 7 hand-picked facts reach 0.83 to 0.87. So the two-position slice is weaker beyond the items it was developed on. This is unexplained, and no test was run.
+- The label "related" is the report's; these are the question-style prompts for each fact.
+
+#### C. The 2B's recurrent state: recognition is in the recurrent part, not the convolution buffer
+
+Setup (Qwen3.5-2B, fp32, primary items): a Gated DeltaNet block keeps two things, a recurrent state (the big matrix, about 4.7 million numbers over the 18 blocks) and a small convolution buffer (the last few tokens, verbatim). Earlier runs restored both. Here each is restored alone. Teacher-forced balanced yes/no and gain in log-probability of the right name:
+
+| Condition | What is restored | Yes/no, balanced | Gain (nats) |
+|---|---|---|---|
+| no memory | | 0.50 | 0.00 |
+| ctx | | 1.00 | 10.65 |
+| R-state-only | recurrent state + conv buffer | 0.93 [0.86, 1.00] | 4.24 |
+| **R-state-only-rec** | **recurrent state only** | **0.86** [0.71, 0.96] | 3.74 |
+| R-state-only-conv | conv buffer only | **0.50** [0.50, 0.50] | 0.66 [-0.28, 1.58] |
+| R-min-state | 2 positions + both | 0.93 | 11.11 |
+| **R-min-state-rec** | **2 positions + recurrent state only** | **1.00** | 10.79 |
+
+- **Pre-registered rule holds:** recognition lives in the recurrent state (recurrent-only is above chance and within 0.1 of both-restored: 0.86 vs 0.93). The conv buffer alone does nothing.
+- **In generation, dropping the conv buffer costs nothing:** R-min-state-rec gives clean use **0.97** [0.91, 1.00] (R-min-state: 0.97), direct question 0.97, yes/no 1.00, unrelated prompts unchanged 1.000 (1050 answers), no cross-binding leak. The state alone still gives no recall (clean use 0.00, direct question 0.00, whether or not the conv buffer is included), and now with a clean reading: **the "recognition without recall" of the earlier run is the recurrent state alone.**
+- This also closes a confound the literature check raised (the state-only arm restored the 4-token buffer, which holds the last tokens of the stored turn verbatim). It was not the buffer.
+- **No size claim:** the recurrent state is still about 19 MB in fp32; the buffer is small, so dropping it does not make the memory compact.
+
+#### What is still open after addendum 6
+
+1. **Why the two-position slice is weaker on the fact pool** (0.62 vs 0.83 to 0.87).
+2. **A safer pick:** top-2 retrieval is about 0.9, so verify the pick (for example score the candidates, or check the answer against a yes/no from the state) before putting a slice in.
+3. **Cheap consolidation** is still open (selective recompute of the positions that carry the tag, rather than re-reading everything), now that adding the direction fails.
+4. **A trained read path** (a small adapter on a frozen model) is the natural fallback for reads; FwPKM is the existing example of a trained read of a fast-weight memory.
+5. Not run: the 9B, and a retrieval key other than the subject's words and the whole text (a learned key).
 
 ---
 
