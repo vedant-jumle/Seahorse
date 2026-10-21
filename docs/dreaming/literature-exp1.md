@@ -13,13 +13,13 @@ Tone and terms follow [../reference/literature.md](../reference/literature.md). 
 | 1 | In-context recall reads the value late, from the attribute's own position. The subject tokens hold no copy of it. | **Known** (for transformers; we add the chat setting and patching on a GDN hybrid) | Lookbacks (Prakash et al. 2025), Entity Tracking (Prakash et al. 2024), Retrieval Head (Wu et al. 2024) |
 | 2 | A 2-position slice (the name plus the full stop), gated, carries the fact into a new session (0.86 vs 0.87). The same two tokens as text do not (0.27). | **Partly known.** Sparse KV as memory exists, but only with training. Nobody restores a training-free 1–2 token slice, and nobody compares a slice with the same tokens as text. | Memory3, KBLaM, Gather-and-Aggregate, Michalak & Abreu |
 | 3 | Slices harvested after unrelated content still work at other positions. | **Mostly known as a property** (cached K,V tolerate position shifts; binding is not positional). The cross-session framing is ours. | Prompt Cache, Feng & Steinhardt, Memory3, the PIC papers |
-| 4 | Hybrid split: state alone = recognition without recall; attention KV alone = recall in slot-filling but refusals on direct questions; both = ceiling; with two facts, a jointly encoded state disambiguates. | **Partly known.** "Recall runs through attention, and the state alone does not recall" is well established, including on a Qwen GDN hybrid. **Recognition from the state is new**: no paper probes it. KV-only refusals and the two-fact role of the state are also new. | DASC (Qwen3-Next), Michalak & Abreu, Bick et al., LatentPort, Hymba (prediction in spirit) |
+| 4 | Hybrid split: state alone = recognition without recall; attention KV alone = recall in slot-filling but refusals on direct questions; both = ceiling; with two facts, a jointly encoded state disambiguates. | **Partly known.** "Recall runs through attention, and the state alone does not recall" is well established, including on a Qwen GDN hybrid. ~~**Recognition from the state is new**: no paper probes it.~~ **Update 2026-10-21: no longer new.** Afendulev et al. (Sept 2026) probe yes/no membership on a recurrent-only cache in Qwen3.5-4B/9B/27B (true-positive rate 0.93–0.98, and false "yes" on associated lures 0.87–0.89). What stays ours is the cross-session version (a stored 2-position slice plus a state) and the value-present-but-refused measurement. KV-only refusals and the two-fact role of the state are still not reported elsewhere. | DASC (Qwen3-Next), Michalak & Abreu, Bick et al., LatentPort, Hymba (prediction in spirit), **Afendulev et al. 2026** |
 | 5 | Two facts cached in separate sessions swap values (partner confusion 0.26–0.37), even for different subjects. Shifting positions doesn't help. Joint encoding fixes it. Explanation: binding-ID / order-tag collision. | **The failure class is known; the swaps and the explanation are new.** Cache-reuse papers report only generic quality loss and blame missing cross-chunk attention or attention sinks. None reports swaps or mentions binding. The binding papers predict exactly our pattern but never test cross-context caches. | CacheBlend, Prompt Cache ("scaffolding" = joint encoding), EPIC; Feng & Steinhardt, Dai et al., Lookbacks |
 
 **The three closest papers overall:**
 1. **Lookbacks** (Prakash et al.): the mechanism for findings 1, 2 and 5. The answer is fetched from the attribute token's residual stream, and that token also carries the order IDs ("addresses") the question matches against.
 2. **Feng & Steinhardt, Binding IDs**: predicts finding 5 almost point by point. Binding is by ID, not position (so shifting does nothing), and IDs that are close give near-chance confusion.
-3. **DASC**: the closest measurement for finding 4. On Qwen3-Next, zeroing the attention KV kills needle retrieval and zeroing the recurrent state costs at most one point.
+3. **DASC**: the closest measurement for finding 4. On Qwen3-Next, zeroing the attention KV kills needle retrieval and zeroing the recurrent state costs at most one point. *(Update 2026-10-21: Afendulev et al. 2026, read after this check, is now the closest for finding 4. See "Added later".)*
 
 On the systems side, **CacheBlend** and **Prompt Cache** must be cited for finding 5. Prompt Cache's "scaffolding" is our joint-encoding fix, and it is described there in one paragraph.
 
@@ -46,6 +46,8 @@ On the systems side, **CacheBlend** and **Prompt Cache** must be cited for findi
 **A second tension, for the KV-only arm.** In DASC, zeroing the state left NIAH intact (0.99). Our KV-only arm used the name in slot-filling (0.50) but refused direct questions (0.23). This is consistent with DASC on slot-filling. The refusal is new. A plausible reading: NIAH prompts tell the model the answer is in the text, while a chat question needs a "something was said about this" signal first, which is the recognition role of the state. That reading is inferred.
 
 **Verdict: adjacent prior work plus a prediction in spirit (Hymba). Nobody has shown it. Nothing contradicts it.**
+
+**Update (2026-10-21): this verdict is out of date.** Afendulev et al. (arXiv 2609.04434, 3 Sept 2026) keep only the KV cache or only the recurrent state of a prefilled context ("split-prefill") on Qwen3.5-4B, 9B and 27B, Falcon-H1 and others, and do run a yes/no membership probe ("Was the exact word X in the list?"). Recurrent-only answers present items correctly (true-positive rate 0.93–0.98 on Qwen3.5-4B/9B) but also says "yes" to associated words that were never in the list (DRM lures: 0.87–0.89, against 0.01–0.10 for unrelated absent words). So the recognition half is now shown, and shown to be gist familiarity rather than item memory. Details and what it means for us: "Added later" below.
 
 ## Q2. Do cache-reuse papers see value swaps? (finding 5)
 
@@ -301,12 +303,13 @@ The report's main conclusion stands: the recall half is known, and the recogniti
 
 # What we can still claim
 
-1. **Recognition without recall from a hybrid's recurrent state.** A restored GDN state alone gives balanced yes/no 0.93 and recall 0.00 on the same items. No paper probes verification on a state; all hybrid ablations score generation only. Scope it to "in this trained hybrid": pure GDN models do recall single needles (Log-Linear, Gated DeltaNet).
+1. ~~**Recognition without recall from a hybrid's recurrent state.**~~ **No longer a novelty claim (2026-10-21):** Afendulev et al. 2026 show recurrent-only recognition on Qwen3.5 (see "Added later"). What we can still claim is the **cross-session** version: a stored state plus 2 positions carried into a new conversation, with the conv-buffer control, and the teacher-forced split (attention-only: the value at 10.0 nats but yes/no at chance; state-only: yes/no 0.93 but the value at 4.2 nats). Write it as "consistent with Afendulev et al., in a memory setting". **Our yes/no foils are unrelated names; we have not tested associated lures**, so our 0.93 may be gist familiarity, as theirs is. A lure control is needed before calling it recognition of the fact.
 2. **The full dissociation in one restored memory.**
    - KV alone: slot-filling 0.50, refusals on direct questions 0.23.
    - State alone: the reverse.
    - Both: ceiling.
    - The KV-only refusal is new, and it qualifies DASC's "state is redundant for simple recall".
+   - *(2026-10-21)* Afendulev et al. report the same kind of split as "recall ≠ control": KV-only can name an instruction but not follow it; the state carries the response mode (language, persona). Our KV-only refusal fits that reading, and it competes with a second one, a missing "known entity" signal (Ferrando et al. 2025). Not yet tested which. One discrepancy to report: their KV-only verifies list membership (0.71–0.86, almost no false "yes"), ours gives yes/no at chance (0.50).
 3. **Two cached positions carry a bound fact across sessions, training-free,** and carry about three times what the same tokens do as text (0.87 vs 0.27). Sparse KV memory exists only with training (Memory3, KBLaM). The slice-vs-text comparison has not been done before.
 4. **Separately cached facts swap values, even across subjects; shifting positions doesn't help; joint encoding fixes it.** Cache-reuse papers report only generic loss. We name the specific failure and link it to binding IDs.
    - This explanation stays **inferred** until the tag is measured (addendum 6).
@@ -340,6 +343,34 @@ Also correct two lines in [01-binding.md](01-binding.md) when it is next edited:
   - **Finding 4:** in a GDN + attention hybrid, the learned gate ignores the memory when full attention can reach the context, and uses it when attention is restricted. That supports "recall runs through attention where attention can reach".
   - **Finding 5:** re-reading the context 2–4 times raises needle retrieval from under 10% to over 70%. That's the trained analogue of joint re-encoding.
   - **Not about cache slices, binding IDs, or recognition from a state,** so the novelty claims above stand.
+
+## Added 2026-10-21 (a targeted search for paper 2; PDFs in `papers/`, see `papers/README.md`)
+
+Read in full: Afendulev et al. Read as abstract plus targeted searches of the text: the rest. Each title was checked against the PDF.
+
+**Hybrids: `linear-attention-ssm-hybrids/What Attention Recalls and Recurrence Controls.pdf`**
+- **Afendulev, Dontsov, Tutubalina, Korznikov, "What Attention Recalls and Recurrence Controls in Hybrid Language Models" (arXiv 2609.04434, Sept 2026).** Two cache interventions in one session: split-prefill (keep only the KV cache or only the recurrent state of a prefilled context) and state-swap (the KV of context A with the state of context B). Models: Qwen3.5-4B (main), 9B, 27B; Falcon-H1-3B/7B/34B; point estimates on Kimi-Linear, Olmo-Hybrid, Jamba2.
+  - Exact retrieval goes through attention only (KV-only 0.64–0.98 of full; recurrent-only 0.00).
+  - Language and persona carry over through the state (recurrent-only 70–80% of full language-following; KV-only about 1%). "KV-only names the requested language correctly but answers in English."
+  - State-swap: the answer takes its value from the KV side and its language from the state side (≥ 99% of items).
+  - Recurrent-only falsely accepts associated lures (DRM: 0.87–0.89 on Qwen3.5-4B/9B) and recombined compounds ("sunlight" from "sunflower" and "moonlight"). Their reading: the state keeps features, not bound items.
+  - **For us:** this is the closest prior work for finding 4 and removes the novelty of "recognition from the state". It also supports our numbers: same model family, same split. It does not cover storing across sessions, 2-position slices, slices vs text, or collisions between separately stored slices. Required for paper 2: a lure control (associated but wrong names) on our state-only yes/no.
+
+**Known-entity signals and refusal: `knowledge-awareness-and-refusal/`**
+- **Ferrando, Obeso, Rajamanoharan, Nanda, "Do I Know This Entity?" (ICLR 2025, arXiv 2411.14257).** SAE latents for known vs unknown entities, on the entity token (Gemma 2 2B/9B; reproduced on Llama 3.1 8B), causally steer knowledge refusal in the chat model. **For us:** a test of why the attention-only slice refuses although the value is there: build a known/unknown direction on Qwen (difference of means; no SAE suite exists), check whether it is missing under the attention-only slice, add it, and see whether the refusal lifts. Competes with Afendulev's "the state carries the response mode".
+- **Gottesman & Geva, "Estimating Knowledge in LLMs Without Generating a Single Token" (EMNLP 2024, arXiv 2406.12673).** A probe on entity hidden states predicts how much the model knows. A ready-made familiarity reading.
+- **Brzezinka, "Does Bielik Know What It Doesn't Know?" (arXiv 2607.07670, July 2026).** Familiarity is easy to decode (even at 1.5B) and separate from factual reliability; the models almost never refused, so familiarity alone does not produce refusal in every model.
+- **Ruscio & Thompson, "On the Tip of the Tongue: Why LLMs Hallucinate Answers They Can Decode" (arXiv 2603.13911; v1 was titled "The Phenomenology of Hallucinations").** The gold answer can be decodable but not selected at the first answer token (a selection-margin account). Adjacent only: our refusal is decided before any content token (answer vs refuse).
+- **Kadavath et al., "Language Models (Mostly) Know What They Know" (2022, arXiv 2207.05221).** Background citation for self-knowledge.
+- Not a PDF: Lindsey et al. (Anthropic) 2025, "On the Biology of a Large Language Model" (a default "can't answer" circuit inhibited by known-entity features). Already filed: Arditi et al., refusal is one direction (`steering-and-editing/Refusal in LLMs.pdf`).
+
+**Compressing context into few positions: `context-compression/`, `kv-cache-reuse/`**
+- **Cartridges (Eyuboglu et al., ICLR 2026, arXiv 2506.06266):** a small KV cache trained offline per corpus by "self-study" (synthetic conversations, context distillation); composable. The trained analogue of dreaming-into-a-cache.
+- **Gist tokens (Mu et al., NeurIPS 2023), ICAE (Ge et al., ICLR 2024), AutoCompressors (Chevalier et al., EMNLP 2023), xRAG (Cheng et al., NeurIPS 2024), TokenMem (Yu et al. 2026):** trained compression into a few positions or vectors. **LLMLingua (Jiang et al., EMNLP 2023):** text compression, the natural "same budget as text" baseline. **SnapKV, H2O:** training-free eviction, but within one session and keyed on the current query.
+- **Memory Inception (Liu et al., arXiv 2605.06225, May 2026):** training-free text-derived KV banks inserted at selected layers; beats activation steering (CAA) and is competitive with prompting for persona and reasoning heuristics, with 6–118× less KV. The steering-side version of our "slice beats push" contrast; facts are mentioned but not evaluated. Must cite and position against.
+- **KV-State Grafting (Schelpe, arXiv 2607.14431, July 2026):** byte-exact own-position restore of full KV blocks of verified solutions into a frozen Gemma-4 (proprietary engine). Another instance of "full slice = prompt caching across sessions". No sparse slices, binding or recognition.
+
+**Positioning line for paper 2:** the trained methods compress by optimisation; the eviction methods choose positions for a query in the same session; Memory Inception and grafting reuse KV without training but for steering or whole blocks. Ours keeps 2 of the model's own positions, chosen without a query, across sessions, and explains which positions carry the value and why separately stored slices collide.
 
 # Not read, partly read, or off-topic
 

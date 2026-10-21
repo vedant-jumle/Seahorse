@@ -32,6 +32,7 @@ The failures cluster into five root causes (E, binding, was added with dreaming 
 - **what gets written**
 - **where it gets filed**
 - **how we measured**
+- **binding**
 
 ---
 
@@ -62,7 +63,7 @@ Two untested escape routes remain, both from Lindsey 2026 ([literature.md](refer
 
 In the pre-registered run, the balanced yes/no accuracy never rose on either model, at any dose. What the memory does do is tilt answers toward "Yes" or toward "No" across the board, which helps one kind of question exactly as much as it hurts the other. On the 2B, the fact memory at α=2 even made yes/no *worse*.
 
-**Update (2026-10-13, dream_bind): the predicted route works.** The natural answer above was a second channel that puts a stored moment back where attention can reach it. Experiment 1 built it. With the model's own keys and values (K,V) for the sentence put back in a later session, gated on a subject match, balanced yes/no accuracy goes from 0.46 (no memory) to 1.00 for the whole turn (Qwen2.5-1.5B), 0.86 for just the name and the full stop, and 1.00 for a slice stored after an unrelated chat. On the hybrid Qwen3.5-2B the same holds when the recurrent state is included (0.93 to 1.00); the attention blocks alone give 0.50 to 0.61. The state alone gives 0.93 yes/no but no recall: it can recognise a fact without being able to say it. So premises were never out of reach for the model; they needed something to attend to. Folders: `results/dream_bind_gen_20261012_0038/`, `dream_bind_state2b_20261012_1759/`. Details: [01-binding.md](dreaming/01-binding.md).
+**Update (2026-10-13, dream_bind): the predicted route works.** The natural answer above was a second channel that puts a stored moment back where attention can reach it. Experiment 1 built it. With the model's own keys and values (K,V) for the sentence put back in a later session, gated on a subject match, balanced yes/no accuracy goes from 0.46 (no memory) to 1.00 for the whole turn (Qwen2.5-1.5B), 0.86 for just the name and the full stop, and 1.00 for a slice stored after an unrelated chat. On the hybrid Qwen3.5-2B the same holds when the recurrent state is included (0.93 to 1.00); the attention blocks alone give 0.50 to 0.61. The state alone gives 0.93 yes/no but no recall: it can recognise a fact without being able to say it. *(2026-10-21: Afendulev et al. 2026 find the same on Qwen3.5 within one session, and that this "recognition" also says yes to associated words never seen, i.e. gist familiarity. Our foils were unrelated names, so an associated-lure control is still owed.)* So premises were never out of reach for the model; they needed something to attend to. Folders: `results/dream_bind_gen_20261012_0038/`, `dream_bind_state2b_20261012_1759/`. Details: [01-binding.md](dreaming/01-binding.md).
 
 ---
 
@@ -232,7 +233,7 @@ That second point gives up one of the original idea's hippocampal properties (re
 
 **What might fix it.** Better-separated keys (so memories overlap less), separate subspaces per memory, or sparse, selective storage (store fewer, more salient moments). The neuromodulation idea was partly motivated by this.
 
-**Update (2026-10-19, dream_bind addendum 6): the capacity curve for slices.** For the episodic channel (a stored slice per fact, Qwen2.5-1.5B), the right slice is found 0.85 to 0.92 of the time with 10, 20 and 59 facts stored, with no sign of collapse, and each slice is its own object rather than a share of one table. With the right slice, the answer is as good as having the sentence in context (+9.47 nats vs +9.48). The cost of more facts is wrong picks (8% to 15% at N = 59, failure 18), not weaker memories. Not measured: more than 59 facts, and the 52 pool facts are weaker even with the right slice (0.62 vs 0.83 to 0.87 for the 7 hand-picked ones; unexplained). The steer channel's six-memory curve above is unchanged.
+**Update (2026-10-19, dream_bind addendum 6): the capacity curve for slices.** For the episodic channel (a stored slice per fact, Qwen2.5-1.5B), the right slice is found 0.85 to 0.92 of the time with 10, 20 and 59 facts stored, with no sign of collapse, and each slice is its own object rather than a share of one table. With the right slice, the answer is as good as having the sentence in context (+9.47 nats vs +9.48). The cost of more facts is wrong picks (8% to 15% at N = 59, failure 18), not weaker memories. Not measured: more than 59 facts. The pool facts looked weaker even with the right slice (0.62 vs 0.83 to 0.87 for the 7 hand-picked ones), but that generation used 20 pool facts with direct questions only, where the 2-position slice is weak on the hand-picked facts too (0.66 to 0.83), and teacher-forced the right slice equals the sentence in context on all 59 (correction 2026-10-21). The steer channel's six-memory curve above is unchanged.
 
 ---
 
