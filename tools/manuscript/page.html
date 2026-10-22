@@ -501,7 +501,7 @@ footer { font: 13px var(--ui); color: var(--muted); margin-top: 48px; padding-to
 <li><b>Intervals</b>: 95%, from a bootstrap that resamples items, then prompts within items (2,000 draws).</li>
 </ul>
 <h3>Judges</h3>
-<p>The original judge is Qwen3.5-9B with a fixed rubric for direction and coherence. The panel re-judged paper 1’s answers with gpt-oss-20B, Gemma-4-12B and Llama-3.1-8B (excluded after failing a sanity check), plus Qwen3.6-35B-A3B as a same-family reference. The slice runs use the majority of the original judge, gpt-oss and Gemma-4. Sampling: 1 greedy answer plus 4 samples per prompt (T = 1, top-p 0.95), with the same random numbers in every condition.</p>
+<p>The original judge is Qwen3.5-9B with a fixed rubric for direction and coherence. The panel re-judged paper 1’s answers with gpt-oss-20B, Gemma-4-12B and Llama-3.1-8B (not trusted as a single judge after it failed a sanity check; it counts as one voter in the majority votes), plus Qwen3.6-35B-A3B as a same-family reference. The slice runs use the majority of the original judge, gpt-oss and Gemma-4. Sampling: 1 greedy answer plus 4 samples per prompt (T = 1, top-p 0.95), with the same random numbers in every condition.</p>
 </div>
 
 <footer>Vedant Jumle · <a href="/">vedantjumle.com</a> · <a href="mailto:vedantjumle@gmail.com">vedantjumle@gmail.com</a> · An independent project in progress; numbers may change as runs are repeated.</footer>
