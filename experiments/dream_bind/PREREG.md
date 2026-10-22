@@ -888,7 +888,8 @@ Reported beside the rule: whether the pool CI contains 0.66, and the same number
   - The counter value comes from `sample_pool`. A counter that is not one token on the run's tokenizer is replaced
     by the first value of the slot's list that is one token and is neither the target nor a foil (each swap is
     recorded in the layouts).
-  - A fact whose target is not one token is excluded and listed.
+  - A fact whose target is not one token, or whose counter has no one-token replacement, is excluded and listed.
+    *(The second case was added on 2026-10-22, after a dry run with Qwen3.5's tokenizer and before any job.)*
   - Same layout asserts as stage 0.
 - **Read-out:** the stage-0 measures and thresholds unchanged (PREREG, "Stage 0 read-out"). The verdict is decided
   on the **person/pet facts** (38 slots, minus any excluded); the attribute slots (9) are reported separately (the

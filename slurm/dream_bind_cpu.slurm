@@ -12,8 +12,9 @@
 #   MODEL=qwen25_15b OUT=/scratch/$USER/seahorse_runs/<run>/qwen25_15b sbatch slurm/dream_bind_cpu.slurm
 set -eo pipefail
 
+#   OUTS: several model dirs (space-separated) instead of OUT (addendum 7: base, _refusal, _pool dirs)
 MODEL=${MODEL:?set MODEL}
-OUT=${OUT:?set OUT}
+OUTS=${OUTS:-${OUT:?set OUT or OUTS}}
 REPO=${REPO:-/scratch/$USER/Seahorse}
 
 module load 2025
@@ -24,8 +25,10 @@ export HF_HOME=/scratch/$USER/hf_cache
 export HF_HUB_OFFLINE=1
 export PYTHONUNBUFFERED=1
 cd "$REPO"
-echo "dream_bind analyze MODEL=$MODEL OUT=$OUT commit=$(git log -1 --oneline) node=$(hostname) job=$SLURM_JOB_ID"
+echo "dream_bind analyze MODEL=$MODEL OUTS=$OUTS commit=$(git log -1 --oneline) node=$(hostname) job=$SLURM_JOB_ID"
 pytest -q tests/test_dream_bind.py
 echo "pytest passed"
-python experiments/dream_bind/run.py --model "$MODEL" --stage analyze --out "$OUT" --device cpu
-echo "Done: $OUT/analysis"
+for OUT in $OUTS; do
+  python experiments/dream_bind/run.py --model "$MODEL" --stage analyze --out "$OUT" --device cpu
+  echo "Done: $OUT/analysis"
+done

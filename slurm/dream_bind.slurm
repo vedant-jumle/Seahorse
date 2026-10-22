@@ -16,9 +16,14 @@
 #   EXTRA: extra run.py arguments. No internet on compute nodes: models must already be in HF_HOME.
 set -eo pipefail
 
-MODEL=${MODEL:?set MODEL (qwen35_2b | qwen25_15b)}
-STAGES=${STAGES:?set STAGES (patch | knockout | prefix | analytic | gen | judge | ...)}
-OUT=${OUT:?set OUT}
+#   SPECS (instead of STAGES / OUT / EXTRA): several run.py calls after one pytest, ';'-separated, each
+#   "STAGES|OUT|EXTRA" (e.g. the addendum-7 smokes, and the judge over several model dirs).
+MODEL=${MODEL:?set MODEL (qwen35_2b | qwen25_15b | llama32_3b | qwen35_9b)}
+if [ -z "${SPECS:-}" ]; then
+  STAGES=${STAGES:?set STAGES (patch | knockout | prefix | analytic | gen | judge | ...)}
+  OUT=${OUT:?set OUT}
+  SPECS="$STAGES|$OUT|${EXTRA:-}"
+fi
 REPO=${REPO:-/scratch/$USER/Seahorse}
 
 module load 2025
@@ -33,10 +38,15 @@ export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True   # less fragmentation on the 10 GB slice
 
 cd "$REPO"
-echo "dream_bind MODEL=$MODEL STAGES=$STAGES OUT=$OUT commit=$(git log -1 --oneline) node=$(hostname) job=$SLURM_JOB_ID"
+echo "dream_bind MODEL=$MODEL SPECS=$SPECS commit=$(git log -1 --oneline) node=$(hostname) job=$SLURM_JOB_ID"
 python -c "import torch, transformers; print(torch.__version__, transformers.__version__, torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
 command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=name,memory.total --format=csv || true
 pytest -q tests
 echo "pytest passed"
-python experiments/dream_bind/run.py --model "$MODEL" --stage $STAGES --out "$OUT" --device cuda --dtype fp32 ${EXTRA:-}
-echo "Done: $OUT"
+IFS=';' read -ra RUNS <<< "$SPECS"
+for spec in "${RUNS[@]}"; do
+  IFS='|' read -r st out ex <<< "$spec"
+  echo "=== run.py --stage $st --out $out $ex"
+  python experiments/dream_bind/run.py --model "$MODEL" --stage $st --out "$out" --device cuda --dtype fp32 $ex
+  echo "Done: $out"
+done

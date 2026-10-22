@@ -3349,7 +3349,10 @@ def s0_pool_items(cfg, tok, tiny=False):
         if not one(cv):
             foils = {f.strip() for f in p["measure"]["foils"]}
             vals = sl.get("values") or pool["names"][sl["names"]]
-            nv = next(v for v in vals if v != tgt and v not in foils and one(v))
+            nv = next((v for v in vals if v != tgt and v not in foils and one(v)), None)
+            if nv is None:              # no one-token replacement on this tokenizer: excluded (listed)
+                info["excluded"].append(p["id"])
+                continue
             counter = tpl.replace("{v}", nv)
             info["swaps"][p["id"]] = [cv, nv]
         out.append({"id": p["id"], "tier": "primary" if sl.get("kind") in ("person", "pet") else "secondary",
