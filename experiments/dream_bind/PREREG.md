@@ -658,6 +658,343 @@ zero conv buffer / zero recurrent state, exactly the state with no previous toke
   familiarity**.
 - The generated (greedy, parsed) yes/no accuracy is reported beside it.
 
+### Addendum 7: strengthening runs for paper 2 (parts A–G; 2026-10-22)
+
+*Written and committed before any job of this addendum was submitted and before any of its numbers existed. Known
+results: addenda 1–6b (summarised in `docs/dreaming/01-binding.md`, Results), in particular:
+- 2B R-state-only yes/no 0.93 with unrelated foils; recurrent-only 0.86.
+- 2B attention-only slices (R-min-kv6) +10.0 nats teacher-forced, yet they refuse direct questions (0.20).
+- Separately stored slices collide (0.19–0.37), and the ID-direction repair fails.
+- The G-key "pool gap" (0.62).
+Literature known: Afendulev et al. (Sept 2026) show recurrent-state recognition on Qwen3.5 within one session, as
+gist familiarity that also accepts associated lures.*
+
+*Everything here is exploratory in the sense of addenda 5–6: each part has a stated rule, and the report gives the
+rule's verdict beside the full tables. Code: `run.py` (stages `probe`, `directions`; gen sets `refusal`, `pool`;
+`--items pool` for stage 0; `--collide-set add7`), `bind.py` (pair plans), `config.yaml` (`lures`, the new model
+blocks and condition sets), `data/bench_v1/entities.yaml`, the `use:` templates in `data/bench_v1/fact_pool.yaml`;
+jobs in `experiments/dream_bind/submit_add7.sh`.*
+
+**Shared.**
+- **Judges:** clean use = the majority of the original judge (Qwen3.5-9B bf16) + gpt-oss + Gemma-4 (a tie goes to
+  the original's label), as before.
+- **Statistics:** bootstrap over items, then prompts; 2000 replicates, seed 7. Paired differences on the same
+  prompts and random streams. Teacher-forced (TF) tables bootstrap over items.
+- **Unrelated prompts:** the 50 prompts, G-match gated; `unrel_same ≥ 0.95` reported for every gated condition.
+- **Seed set 2:** 4 more samples for the main cells named per part.
+- **Read the text:** 3–5 answers per new condition are read before anything is written up.
+- **Precision:** fp32 everywhere.
+- **"TF yes/no":** a verify probe is answered "yes" teacher-forced when log P(Yes) > log P(No) at the first
+  assistant token, and greedy when the parsed 10-token answer is "yes" (unparsed = not yes).
+
+#### A. Associated-lure control: does the state recognise the fact, or a gist?
+
+**Lures** (`config.yaml: lures`), per primary item, 2 per kind, each asked with the item's 2 verify templates
+({v} = the lure; the correct answer is No):
+
+| Item (target) | form (spelled / sounding like) | associate (the word's own theme, never said) | binding (other items' values) |
+|---|---|---|---|
+| dog (Pepper) | Piper, Penny | Ginger, Salt | Jasper, Petra |
+| cat (Jasper) | Jason, Jasmine | Amber, Jade | Pepper, Petra |
+| sister (Petra) | Peter, Pedro | Athena, Stone | Hugo, Esther |
+| brother (Hugo) | Hugh, Hogan | Victor, Pierre | Petra, Esther |
+| grandmother (Esther) | Easter, Lester | Rebecca, Leah | Omar, Gordon |
+| best friend (Omar) | Amar, Homer | Ali, Hassan | Gordon, Pepper |
+| boss (Gordon) | Jordan, Morgan | Douglas, Duncan | Omar, Pepper |
+
+- **Binding lures:** the addendum-5 pair partner's value first (dog/cat, sister/brother, best friend/boss;
+  grandmother has none), then the next items in the fixed cycle dog > cat > sister > brother > grandmother > best
+  friend > boss > dog, until there are 2 distinct values.
+  - In a single-fact memory the binding lure's value is **not** in the memory. There it is expected to behave
+    like an unrelated foil.
+  - It becomes the conjunction test only in the joint-state condition below.
+- **Checks:**
+  - Every lure (with its leading space) is one token on the Qwen2.5, Qwen3.5 and Llama-3.2 tokenizers (checked
+    locally with the cached tokenizers, and asserted at run time).
+  - It is not the target's first token, and not one of the item's foils (asserted at run time).
+- **Baseline:** the existing unrelated foils (the bench's 2 No probes per item).
+- **Probes per item and condition:**
+
+  | Probes | Count |
+  |---|---|
+  | Yes (target) | 2 |
+  | unrelated No | 2 |
+  | form No | 4 |
+  | associate No | 4 |
+  | binding No | 4 |
+  | **total** | **16** |
+
+**Conditions** (run by the new `probe` stage: teacher-forced first-token margins on all 16 probes, plus a greedy
+10-token answer to each, parsed yes/no):
+- 2B: nomem, ctx, R-full-state, R-min-state, R-min-kv6, R-state-only, R-state-only-rec, R-state-only-conv.
+- Qwen2.5 and Llama: nomem, ctx, R-full, R-min, T-min, T-full.
+- 9B: as the 2B (part F).
+- **Deviation from the plan (stated now):** the plan's separate greedy `lure` gen set is folded into the `probe`
+  stage. The answers are 10-token yes/no strings, which no judge reads, so a judged gen set adds nothing.
+
+**Measures, per lure kind k ∈ {unrelated, form, associate, binding}:**
+- **false-yes rate FY_k:** the share of k's No probes answered yes.
+- **balanced accuracy against k:** (accuracy on the Yes probes + (1 − FY_k)) / 2.
+- **"against lures":** form + associate pooled.
+- Both are computed TF (primary) and greedy (reported).
+
+**Joint-state binding lure (2B, collide):** the new collide condition `R2-state-only-J`. It is the JOINT DeltaNet
+state after [A's turn][B's turn], with no attention entries for either segment; the question starts at
+h + n_A + n_B. Its collide yes/no probes are the conjunction test, e.g. "Is my older sister called Maria?" (No =
+the partner's value, which IS in the state).
+
+**Rules** (decided on R-state-only, TF, 2B; the same rules reported for R-state-only-rec and for the 9B):
+- **"Gist familiarity"** if the paired CI of FY_form − FY_unrelated, or of FY_assoc − FY_unrelated, has a lower
+  bound > 0.
+- **"Item recognition"** if gist familiarity does not hold, AND both point differences are within 0.1 of 0, AND the
+  balanced accuracy against lures has a CI lower bound > 0.5.
+- Otherwise **"in between"**.
+- **Conjunction (R2-state-only-J, confusable pairs):**
+  - **"the state binds"** if the TF balanced yes/no accuracy (partner as foil) has a CI lower bound > 0.5.
+  - **"familiarity without conjunction"** if the CI includes 0.5.
+  - The different-subject pairs are reported beside it.
+
+#### B. Why the attention-only slice refuses direct questions
+
+**B1. Directions** (`--stage directions`, sibling dir `<model>_dirs`; difference of means per block, as in
+`estimate_ids`). Both are built on data disjoint from the 7 test items.
+- **known-entity** (Ferrando et al.):
+  - Data (`data/bench_v1/entities.yaml`): 100 famous people vs 100 made-up names. No word of any entry is a value,
+    counter, foil or lure used anywhere in dream_bind (checked in the tests).
+  - Prompt: the user turn "Tell me about {X}.".
+  - Read-out: the block-output residual at X's last token.
+  - d_known(l) = mean(famous) − mean(made-up).
+- **"told":**
+  - Data: the 52 non-primary facts (the 47 pool facts of `gkey_facts`' order + the 5 secondary items).
+  - Read-out: the block-output residual at the **last prompt token** of the direct question (the last token of the
+    assistant header).
+  - d_told(l) = mean over facts of [ctx − nomem].
+- **Reported:** per block, the separation of the two sets along each direction: Cohen's d of the projections (famous
+  vs made-up; ctx vs nomem).
+
+**B2. Projections.**
+- Units: the 7 primary items × (direct question + 2 use prompts).
+- Sites: the question's subject site (the last token of the first alias occurrence; G-match's site) and the last
+  prompt token, every block.
+- Value: the scalar projection on the unit directions.
+- Conditions:
+  - 2B: nomem, ctx, R-min-kv6, R-min-state, R-state-only.
+  - Qwen2.5: nomem, ctx, R-min, R-full.
+- Reported: per block, each condition − nomem with item-bootstrap CIs.
+- **Expectation (reported, not decisive):** "missing told signal" predicts that R-min-kv6's told projection at the
+  last prompt token stays near nomem's in the second half of the network, while R-min-state's moves toward ctx's.
+  "Missing known signal" predicts the same for the known-entity projection at the subject.
+
+**B3. Causal arms** (`--gen-set refusal`; generation, judged).
+
+The **told vector:**
+- v(l) = α · d_told(l) for l in a layer set S.
+- It is added to block l's output at the last prompt token, in the prefill only; generated tokens see it through the
+  cache.
+
+**The α-selection rule** (teacher-forced, on the 52 non-primary facts only, **never on the 7 test items**; run inside
+the directions stage and saved to `dirs.pt` before any refusal answer exists):
+- **Grid:**
+  - S ∈ {early, middle, late third} by relative depth: blocks [0, n/3), [n/3, 2n/3), [2n/3, n).
+  - α ∈ {0.25, 0.5, 1, 2}.
+- **The slice X** per fact: its own attention-only slice (Qwen2.5 and Llama: R-min; 2B: R-min-kv6), harvested as in
+  addenda 2–3.
+- **Score** = the mean over facts of the change, vs X alone, in log P(the measure prefix, e.g. "Your dog's name is" |
+  the direct question): the sum over the prefix tokens, teacher-forced. A higher score means "answers instead of
+  refusing".
+- **Constraint:** the mean change in log P(target | question + prefix) vs X alone must be ≥ −1 nat.
+- **Pick:** the highest score among the cells meeting the constraint (ties → the smaller α). If no cell meets it:
+  the smallest α at the best-scoring S.
+
+**Conditions** (G-match gated):
+
+| Condition | What it is | 2B | Qwen2.5 |
+|---|---|---|---|
+| nomem, ctx | anchors | ✓ | ✓ |
+| X | the slice alone (2B R-min-kv6, Qwen2.5 R-min) | ✓ | ✓ |
+| `X+told` | the slice + the picked told vector | ✓ | ✓ |
+| `X+told:rand` | a random unit direction per block (fixed seed) × the norm of v(l) | ✓ | ✓ |
+| `X+told:neg` | −v | ✓ | ✓ |
+| `nomem+told` | v on the plain prompt; expected: confabulation, not recall | ✓ | ✓ |
+| R-min-state | the reference for the state rows (2B only) | ✓ | |
+| R-full | the reference (Qwen2.5 only) | | ✓ |
+| `R-min-kv-own+state-swap` | own R-min-kv6 entries + the swap partner's DeltaNet state (recurrent + conv, after its experience turn); the question starts at own n_head + n_seg | ✓ | |
+| `R-min-kv-own+state-plac` | own entries + the DeltaNet state after the placebo turn "By the way, I had a coffee this morning." | ✓ | |
+
+- **Prompts:** the 7 primary items × (direct question + 2 use prompts) × (1 greedy + 4 samples). Seed set 2 for:
+  nomem, X, X+told, and R-min-state (2B) / R-full (Qwen2.5).
+- **Also:** the balanced yes/no probes (greedy), and the 50 unrelated prompts (gated).
+- **Count:** 2B 1,050 + 336 seed-2 answers; Qwen2.5 840 + 336.
+
+**Measures:**
+- Clean use on the direct question, and on the use prompts.
+- The judges' `wrong_value` (confabulation).
+- Reported: a refusal regex ("don't / do not / can't / cannot know / recall / remember / have", "I'm sorry",
+  "could you tell me").
+
+**Rules** (2B decides; Qwen2.5 is reported with the same rule for the told part):
+- **"Missing told signal"** if all of these hold, with X = R-min-kv6:
+  - the paired CI of direct-question clean use (X+told − X) has a lower bound > 0;
+  - the paired CIs of (X+told − X+told:rand) and (X+told − X+told:neg) both have a lower bound > 0;
+  - use-prompt clean use is not lowered: (X+told − X) has a point estimate ≥ −0.1 and an upper bound ≥ 0.
+- **"Generic response mode"** (Afendulev et al.'s reading) if the direct-question clean use of
+  R-min-kv-own+state-swap OR +state-plac is within 0.1 of R-min-state's (point estimates; ≥ R-min-state − 0.1).
+- **"Item-specific state"** if both are more than 0.1 below R-min-state AND both paired CIs (each − R-min-state)
+  have an upper bound < 0. Otherwise **"in between"**.
+
+#### C. Pool scoping: is the "pool gap" a prompt-type mismatch? (Qwen2.5, then Llama)
+
+**Pool-gap note** (restating the 2026-10-21 correction):
+- The 0.62 came from the G-key generation subset: **20** pool facts with **direct questions only**.
+- The fair comparison is the primary items' direct question, where R-min is also weak: 0.66 [0.40, 0.89] in the main
+  run.
+- Teacher-forced, the right slice equals ctx on all 59 facts.
+- This part tests the mismatch reading directly.
+
+**Facts:** the 52 non-primary facts (47 pool, `sample_pool` seed 0, the hand-written slots excluded, as in
+`gkey_facts`; + the 5 secondary items).
+- Pool aliases: "my {slot}", "your {slot}", "{slot}". The secondary items keep their own aliases.
+
+**Prompts** (`--gen-set pool`):
+- The fact's direct question.
+- **One templated use prompt per kind**, written into `fact_pool.yaml` (`use:`) before this run:
+  - person: "Write a short birthday message to my {slot}."
+  - pet: "Write a short, funny poem about my {slot}."
+  - every attribute slot: a hand-written prompt naming the slot (e.g. "Suggest a weekly practice routine for my
+    instrument."). The secondary items use their slot's prompt.
+- Plus the bench's 4 balanced verify probes per fact (greedy).
+
+**Conditions:** nomem, ctx, R-full, R-min, T-min (G-match gated).
+- 1 greedy + 4 samples, seed set 1. Count: 52 × 2 × 5 × 5 = 2,600 answers.
+- The unrelated prompts gated.
+
+**TF:** Δlog P(target) at the measure prefix vs nomem, for every condition.
+
+**Splits:**
+- by kind: person / pet / attribute (the secondary items count as attributes);
+- by value token count on the run's tokenizer: 1 vs ≥ 2. A multi-token value's R-min keeps its first sub-token + the
+  next token, as in addendum 6 (B).
+
+**Rule: "prompt-type mismatch" holds** if both:
+- the pool R-min direct-question clean-use CI **overlaps** the primary items' main-run R-min direct-question CI
+  [0.40, 0.89] (point 0.66);
+- pool R-min use-prompt clean use is **≥ 0.75** (point estimate).
+
+Reported beside the rule: whether the pool CI contains 0.66, and the same numbers for R-full.
+
+#### D. Stage 0 on the pool facts (Qwen2.5, 2B, Llama)
+
+- **Items** (`--items pool`): the 47 pool facts above, built as stage-0 items.
+  - The counter value comes from `sample_pool`. A counter that is not one token on the run's tokenizer is replaced
+    by the first value of the slot's list that is one token and is neither the target nor a foil (each swap is
+    recorded in the layouts).
+  - A fact whose target is not one token is excluded and listed.
+  - Same layout asserts as stage 0.
+- **Read-out:** the stage-0 measures and thresholds unchanged (PREREG, "Stage 0 read-out"). The verdict is decided
+  on the **person/pet facts** (38 slots, minus any excluded); the attribute slots (9) are reported separately (the
+  report's "secondary" tier).
+- **Flagged items:** the "undetermined" bound scales with N: more than 2/7 of the person/pet facts flagged.
+- **Measures by model:** patching on all three models; knockout (and the subject-alone cell) on Qwen2.5 and Llama.
+
+#### E. Second family: Llama-3.2-3B-Instruct (fp32, gpu-v100)
+
+**The port:**
+- `turn_pieces` derives the head and the user-turn segment from `tokenizer.apply_chat_template`. The user-turn start
+  = the last special token of the rendered prompt whose following text names the user role. ChatML is no longer
+  hard-coded.
+- The tokenisation round-trip asserts are kept. On Qwen the pieces are token-identical to before (tested).
+- Llama's system block carries a date line. It is pinned: `date_string = "26 Jul 2024"` in every template call.
+- EOS: `<|eot_id|>` (plus the generation config's ids).
+- Eager attention (for knockout); 28 blocks, so `LAYER_SETS`, the gkey layers and the stage-0 cells carry over.
+
+**Token checks:**
+- Every primary/secondary target, counter (with the plumber override) and foil, every lure, and every collide value
+  is **one token on Llama-3.2's tokenizer** (checked locally with the cached tokenizer). **No per-model value swap
+  is needed.**
+- The run-time asserts stay; a failing assert fails the job.
+- Pool values that are 2+ tokens are the same on Llama as on Qwen2.5, e.g. carpenter, Turin, Matilda, clarinet,
+  Monet, Scorpio.
+
+**Runs:**
+- stage 0, patch + knockout, primary + pool (D);
+- gen-set `text`: nomem, ctx, R-full, R-min, R-orphan, R-swap, T-min, T-full; seed set 2 for nomem, ctx, T-min,
+  R-min; secondary items nomem, ctx, T-min, R-min;
+- collide: every R2 condition + G's;
+- the probe stage (A's lures and the value/verification table);
+- pool scoping (C).
+
+**Rules:**
+- **"slice > text":** R-min − T-min clean use (primary, use prompts), CI lower bound > 0.
+- **"collision replicates":** partner confusion R2-sep − R2-joint on the confusable pairs, CI lower bound > 0 (the
+  addendum-5 "IDs collide" rule; overlap and shift).
+- **stage 0:** the original rules.
+
+**Status:** this chain runs only once the user has downloaded the gated checkpoint to the cluster (`PARTS=llama`
+in `submit_add7.sh`).
+
+#### F. Qwen3.5-9B, teacher-forced only (fp32, full A100)
+
+- **Model block:** `models.qwen35_9b` (32 blocks; `layer_types` drives the hybrid code; text decoder only).
+- **Run:** only the `probe` stage. Conditions: nomem, ctx, R-full-state, R-min-state, R-min-kv6, R-state-only,
+  R-state-only-rec, R-state-only-conv, with A's lures.
+- No long generation, no judges. The only generation is the probe's greedy 10-token yes/no.
+- **Rule: "the 2B split replicates"** if both:
+  - R-min-kv6's mean Δlog P(target) is ≥ 0.8 × ctx's, while its TF balanced yes/no (unrelated foils) CI includes
+    0.5;
+  - R-state-only's TF balanced yes/no has a CI lower bound > 0.5.
+
+#### G. A cheaper collision fix (Qwen2.5, 2B, Llama)
+
+New `bind.pair_plan` entries (h = the head length; A's turn n_A tokens, B's n_B):
+
+| Condition | What it is | Cost / note |
+|---|---|---|
+| `R2-seq` | keep A's stored full slice; re-encode only B's turn with it as the prefix (positions h + n_A …) | **identical to R2-joint by construction**: asserted (logits within 0.01) and not generated separately, as T2 in addendum 5 |
+| `R2-seq-min` | keep A's stored 2 positions (value + full stop); re-encode B's turn with [head + A's 2 positions] as the prefix; keep B's 2 positions from that pass | one pass over the new memory only |
+| `R2-blend15` | R2-sep-shift (A full + B's separate slice, shifted by +n_A), with the 15% of B's positions with the largest key deviation (L2 at the second attention layer: block 1 on Qwen2.5 / Llama, block 7 on the 2B) replaced by their values from the one-pass re-encode of B | CacheBlend's selection rule. The replaced values come from a full pass over B, so this is a **selective-recompute upper bound**, not CacheBlend's cost |
+
+- **On the 2B:** every G condition uses the joint DeltaNet state, as in addendum 5 (the re-encode's own DeltaNet state
+  equals the joint state). Names: `R2-seq-min-jstate`, `R2-blend15-jstate`.
+- **Checks (fail the job):**
+  - R2-seq == R2-joint;
+  - "re-encode on top of the head only" == the separately harvested slice (the single-fact identity).
+- **Conditions generated:**
+  - Qwen2.5 and Llama: R2-joint, R2-sep-shift, R2-min-joint, R2-min-sep-shift, R2-seq-min, R2-blend15 (Llama: plus
+    all addendum-5 conditions, for E).
+  - 2B: the `-jstate` versions, + R2-state-only-J (A).
+- **Prompts:** 16 members × (direct question + 2 use prompts) × (1 greedy + 4 samples), seed set 1, + the yes/no
+  probes (partner as foil) and the TF readout.
+
+**Measures:** partner confusion and correct clean use, as in addendum 5.
+
+**Rule: "cheap fix works"** for R2-seq-min, if on the confusable pairs both:
+- its confusion CI overlaps R2-min-joint's;
+- the paired CI of (R2-seq-min − R2-min-sep-shift) confusion has an upper bound < 0.
+
+The same rule is reported for R2-blend15 against R2-joint and R2-sep-shift. R2-seq satisfies the rule trivially (it
+is R2-joint), which is reported as the cost statement: one pass over B, not over A and B.
+
+#### Run plan (`submit_add7.sh`; one fresh run root)
+
+- **Chains:**
+
+  | Model | Partition | Parts |
+  |---|---|---|
+  | Qwen2.5 | gpu-a100-small | A, B, C, D, G |
+  | 2B | gpu-a100-small (falls back to gpu-v100 if the smoke's fit check fails) | A, B, D, G |
+  | 9B | gpu-a100 | F |
+  | Llama | gpu-v100 | E, C, D, G; behind `PARTS=llama` until the checkpoint is on the cluster |
+
+- **Order per chain:** a `--tiny` smoke with the real model and `--max-reserved-gb` → the stage jobs → the original
+  judge + the two panels → analyze.
+- **Built-in smoke checks (fail the job):**
+  - R-full / R-full-state == the sentence as a prior turn (also on Llama);
+  - R2-joint == T2;
+  - R2-seq == R2-joint, and the single-fact re-encode identity;
+  - the probe's R-full(-state) TF == T-full;
+  - Paris.
+- Every part's `analysis/report.md` states its rule's verdict.
+
 ## Statistics
 
 - **Stage 0:** one value per item per cell (one prompt per item). The statistic is the **macro mean over

@@ -7,6 +7,9 @@
 # are the kind's 2 on-topic templates plus generic_followups[slot index] (distinct per
 # slot). Items come out in the same loaded format as facts.yaml (category: pool).
 #
+# use: one templated use prompt per kind (person / pet) and one hand-written prompt per attribute slot
+# (PREREG addendum 7 (C)); each names the slot so that G-match opens; never the value.
+#
 # Name/value lists hold single-token (with a leading space) names only, so any foil choice
 # has a first token distinct from the target's. validate_bench checks this.
 # 36 person + 10 pet + 14 attribute slots = 60 slots; >2,000 distinct (slot, value) facts.
@@ -24,6 +27,7 @@ kinds:
     paraphrase: "Tomorrow I'm having coffee with my {slot}."
     related: "What's my {slot}'s name?"
     verify: ["Is my {slot}'s name {v}?", "Is {v} the name of my {slot}?"]
+    use: "Write a short birthday message to my {slot}."   # PREREG addendum 7 (C)
   pet:
     experience: "My {slot}'s name is {v}."
     prefix: "Your {slot}'s name is"
@@ -31,6 +35,7 @@ kinds:
     paraphrase: "My {slot} has a vet appointment tomorrow."
     related: "What's my {slot}'s name?"
     verify: ["Is my {slot}'s name {v}?", "Is {v} the name of my {slot}?"]
+    use: "Write a short, funny poem about my {slot}."     # PREREG addendum 7 (C)
 
 slots:
   # people (36)
@@ -89,6 +94,7 @@ slots:
     paraphrase: "I want to ask my employer for a pay rise."
     related: "What do I do for a living?"
     verify: ["Do I work as a {v}?", "Am I a {v} by profession?"]
+    use: "Write a two-sentence bio about my job for a networking event."   # PREREG addendum 7 (C), hand-written
     values: [pharmacist, carpenter, plumber, librarian, firefighter, journalist, electrician, baker, surgeon, farmer, pilot, chef, teacher, nurse, lawyer]
   - slot: hometown
     experience: "I grew up in {v}."
@@ -97,6 +103,7 @@ slots:
     paraphrase: "Next month I'm visiting the town where I was raised."
     related: "Where did I grow up?"
     verify: ["Did I grow up in {v}?", "Is {v} my hometown?"]
+    use: "Plan a weekend trip back to my hometown."   # PREREG addendum 7 (C), hand-written
     values: [Leeds, Glasgow, Bristol, Dublin, Lyon, Porto, Hamburg, Turin, Antwerp, Cardiff]
   - slot: university
     experience: "I studied at the University of {v}."
@@ -105,6 +112,7 @@ slots:
     paraphrase: "There's an alumni event at the university I attended."
     related: "Which university did I study at?"
     verify: ["Did I study at the University of {v}?", "Is {v} where I went to university?"]
+    use: "Draft a short email to my university's alumni office."   # PREREG addendum 7 (C), hand-written
     values: [Edinburgh, Warwick, Durham, Bath, York, Sussex, Kent, Oxford, Cambridge]
   - slot: first language
     experience: "My first language is {v}."
@@ -113,6 +121,7 @@ slots:
     paraphrase: "I'd like to read more books in my mother tongue."
     related: "What's my native language?"
     verify: ["Is {v} my first language?", "Do I speak {v} as my native language?"]
+    use: "Recommend three novels written in my first language."   # PREREG addendum 7 (C), hand-written
     values: [Portuguese, Polish, Dutch, Greek, Turkish, Swedish, Italian, Korean, Hungarian, Finnish, Spanish, French]
   - slot: favourite colour
     experience: "My favourite colour is {v}."
@@ -121,6 +130,7 @@ slots:
     paraphrase: "I'm giving my living room walls a new colour."
     related: "What's my favourite colour?"
     verify: ["Is {v} my favourite colour?", "Do I like {v} more than any other colour?"]
+    use: "Suggest a mug design in my favourite colour."   # PREREG addendum 7 (C), hand-written
     values: [teal, orange, purple, yellow, maroon, turquoise, lavender, crimson, blue, green, red]
   - slot: favourite book
     experience: "My favourite book is {v}."
@@ -129,6 +139,7 @@ slots:
     paraphrase: "I want to start a new novel."
     related: "Which book is my favourite?"
     verify: ["Is {v} my favourite book?", "Is {v} the book I love most?"]
+    use: "Write a short review of my favourite book."   # PREREG addendum 7 (C), hand-written
     values: [Matilda, Emma, Frankenstein, Beloved, Rebecca, Middlemarch, Hamlet, Macbeth]
   - slot: football team
     experience: "My favourite football team is {v}."
@@ -137,6 +148,7 @@ slots:
     paraphrase: "I've got tickets to a football game on Saturday."
     related: "Which football team do I support?"
     verify: ["Is {v} my favourite football team?", "Do I support {v}?"]
+    use: "Write a short chant for my favourite football team."   # PREREG addendum 7 (C), hand-written
     values: [Ajax, Celtic, Liverpool, Juventus, Barcelona, Benfica, Everton, Arsenal, Chelsea]
   - slot: birthday month
     experience: "My birthday is in {v}."
@@ -145,6 +157,7 @@ slots:
     paraphrase: "I'm organizing a party for my birthday."
     related: "When is my birthday?"
     verify: ["Is my birthday in {v}?", "Was I born in {v}?"]
+    use: "Suggest a day trip for my birthday month."   # PREREG addendum 7 (C), hand-written
     values: [January, February, March, April, May, June, July, August, September, October, November, December]
   - slot: instrument
     experience: "I play the {v}."
@@ -153,6 +166,7 @@ slots:
     paraphrase: "I'd like to spend more time practising my instrument."
     related: "Which instrument do I play?"
     verify: ["Do I play the {v}?", "Is the {v} my instrument?"]
+    use: "Suggest a weekly practice routine for my instrument."   # PREREG addendum 7 (C), hand-written
     values: [violin, trumpet, piano, flute, clarinet, harp, guitar, drums]
   - slot: favourite painter
     experience: "My favourite painter is {v}."
@@ -161,6 +175,7 @@ slots:
     paraphrase: "I'd like to go and see some paintings soon."
     related: "Who is my favourite painter?"
     verify: ["Is {v} my favourite painter?", "Do I love {v}'s paintings most?"]
+    use: "Write a short tribute to my favourite painter."   # PREREG addendum 7 (C), hand-written
     values: [Monet, Rembrandt, Vermeer, Picasso, Turner]
   - slot: favourite board game
     experience: "My favourite board game is {v}."
@@ -169,6 +184,7 @@ slots:
     paraphrase: "I've invited people over for a games evening on Friday."
     related: "What's my favourite board game?"
     verify: ["Is {v} my favourite board game?", "Do I like {v} more than any other board game?"]
+    use: "Write a short rules summary of my favourite board game."   # PREREG addendum 7 (C), hand-written
     values: [chess, Monopoly, Scrabble, Risk, backgammon]
   - slot: star sign
     experience: "My star sign is {v}."
@@ -177,6 +193,7 @@ slots:
     paraphrase: "I read my horoscope every morning."
     related: "What's my star sign?"
     verify: ["Is my star sign {v}?", "Was I born under {v}?"]
+    use: "Write a short horoscope for my star sign."   # PREREG addendum 7 (C), hand-written
     values: [Scorpio, Libra, Gemini, Virgo, Pisces, Capricorn, Leo, Cancer]
   - slot: favourite flower
     experience: "My favourite flower is the {v}."
@@ -185,6 +202,7 @@ slots:
     paraphrase: "I'm putting some new flowers in the garden."
     related: "What's my favourite flower?"
     verify: ["Is the {v} my favourite flower?", "Do I love the {v} more than any other flower?"]
+    use: "Suggest a bouquet built around my favourite flower."   # PREREG addendum 7 (C), hand-written
     values: [tulip, rose, orchid, sunflower, jasmine, lavender, iris]
   - slot: favourite subject
     experience: "My favourite subject at school was {v}."
@@ -193,6 +211,7 @@ slots:
     paraphrase: "I might sign up for a night course."
     related: "What was my favourite subject at school?"
     verify: ["Was {v} my favourite subject at school?", "Did I like {v} best at school?"]
+    use: "Suggest an evening class in my favourite subject from school."   # PREREG addendum 7 (C), hand-written
     values: [chemistry, history, geography, physics, biology, maths, art, music, Latin]
 
 generic_followups:  # one per slot, in slot order; off-topic for every item
