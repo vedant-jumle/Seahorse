@@ -66,7 +66,8 @@ judges() {  # model, tag, deps, judge time, gptoss time, gemma time, panel model
       if [ "${Q2B_PART:-small}" = v100 ]; then R2=$V100; L="--max-reserved-gb 28"; pn=gpu-v100; else R2=$SMALL; L="--max-reserved-gb 9.4"; pn=gpu-a100-small; fi
       sm=$(sub $GPU a7_2b_smoke $R2 --time=00:50:00 "MODEL=$M,SPECS=directions probe gen|$S/${M}_refusal|--tiny --gen-set refusal $L;collide|$S/$M|--tiny --collide-set add7 $L;patch|$S/${M}_s0pool|--tiny --items pool $L")
       dp=$(sub $GPU a7_2b_dirprobe $R2 --time=01:00:00 --dependency=afterok:$sm "MODEL=$M,STAGES=directions probe,OUT=$RUN/$M")
-      rf=$(sub $GPU a7_2b_refusal $R2 --time=01:30:00 --dependency=afterok:$dp "MODEL=$M,STAGES=gen,OUT=$RUN/${M}_refusal,EXTRA=--gen-set refusal")
+      # the full refusal gen OOMs on the 10 GB slice although the --tiny smoke fits (job 1052696, 2026-10-22): full A100
+      rf=$(sub $GPU a7_2b_refusal $A100J --time=03:00:00 --dependency=afterok:$dp "MODEL=$M,STAGES=gen,OUT=$RUN/${M}_refusal,EXTRA=--gen-set refusal")
       co=$(sub $GPU a7_2b_collide $R2 --time=01:45:00 --dependency=afterok:$sm "MODEL=$M,STAGES=collide,OUT=$RUN/$M,EXTRA=--collide-set add7")
       s0=$(sub $GPU a7_2b_s0pool $R2 --time=00:30:00 --dependency=afterok:$sm "MODEL=$M,STAGES=patch,OUT=$RUN/${M}_s0pool,EXTRA=--items pool")
       read -r j pa pb <<< "$(judges $M 2b $rf:$co 01:00:00 01:15:00 01:00:00 "${M}_refusal ${M}_collide" \
