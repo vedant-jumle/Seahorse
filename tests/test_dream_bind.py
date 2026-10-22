@@ -575,7 +575,15 @@ def test_pair_plan_positions():
     names = bind.hybrid_collide_names(P)
     assert names["R2-joint-state"] == ("R2-joint", "J") and names["R2-sep-shift-jstate"] == ("R2-sep-shift", "J")
     assert names["R2-joint-kv6"] == ("R2-joint", "H") and names["R2-sep-shift-kv6"] == ("R2-sep-shift", "H")
-    assert len(names) == 8
+    # addendum 7: the joint-state-only condition, R2-seq (on top of A's full slice), R2-seq-min, R2-blend15
+    assert P["R2-state-only"] == ([("J", [0, 1, 2], 0)], 21)
+    assert P["R2-seq"] == ([("Qf", list(range(21)), 0)], 21)
+    assert P["R2-seq-min"] == ([("Qm", [0, 1, 2, 3, 4, 11, 12], 0)], 21)       # head, A's 2 positions, B's value + next
+    assert P["R2-blend15"] == ([("A", list(range(11)), 0), ("Bb", list(range(3, 13)), 0)], 21)
+    assert names["R2-state-only-J"] == ("R2-state-only", "J") and names["R2-seq-min-jstate"] == ("R2-seq-min", "J")
+    assert len(names) == 12
+    assert bind.blend_select(torch.tensor([0.1, 5.0, 0.2, 3.0, 0.0]), 0.15) == [1]
+    assert bind.blend_select(torch.tensor([0.1, 5.0, 0.2, 3.0, 0.0]), 0.4) == [1, 3]
 
 
 def _keys_at(C, ids, start, layer):
@@ -657,11 +665,14 @@ def test_collide_harvest_hybrid(tiny_hybrid):
     with torch.no_grad():
         R, info = run.harvest_pair(C, A, B)
         assert set(R) == {"R2-joint-state", "R2-sep-overlap-jstate", "R2-sep-shift-jstate", "R2-min-joint-jstate",
-                          "R2-min-sep-overlap-jstate", "R2-min-sep-shift-jstate", "R2-joint-kv6", "R2-sep-shift-kv6"}
+                          "R2-min-sep-overlap-jstate", "R2-min-sep-shift-jstate", "R2-joint-kv6", "R2-sep-shift-kv6",
+                          "R2-state-only-J", "R2-seq-jstate", "R2-seq-min-jstate", "R2-blend15-jstate"}
+        assert info["reencode_single_fact_maxdiff"] <= 1e-4                       # re-encode on the head == B's harvest
+        assert all(n == 0 for k, n in bind.cache_summary(R["R2-state-only-J"][0]) if k == "attn")
         J = R["R2-joint-state"][0]
         for c in R:
             lin_ok = bind.linear_states_equal(R[c][0], J)
-            assert lin_ok == c.endswith(("-jstate", "-state")), c          # joint DeltaNet state, except the kv6 probes
+            assert lin_ok == c.endswith(("-jstate", "-state", "-J")), c    # joint DeltaNet state, except the kv6 probes
         assert not any(f for k, f in bind.cache_summary(R["R2-joint-kv6"][0]) if k == "lin")
         q = B["question"]
         _, t2 = run.render_ids(C.tok, [{"role": "user", "content": A["experience"]}, {"role": "user", "content": B["experience"]},
@@ -669,6 +680,8 @@ def test_collide_harvest_hybrid(tiny_hybrid):
         a = run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R["R2-joint-state"], max_new=10)
         b = run.gen_batch(C, torch.tensor(t2), [(True, None)], max_new=10)
         assert a[0]["ids"] == b[0]["ids"]
+        assert torch.allclose(run.tf_last(C, run.qt_ids(C, q), R["R2-seq-jstate"]),
+                              run.tf_last(C, run.qt_ids(C, q), R["R2-joint-state"]), atol=1e-4)   # R2-seq == R2-joint
 
 
 # ================================================= addendum 6: binding-ID repair and G-key capacity
@@ -767,3 +780,207 @@ def test_hybrid_state_decomposition(tiny_hybrid):
         finally:
             C.A.gen_set = None
             run.gen_context(C, CFG)
+
+
+# ================================================= addendum 7: template port, lures, pool facts, directions, G
+
+
+def _tok(name, llama=False):
+    try:
+        from transformers import AutoTokenizer
+        tok = AutoTokenizer.from_pretrained(name, local_files_only=True)
+    except Exception:
+        return None
+    return run.date_pinned(tok, CFG["models"]["llama32_3b"]["date_string"]) if llama else tok
+
+
+def test_turn_pieces_template_generic():
+    """turn_pieces derives head and segment from the template: token-identical to the old ChatML pieces on Qwen2.5,
+    and Llama-3.2's header turns (with the pinned date) on Llama."""
+    tq = _qwen25_tok()
+    if tq is None:
+        pytest.skip("Qwen2.5 tokenizer not in the local cache")
+    ex = CFG["gen"]["orphan_exchange"]
+    P = run.turn_pieces(tq, "My dog's name is Pepper.", ex)
+    assert tq.decode(P.Seg) == "<|im_start|>user\nMy dog's name is Pepper.<|im_end|>\n"
+    s_nm = tq.apply_chat_template([{"role": "user", "content": "q"}], tokenize=False, add_generation_prompt=True)
+    assert tq.decode(P.H) == s_nm[:s_nm.index("<|im_start|>user")]                     # the old ChatML head
+    assert tq.decode(P.U).startswith("<|im_start|>user\nHow do I keep fresh basil") and "<|im_start|>assistant" in tq.decode(P.U)
+    tl = _tok("meta-llama/Llama-3.2-3B-Instruct", llama=True)
+    if tl is None:
+        pytest.skip("Llama-3.2 tokenizer not in the local cache")
+    P = run.turn_pieces(tl, "My dog's name is Pepper.", ex)
+    assert tl.decode(P.Seg) == "<|start_header_id|>user<|end_header_id|>\n\nMy dog's name is Pepper.<|eot_id|>"
+    assert "Today Date: 26 Jul 2024" in tl.decode(P.H) and tl.decode(P.H).startswith("<|begin_of_text|>")
+    a = tl.apply_chat_template([{"role": "user", "content": "x"}], tokenize=False, add_generation_prompt=True)
+    assert a == tl.apply_chat_template([{"role": "user", "content": "x"}], tokenize=False, add_generation_prompt=True)
+
+
+@pytest.fixture(scope="module")
+def tiny_llama():
+    tok = _tok("meta-llama/Llama-3.2-3B-Instruct", llama=True)
+    if tok is None:
+        pytest.skip("Llama-3.2 tokenizer not in the local cache")
+    model = run.random_llama(tok, 3, 0, "cpu")
+    C = SimpleNamespace(model=model, body=model.model, lm_head=model.lm_head, blocks=model.model.layers, n=3, d=64,
+                        dev="cpu", tok=tok, cfg=CFG, mc=CFG["models"]["llama32_3b"], tol=0.01,
+                        A=SimpleNamespace(tiny=True, random_model="llama", model="llama32_3b"))
+    run.gen_context(C, CFG)
+    return C
+
+
+def test_llama_R_full_equals_prior_turn_and_eos(tiny_llama):
+    C = tiny_llama
+    assert C.tok.convert_tokens_to_ids("<|eot_id|>") in C.eos_list
+    it = next(i for i in run.load_items(CFG) if i["id"] == "sister_name")
+    q = it["question"]
+    with torch.no_grad():
+        R, info = run.harvest_R(C, it, CFG["gen"]["orphan_exchange"])
+        assert info["min_tokens"] == [" Petra", "."] and info["kept"]["R-min"] == info["n_head"] + 2
+        _, prior = run.render_ids(C.tok, [{"role": "user", "content": it["experience"]}, {"role": "user", "content": q}])
+        a = run.gen_batch(C, run.qt_ids(C, q), [(True, None)], prefix=R["R-full"], max_new=10)
+        b = run.gen_batch(C, torch.tensor(prior), [(True, None)], max_new=10)
+        assert a[0]["ids"] == b[0]["ids"]
+        pre = run.text_ids(C.tok, it["prefix"])
+        assert torch.allclose(run.tf_last(C, *run.cond_ids(C, it, "R-full", q, pre, R)),
+                              run.tf_last(C, *run.cond_ids(C, it, "T-full", q, pre, R)), atol=1e-4)
+
+
+def test_lure_config_and_probes():
+    items = {it["id"]: it for it in run.load_items(CFG)}
+    assert set(CFG["lures"]) == set(CFG["primary"])
+    toks = [t for t in (_qwen25_tok(), _tok("Qwen/Qwen3.5-2B"), _tok("meta-llama/Llama-3.2-3B-Instruct", llama=True)) if t]
+    for iid, L in CFG["lures"].items():
+        it = items[iid]
+        vals = [v for k in run.LURE_KINDS for v in L[k]]
+        assert all(len(L[k]) == 2 for k in run.LURE_KINDS) and len(set(vals)) == 6
+        assert not {v.strip() for v in vals} & ({f.strip() for f in it["foils"]} | {it["target"].strip()})
+        for tok in toks:
+            P = run.lure_probes(CFG, it, tok)                                        # asserts single tokens
+            kinds = [k for _, _, k, _ in P]
+            assert len(P) == 16 and kinds.count("yes") == 2 and kinds.count("unrelated") == 2
+            assert all(kinds.count(k) == 4 for k in run.LURE_KINDS)
+            assert all(c == "No" for _, c, k, _ in P if k != "yes") and all(t.endswith("Answer yes or no.") for t, *_ in P)
+    if toks:
+        bad = {**CFG, "lures": {**CFG["lures"], "dog_name": {**CFG["lures"]["dog_name"], "form": [" Max", " Penny"]}}}
+        with pytest.raises(AssertionError):
+            run.lure_probes(bad, items["dog_name"], toks[0])                       # " Max" is one of the dog's foils
+
+
+def test_entities_disjoint_from_items():
+    E = yaml.safe_load(open(ROOT / CFG["entities"]))
+    assert len(E["famous"]) == len(set(E["famous"])) == 100 and len(E["made_up"]) == len(set(E["made_up"])) == 100
+    pool = yaml.safe_load(open(ROOT / "data" / "bench_v1" / "fact_pool.yaml"))
+    names = {w for l in pool["names"].values() for w in l} | {v for s in pool["slots"] for v in s.get("values", [])}
+    for f in FACTS.values():
+        names |= {f["measure"]["target"].strip(), *[x.strip() for x in f["measure"]["foils"]], f["counter"].rstrip(".").split()[-1]}
+    names |= {v.strip() for L in CFG["lures"].values() for k in L.values() for v in k}
+    low = {n.lower() for n in names}
+    for e in E["famous"] + E["made_up"]:
+        assert not {w.lower() for w in re.split(r"[\s-]+", e)} & low, e
+
+
+def test_pool_gen_items():
+    F = run.pool_gen_items(CFG)
+    assert len(F) == 52 and len({f["id"] for f in F}) == 52 and all(f["tier"] == "pool" for f in F)
+    kinds = [f["kind"] for f in F]
+    assert kinds[:5] == ["attribute"] * 5 and kinds.count("person") == 30 and kinds.count("pet") == 8
+    for f in F:
+        assert len(f["use"]) == 1 and f["target"].strip() not in f["use"][0], f["id"]
+        assert bind.gate_open(f["use"][0], f["aliases"]), (f["id"], f["use"][0])                 # G-match opens on the use prompt
+        assert f["json"]["group"] == "facts" and len(f["relation_probes"]) == 4
+    assert {f["id"] for f in F[5:]} == {f["id"] for f in run.gkey_facts(CFG) if f["tier"] == "pool"}
+
+
+def test_s0_pool_items_layouts():
+    tok = _qwen25_tok()
+    if tok is None:
+        pytest.skip("Qwen2.5 tokenizer not in the local cache")
+    items, info = run.s0_pool_items(CFG, tok)
+    prim = [it for it in items if it["tier"] == "primary"]
+    assert len(prim) == 38 and len(items) + len(info["excluded"]) == 47
+    C = SimpleNamespace(tok=tok)
+    for it in items:
+        P = run.build(C, it)                                   # the stage-0 layout asserts (one differing token)
+        if it["tier"] == "primary":
+            assert P.subj and P.q0 > P.a
+    for iid, (old, new) in info["swaps"].items():
+        assert len(tok(f" {new}", add_special_tokens=False).input_ids) == 1 and len(tok(f" {old}", add_special_tokens=False).input_ids) > 1
+
+
+def test_diff_means_and_told_pick():
+    torch.manual_seed(0)
+    X0 = torch.randn(50, 3, 8)
+    off = torch.zeros(3, 8)
+    off[:, 2] = 3.0
+    D, sep = run.diff_means(X0 + off + 0.1 * torch.randn(50, 3, 8), X0)
+    assert torch.allclose(D, off, atol=0.1) and all(s > 2 for s in sep)
+    D2, sep2 = run.diff_means(torch.randn(50, 3, 8), torch.randn(50, 3, 8))
+    assert all(abs(s) < 1.0 for s in sep2)
+    cells = [{"set": "early", "alpha": 1, "score": 3.0, "dlp": -2.0}, {"set": "mid", "alpha": 0.5, "score": 2.0, "dlp": 0.1},
+             {"set": "mid", "alpha": 1, "score": 2.0, "dlp": 0.0}]
+    p = run.told_pick(cells, -1.0)
+    assert (p["set"], p["alpha"]) == ("mid", 0.5)                     # the constraint drops early; tie -> smaller alpha
+    p = run.told_pick([dict(c, dlp=-5.0) for c in cells], -1.0)
+    assert (p["set"], p["alpha"]) == ("early", 1) and p["rule"].startswith("none")
+    assert run.thirds(24) == {"early": list(range(8)), "mid": list(range(8, 16)), "late": list(range(16, 24))}
+
+
+def test_r2_seq_and_blend(tiny_real_tok):
+    """R2-seq: re-encoding B on top of A's stored full slice == R2-joint; on top of the head only == B's separate harvest.
+    R2-seq-min keeps head + 4 entries; R2-blend15 replaces ceil(15%) of B's positions with the re-encoded values."""
+    C = tiny_real_tok
+    C.mc = {**CFG["models"]["qwen25_15b"]}
+    C.tol = 0.01
+    _, _, A, B = _collide_pair(CFG, "friends")
+    with torch.no_grad():
+        R, info = run.harvest_pair(C, A, B)
+        nh, nA, nB = info["n_head"], info["n_A"], info["n_B"]
+        assert info["reencode_single_fact_maxdiff"] <= 1e-4
+        q = B["question"]
+        assert torch.allclose(run.tf_last(C, run.qt_ids(C, q), R["R2-seq"]), run.tf_last(C, run.qt_ids(C, q), R["R2-joint"]), atol=1e-4)
+        assert R["R2-seq-min"][0][0][0].shape[2] == nh + 4 and R["R2-seq-min"][1] == nh + nA + nB
+        assert len(info["blend_positions"]) == math.ceil(0.15 * nB)
+        # blend with every position replaced == the joint slice; with none == R2-sep-shift
+        PA, PB = run.turn_pieces(C.tok, A["experience"]), run.turn_pieces(C.tok, B["experience"])
+        cB, cJ = run.run_cache(C, PB.H + PB.Seg), run.run_cache(C, PA.H + PA.Seg + PB.Seg)
+        Qf = run.reencode(C, run.run_cache(C, PA.H + PA.Seg), nh + nA, PB.Seg)
+        full, sel = run.blend_source(C, cB, Qf, nh, nA, nB, frac=1.0)
+        J = bind.kv_list(cJ)
+        assert sel == list(range(nB)) and all(torch.allclose(f[0][:, :, nh:], j[0][:, :, nh + nA:], atol=1e-4) for f, j in zip(full, J))
+        # R2-seq-min differs from R2-min-sep-shift only in B's 2 entries (A's are the same stored ones)
+        sm, ms = R["R2-seq-min"][0], R["R2-min-sep-shift"][0]
+        assert all(torch.allclose(a[0][:, :, :nh + 2], b[0][:, :, :nh + 2], atol=1e-5) for a, b in zip(sm, ms))
+        assert not all(torch.allclose(a[0][:, :, nh + 2:], b[0][:, :, nh + 2:], atol=1e-4) for a, b in zip(sm[1:], ms[1:]))
+
+
+def test_probe_stage_and_told(tiny_real_tok):
+    """The probe stage on one item (identity check inside), and the told specs (rand: same norms; neg: minus)."""
+    C = tiny_real_tok
+    C.mc = {**CFG["models"]["qwen25_15b"], "probe_conds": ["nomem", "R-full", "T-min"]}
+    C.A.model = "qwen25_15b"
+    it = next(i for i in run.load_items(CFG) if i["id"] == "dog_name")
+    with torch.no_grad():
+        rows, checks, _ = run.stage_probe(C, [it], Path("/nonexistent/probe"))
+        R, _ = run.harvest_R(C, it, CFG["gen"]["orphan_exchange"])
+    assert checks["identity"][0]["max_abs_logit_diff"] <= 1e-4
+    assert sum(r["sec"] == "yn" for r in rows) == 16 * 3 and sum(r["sec"] == "tf" for r in rows) == 3
+    D = {"pick": {"layers": [0, 2], "alpha": 2.0}, "told": torch.randn(3, C.d)}
+    S = run.told_specs(C, ["nomem", "R-min+told", "R-min+told:rand", "R-min+told:neg", "nomem+told"], R, D, 1)
+    assert set(S) == {"R-min+told", "R-min+told:rand", "R-min+told:neg", "nomem+told"} and S["nomem+told"][0] is None
+    assert S["R-min+told"][0] is R["R-min"]
+    for l in (0, 2):
+        assert torch.allclose(S["R-min+told"][1][l], 2.0 * D["told"][l]) and torch.allclose(S["R-min+told:neg"][1][l], -2.0 * D["told"][l])
+        assert torch.allclose(S["R-min+told:rand"][1][l].norm(), S["R-min+told"][1][l].norm(), atol=1e-4)
+
+
+def test_probe_identity_hybrid(tiny_hybrid):
+    """Addendum 7 (F): on the hybrid, R-full-state teacher-forced == the sentence as a prior turn (T-full)."""
+    C = tiny_hybrid
+    it = next(i for i in run.load_items(CFG) if i["id"] == "boss_name")
+    with torch.no_grad():
+        R, _ = run.harvest_R(C, it, CFG["gen"]["orphan_exchange"])
+        pre = run.text_ids(C.tok, it["prefix"])
+        a = run.tf_last(C, *run.cond_ids(C, it, "R-full-state", it["question"], pre, R))
+        b = run.tf_last(C, *run.cond_ids(C, it, "T-full", it["question"], pre, R))
+    assert torch.allclose(a, b, atol=1e-4)

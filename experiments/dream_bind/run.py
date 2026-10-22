@@ -76,14 +76,17 @@ def log(msg):
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--stage", nargs="+", required=True, choices=["patch", "knockout", "prefix", "analytic", "gen", "collide", "idrepair", "gkey", "judge", "analyze", "report"])
-    p.add_argument("--model", required=True, choices=["qwen35_2b", "qwen25_15b"])
+    p.add_argument("--stage", nargs="+", required=True, choices=["patch", "knockout", "prefix", "analytic", "gen", "collide", "idrepair", "gkey", "probe", "directions", "judge", "analyze", "report"])
+    p.add_argument("--model", required=True, choices=["qwen35_2b", "qwen25_15b", "llama32_3b", "qwen35_9b"])
     p.add_argument("--out", required=True, help="the model's run dir, e.g. <run>/qwen25_15b")
     p.add_argument("--config", default=str(HERE / "config.yaml"))
     p.add_argument("--tiny", action="store_true", help="2 items (smoke)")
-    p.add_argument("--random-model", default=None, choices=["qwen2", "qwen3_5"],
-                   help="tiny random model with the config model's tokenizer (CPU dry runs): qwen2 (eager) or qwen3_5 "
+    p.add_argument("--random-model", default=None, choices=["qwen2", "qwen3_5", "llama"],
+                   help="tiny random model with the config model's tokenizer (CPU dry runs): qwen2 / llama (eager) or qwen3_5 "
                         "(the hybrid DeltaNet + full-attention classes; needs transformers >= 5)")
+    p.add_argument("--items", default="main", choices=["main", "pool"],
+                   help="stage 0 (patch / knockout): the hand-written items or the pool facts (PREREG addendum 7 (D))")
+    p.add_argument("--collide-set", default=None, help="collide: use the model's collide_conds_<SET> (e.g. add7)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu", choices=["cuda", "cpu"])
     p.add_argument("--dtype", default="fp32", choices=["fp32", "bf16"])
     p.add_argument("--gen-set", default=None, help="gen: use the model's gen_conds_<SET> condition set (e.g. state)")
@@ -141,6 +144,28 @@ def random_qwen2(tok, n_layers, seed, device):
                     num_attention_heads=4, num_key_value_heads=2, max_position_embeddings=512,
                     attn_implementation="eager")
     return Qwen2ForCausalLM(c).float().to(device).eval()
+
+
+def random_llama(tok, n_layers, seed, device):
+    from transformers import LlamaConfig, LlamaForCausalLM
+    torch.manual_seed(seed)
+    c = LlamaConfig(vocab_size=len(tok), hidden_size=64, intermediate_size=128, num_hidden_layers=n_layers,
+                    num_attention_heads=4, num_key_value_heads=2, max_position_embeddings=512,
+                    attn_implementation="eager")
+    return LlamaForCausalLM(c).float().to(device).eval()
+
+
+def date_pinned(tok, date_string):
+    """Llama-3's template writes today's date into the system block: pin it (date_string) in every template call."""
+    orig = tok.apply_chat_template
+
+    def act(conversation, *a, **kw):
+        kw.setdefault("date_string", date_string)
+        return orig(conversation, *a, **kw)
+    tok.apply_chat_template = act
+    s1 = tok.apply_chat_template([{"role": "user", "content": "x"}], tokenize=False, add_generation_prompt=True)
+    assert "{" not in date_string and (date_string in s1 or "Date" not in s1), f"date not pinned: {s1[:160]!r}"
+    return tok
 
 
 def random_qwen35(name, seed, device):
@@ -203,6 +228,8 @@ def load(A, cfg, mc):
     dtype = DTYPES[A.dtype]
     if A.random_model == "qwen3_5":
         model = random_qwen35(mc["model"], cfg["seeds"]["random_model"], A.device)
+    elif A.random_model == "llama":
+        model = random_llama(tok, 8, cfg["seeds"]["random_model"], A.device)
     elif A.random_model:
         model = random_qwen2(tok, 8, cfg["seeds"]["random_model"], A.device)
     elif mc["text_only"]:
@@ -221,8 +248,10 @@ def load(A, cfg, mc):
         p.requires_grad_(False)
     if mc["thinking_template"]:
         thinking_off(tok)
+    if mc.get("date_string"):
+        date_pinned(tok, mc["date_string"])
     impl = getattr(model.config, "_attn_implementation", None)
-    if mc["eager"] or A.random_model == "qwen2":
+    if mc["eager"] or A.random_model in ("qwen2", "llama"):
         assert impl == "eager", f"eager attention required, got {impl}"
     log(f"loaded {mc['model']} ({'random ' + A.random_model if A.random_model else A.dtype}, attn {impl}) "
         f"in {time.time() - t0:.0f}s {json.dumps(info)}")
@@ -878,7 +907,7 @@ def report(out, cfg, model_key):
         return None
     nb, seed = cfg["n_boot"], cfg["seeds"]["bootstrap"]
     have_ko = any(r["stage"] == "knockout" for r in rows)
-    is_qwen25 = model_key == "qwen25_15b"
+    is_qwen25 = bool(cfg["models"][model_key].get("eager"))   # a knockout model (Qwen2.5, Llama)
     L = [f"# dream_bind stage 0: {model_key}", ""]
     c0 = next(iter(confs.values()))
     L += [f"Model {c0['model']} ({c0['dtype']}), commit {c0['env']['commit']}, GPU {c0['env']['gpu']}, "
@@ -904,6 +933,8 @@ def report(out, cfg, model_key):
                  f"{d.get('D', float('nan')):.2f} | {d.get('G', float('nan')):.2f} | {', '.join(fl) or ''} |")
     L.append("")
     nflag = sum(1 for d in items.values() if d["tier"] == "primary" and (d.get("flagged_D") or d.get("flagged_G")))
+    n_prim = sum(1 for d in items.values() if d["tier"] == "primary")
+    max_flag = max(bind.MAX_FLAGGED, (bind.MAX_FLAGGED * n_prim) // 7)   # addendum 7 (D): > 2/7 of the items
     # curves
     cv = {}
     for tier in ("primary", "secondary"):
@@ -920,7 +951,8 @@ def report(out, cfg, model_key):
                      ko_attr=P("knockout", "attr") if have_ko else None,
                      suff=P("suff", "subj_last") if have_ko else None,
                      suff_net=P("suff_net", "subj_last") if have_ko else None,
-                     suff_sanity=P("suff", "none").get("sanity") if have_ko else None, n_flagged=nflag)
+                     suff_sanity=P("suff", "none").get("sanity") if have_ko else None, n_flagged=nflag,
+                     max_flagged=max_flag)
     if is_qwen25 and not have_ko:
         v["label"] = f"provisional: {v['label']} (patch only; knockout not run)"
     v["n_flagged_primary"] = nflag
@@ -1285,9 +1317,31 @@ def render_ids(tok, msgs):
     return s, tok(s, add_special_tokens=False).input_ids
 
 
+def user_turn_start(tok):
+    """(head, user header) of the chat template, derived from apply_chat_template (no hard-coded ChatML): the
+    rendered prompts of two different user messages share a prefix that ends inside the user turn's header; the
+    turn starts at the last special token of that prefix whose following text names the user role (Qwen
+    '<|im_start|>user\\n', Llama '<|start_header_id|>user<|end_header_id|>\\n\\n')."""
+    if getattr(tok, "_db_turn_start", None) is not None:
+        return tok._db_turn_start
+    a, _ = render_ids(tok, [{"role": "user", "content": "AAAA"}])
+    b, _ = render_ids(tok, [{"role": "user", "content": "BBBB"}])
+    n = 0
+    while n < min(len(a), len(b)) and a[n] == b[n]:
+        n += 1
+    pre = a[:n]
+    specials = sorted({t for t in tok.all_special_tokens + list(getattr(tok, "added_tokens_encoder", {}) or {}) if t}, key=len)
+    starts = [i for t in specials for i in range(len(pre)) if pre.startswith(t, i)]
+    k = max((i for i in starts if "user" in pre[i:]), default=None)
+    assert k is not None, f"no user-turn start in {pre[-80:]!r}"
+    tok._db_turn_start = (pre[:k], pre[k:])
+    return tok._db_turn_start
+
+
 def turn_pieces(tok, exp, exchange=None):
     """Token pieces of the conversation [head][unrelated exchange U][experience user turn Seg][question turn]:
-    head = everything before the first user turn (the system block), Seg = '<|im_start|>user\\n{exp}<|im_end|>\\n'.
+    head = everything before the first user turn (the system block), Seg = the experience's whole user turn
+    (Qwen: '<|im_start|>user\\n{exp}<|im_end|>\\n'), both derived from the template (user_turn_start).
     Asserts that head + U + Seg + question turn tokenises exactly as the whole rendered conversation, and that
     head + question turn is the plain (nomem) prompt."""
     q = "What is two plus two?"
@@ -1295,13 +1349,15 @@ def turn_pieces(tok, exp, exchange=None):
     msgs = ([{"role": "user", "content": exchange["user"]}, {"role": "assistant", "content": exchange["assistant"]}]
             if exchange else []) + [{"role": "user", "content": exp}, {"role": "user", "content": q}]
     s_all, ids_all = render_ids(tok, msgs)
-    k = s_nm.index("<|im_start|>user")
-    head, qt = s_nm[:k], s_nm[k:]
+    head, hdr = user_turn_start(tok)
+    assert s_nm.startswith(head + hdr), (head[-40:], hdr)
+    qt = s_nm[len(head):]
     assert s_all.startswith(head) and s_all.endswith(qt)
     mid = s_all[len(head):len(s_all) - len(qt)]
-    seg = f"<|im_start|>user\n{exp}<|im_end|>\n"
-    assert mid.endswith(seg), repr(mid[-80:])
-    u = mid[:len(mid) - len(seg)]
+    k = mid.rindex(hdr)
+    seg = mid[k:]
+    assert seg.startswith(hdr + exp), repr(seg[:80])
+    u = mid[:k]
     enc = lambda s: tok(s, add_special_tokens=False).input_ids if s else []
     H, U, Seg, Qt = enc(head), enc(u), enc(seg), enc(qt)
     assert H + U + Seg + Qt == list(ids_all), "turn pieces do not tokenise like the whole conversation"
@@ -1494,7 +1550,7 @@ def gen_context(C, cfg):
     """Generation settings on the stage-0 context: eos ids, sampler, head tokens."""
     g = cfg["gen"]
     eos = {C.tok.eos_token_id}
-    for t in ("<|im_end|>", "<|endoftext|>"):
+    for t in ("<|im_end|>", "<|endoftext|>", "<|eot_id|>", "<|eom_id|>"):
         i = C.tok.convert_tokens_to_ids(t)
         if isinstance(i, int) and i != C.tok.unk_token_id:
             eos.add(i)
@@ -1512,7 +1568,7 @@ def gen_context(C, cfg):
                            seed2=list(gc.get("seed2", g["seed2"])), leak=gc.get("leak", "R-full"),
                            swap_from=gc.get("swap_from", "R-full"), check=gc.get("check", "R-full"),
                            swap_name=gc.get("swap_name"),
-                           b5_ref=gc.get("b5_ref"))
+                           b5_ref=gc.get("b5_ref"), items=gc.get("items"), told=gc.get("told"))
     C.yes, C.no = int(text_ids(C.tok, "Yes")[0]), int(text_ids(C.tok, "No")[0])
 
 
@@ -1583,6 +1639,16 @@ def run_prompt(C, cfg, it, M, conds, text, *, S, cap, streams, first_ids=None):
                 res[c] += [(s, j, o) for (_, s, j), o in zip(specs, outs)]
             else:
                 res[c] += [(s, j, None) for _, s, j in specs]
+        elif c in getattr(M, "told", {}):     # addendum 7 (B3): a slice (or nothing) + the told vector at the last prompt token
+            if gate:
+                pf, vecs = M.told[c]
+                ids_ = chat_ids(tok, text) if pf is None else qt_ids(C, text)
+                plan = {l: [(r, [len(ids_) - 1], v) for r in range(len(specs))] for l, v in vecs.items()}
+                outs = gen_batch(C, ids_, rows_of(specs), prefix=pf, add=plan, max_new=cap, streams=streams,
+                                 first_ids=first_ids)
+                res[c] += [(s, j, o) for (_, s, j), o in zip(specs, outs)]
+            else:
+                res[c] += [(s, j, None) for _, s, j in specs]
         elif c.startswith("R-") and c in M.R:
             if gate:
                 outs = gen_batch(C, qt_ids(C, text), rows_of(specs), prefix=M.R[c], max_new=cap, streams=streams,
@@ -1595,25 +1661,36 @@ def run_prompt(C, cfg, it, M, conds, text, *, S, cap, streams, first_ids=None):
     return res, {"gate": gate, "sites": site["main"], "wrongpos": site["wrongpos"]}
 
 
-def decomp_analytic(C, items, R, conds):
-    """Addendum 6b analytic (teacher-forced, primary items): Delta log P(target) at the direct question's measure
-    prefix vs nomem, and the balanced verify probes' first-token margins log P(Yes) - log P(No), consistent-signed,
-    with accuracy = margin > 0."""
+def cond_ids(C, it, c, text, pre, R):
+    """(ids, prefix) of one teacher-forced prompt under condition c: nomem / ctx (the experience in the same turn) /
+    T-min / T-full (text in a prior user turn, addendum 5) or a stored reinstatement R[c] (the question turn after the
+    stored prefix). `pre`: token ids appended (the measure prefix) or None."""
+    p_ = pre if pre is not None else torch.tensor([], dtype=torch.long)
+    if c == "nomem":
+        return torch.cat([chat_ids(C.tok, text), p_]), None
+    if c == "ctx":
+        return torch.cat([chat_ids(C.tok, f"{it['experience']} {text}"), p_]), None
+    if c.startswith("T-"):
+        prior = it["experience"] if c == "T-full" else f"{it['target'].strip()}."
+        _, ids = render_ids(C.tok, [{"role": "user", "content": prior}, {"role": "user", "content": text}])
+        return torch.cat([torch.tensor(ids, dtype=torch.long), p_]), None
+    return torch.cat([qt_ids(C, text), p_]), R[c]
+
+
+def decomp_analytic(C, items, R, conds, tiers=("primary",)):
+    """Addendum 6b analytic (teacher-forced, primary items; addendum 7: any tier): Delta log P(target) at the direct
+    question's measure prefix vs nomem, and the balanced verify probes' first-token margins log P(Yes) - log P(No),
+    consistent-signed, with accuracy = margin > 0."""
     rows = []
     for it in items:
-        if it["tier"] != "primary":
+        if it["tier"] not in tiers:
             continue
         t = int(text_ids(C.tok, it["target"])[0])
         pre = text_ids(C.tok, it["prefix"])
         q = it["question"]
 
         def ids_for(c, text, with_prefix):
-            p_ = pre if with_prefix else torch.tensor([], dtype=torch.long)
-            if c == "nomem":
-                return torch.cat([chat_ids(C.tok, text), p_]), None
-            if c == "ctx":
-                return torch.cat([chat_ids(C.tok, f"{it['experience']} {text}"), p_]), None
-            return torch.cat([qt_ids(C, text), p_]), R[it["id"]][c]
+            return cond_ids(C, it, c, text, pre if with_prefix else None, R[it["id"]])
         lp_nm = None
         for c in conds:
             ids, pf = ids_for(c, q, True)
@@ -1626,7 +1703,8 @@ def decomp_analytic(C, items, R, conds):
                 d_ = (lg[C.yes] - lg[C.no]).item()
                 ms.append((rp["a"], d_ if rp["a"] == "Yes" else -d_))
             acc = {side: [float(m > 0) for a, m in ms if a == side] for side in ("Yes", "No")}
-            rows.append({"item": it["id"], "cond": c, "lp_target": lp, "dlp": lp - lp_nm, "yn_margins": ms,
+            rows.append({"item": it["id"], "tier": it["tier"], "kind": it.get("kind"), "cond": c, "lp_target": lp,
+                         "dlp": lp - lp_nm, "yn_margins": ms,
                          "yn_margin": sum(m for _, m in ms) / len(ms),
                          "yn_bal_acc": (sum(acc["Yes"]) / len(acc["Yes"]) + sum(acc["No"]) / len(acc["No"])) / 2})
     return rows
@@ -1639,6 +1717,10 @@ def stage_gen(C, items, out, all_items):
     gen_context(C, cfg)
     t0 = time.time()
     A_cfg = cfg["analytic"]
+    if C.gc.items == "pool":            # addendum 7 (C): the 52 non-primary facts
+        items = all_items = pool_gen_items(cfg, C.A.tiny)
+        for it in items:
+            it["json"]["n_tok"] = len(text_ids(C.tok, it["target"]))
     by_id = {it["id"]: it for it in all_items}
     sel = {it["id"] for it in items}
     need = sel | {by_id[i]["swap"] for i in sel}
@@ -1690,14 +1772,30 @@ def stage_gen(C, items, out, all_items):
                 assert [x for x in ri["layers"][v] if x[0] == "lin"] == [x for x in ri["head_layers"] if x[0] == "lin"]
     log(f"gen: harvest + splice checks done in {(time.time() - t0) / 60:.1f} min; max splice diff "
         f"{max(c['max_abs_logit_diff'] for c in checks['splice']):.2e}")
+    if any(c.startswith("R-min-kv-own+state") for c in C.gc.primary):   # addendum 7 (B3): own entries + another state
+        PP = turn_pieces(C.tok, g["placebo"])
+        plac = run_cache(C, PP.H + PP.Seg)
+        for iid in sel:
+            ri = Rinfo[iid]
+            keep, st_ = bind.splice_keep("R-min", ri["n_head"], ri["n_seg"], ri["attr_in_seg"])
+            full = R[iid]["R-full-state"][0]
+            R[iid]["R-min-kv-own+state-swap"] = (bind.mix_cache(full, keep, R[by_id[iid]["swap"]]["R-full-state"][0]), st_)
+            R[iid]["R-min-kv-own+state-plac"] = (bind.mix_cache(full, keep, plac), st_)
+            assert R[iid]["R-min-kv-own+state-swap"][1] == R[iid]["R-min-state"][1]
     U = {iid: rand_dirs(C, iid, A_cfg["rand_seed"]) for iid in sel}
     Ms = {iid: item_memory(C, cfg, by_id[iid], V.get(iid), V.get(by_id[iid]["swap"]), Vplac.get(iid), U[iid], R[iid],
                            R.get(by_id[iid]["swap"])) for iid in sel}
+    if C.gc.told:                       # addendum 7 (B3): the told vector picked by the directions stage
+        D = torch.load(mdir(C, out, "dirs") / "dirs.pt")
+        checks["told_pick"] = D["pick"]
+        for iid in sel:
+            Ms[iid].told = told_specs(C, C.gc.primary, R[iid], D, cfg["told"]["rand_seed"])
+        log(f"gen: told vector {D['pick']['set']} alpha {D['pick']['alpha']} from {mdir(C, out, 'dirs')}")
     (out / "items").mkdir(parents=True, exist_ok=True)
     (out / "unrel").mkdir(parents=True, exist_ok=True)
     an_conds = (C.mc.get(f"gen_conds_{getattr(C.A, 'gen_set', None)}") or {}).get("analytic")
     if an_conds:
-        an = decomp_analytic(C, items, R, an_conds)
+        an = decomp_analytic(C, items, R, an_conds, tiers=("pool",) if C.gc.items == "pool" else ("primary",))
         write_jsonl_gz(out / "analytic_tf.jsonl.gz", an)
         log(f"gen: teacher-forced analytic ({len(an)} rows) in {(time.time() - t0) / 60:.1f} min")
     S, cap = g["samples"], g["answer_cap"]
@@ -1798,7 +1896,7 @@ def stage_gen(C, items, out, all_items):
     # the judge's / panel's item file (core_v1 layout) and coherence
     prep = out.parent / "prep"
     prep.mkdir(parents=True, exist_ok=True)
-    json.dump({i: L["by_id"][i] for i in by_id}, open(prep / "items.json", "w"), indent=1)
+    json.dump({i: by_id[i].get("json") or L["by_id"][i] for i in by_id}, open(prep / "items.json", "w"), indent=1)
     # free the stored reinstatement caches before scoring (on the 2B they hold ~1.5 GB of DeltaNet states)
     import gc as _gc
     del Ms, R, V, Vplac
@@ -1970,6 +2068,20 @@ def harvest_pair(C, A, B):
         att.append(hits[0])
     plan = bind.pair_plan(nh, nA, nB, att[0], att[1])
     srcs = {"A": run_cache(C, PA.H + PA.Seg), "B": run_cache(C, PB.H + PB.Seg), "J": run_cache(C, PA.H + PA.Seg + PB.Seg)}
+    # addendum 7 (G): B's turn re-encoded on top of A's stored slice (full: 'Qf'; A's 2 positions: 'Qm'), and the
+    # blend source 'Bb'; plus the single-fact identity (B re-encoded on top of the head only == B's own harvest)
+    hyb = is_hybrid(C)
+    min_keep = list(range(nh)) + [nh + att[0], nh + att[0] + 1]
+    a_min = bind.mix_cache(srcs["A"], min_keep, srcs["A"]) if hyb else [(K[:, :, min_keep], V[:, :, min_keep])
+                                                                         for K, V in bind.kv_list(srcs["A"])]
+    srcs["Qf"] = reencode(C, srcs["A"], nh + nA, PB.Seg)
+    srcs["Qm"] = reencode(C, a_min, nh + nA, PB.Seg)
+    solo = reencode(C, run_cache(C, PB.H), nh, PB.Seg)
+    ident = max(maxdiff(x, y) for (k1, v1), (k2, v2) in zip(_attn_list(solo), _attn_list(srcs["B"])) if k1 is not None
+                for x, y in ((k1, k2), (v1, v2)))
+    if hyb:
+        assert bind.linear_states_close(solo, srcs["B"], C.cfg["gen"]["splice_tol"]), "re-encoded DeltaNet state != the separate harvest"
+    srcs["Bb"], blend_pos = blend_source(C, srcs["B"], srcs["Qf"], nh, nA, nB)
     out = {}
     if is_hybrid(C):
         lin = {"J": srcs["J"], "H": run_cache(C, PA.H)}
@@ -1979,12 +2091,65 @@ def harvest_pair(C, A, B):
     else:
         for name, (parts, start) in plan.items():
             out[name] = (compose_prefix(C, parts, srcs), start)
-    info = {"n_head": nh, "n_A": nA, "n_B": nB, "attr_A": att[0], "attr_B": att[1], "starts": {k: s for k, (_, s) in out.items()}}
+    info = {"n_head": nh, "n_A": nA, "n_B": nB, "attr_A": att[0], "attr_B": att[1], "starts": {k: s for k, (_, s) in out.items()},
+            "reencode_single_fact_maxdiff": ident, "blend_positions": blend_pos,
+            "blend_tokens": [tok.decode([PB.Seg[i]]) for i in blend_pos]}
     return out, info
 
 
-def tf_last(C, ids, prefix=None):
-    """Last-position logits of `ids` (teacher-forced), optionally after a reinstatement prefix."""
+def _attn_list(src):
+    """[(K, V) or (None, None)] per layer of a cache object or K,V list (linear-attention layers -> None)."""
+    if isinstance(src, list):
+        return [(None, None) if x is None else x for x in src]
+    if hasattr(src, "layers"):
+        return [(None, None) if bind.is_linear_layer(L) or not getattr(L, "is_initialized", True) else (L.keys, L.values)
+                for L in src.layers]
+    return bind.kv_list(src)
+
+
+def reencode(C, prefix, start, ids):
+    """Addendum 7 (G): run `ids` (a user turn) on top of a stored prefix (a cache object or a K,V list) at positions
+    start .. start + len - 1; returns the resulting cache (the prefix is not modified)."""
+    if not isinstance(prefix, list) and not is_hybrid(C):
+        prefix = bind.kv_list(prefix)
+    if isinstance(prefix, list):
+        cache = bind.make_cache(prefix, 1)
+    else:
+        cache = bind.expand_cache(prefix, 1)
+    pos = torch.arange(start, start + len(ids))[None].to(C.dev)
+    return C.body(input_ids=torch.tensor(ids)[None].to(C.dev), past_key_values=cache, position_ids=pos,
+                  use_cache=True).past_key_values
+
+
+def attn_layers(C):
+    return [l for l, b in enumerate(C.blocks) if hasattr(b, "self_attn")]
+
+
+def blend_source(C, B, Qf, nh, nA, nB, frac=0.15):
+    """Addendum 7 (G) R2-blend15: B's separately harvested slice with its keys shifted by +nA (as R2-sep-shift), where
+    the 15% of B's positions whose keys deviate most from the one-pass re-encode (L2 over heads and dims, at the
+    second attention layer) take the re-encoded K,V at every attention layer. Laid out as B ([head][B's turn]); a K,V
+    list (None at linear-attention layers). Returns (list, selected positions within B's turn)."""
+    al = attn_layers(C)
+    dl = al[1] if len(al) > 1 else al[0]
+    Bl, Ql = _attn_list(B), _attn_list(Qf)
+    seg = torch.arange(nh, nh + nB, device=Bl[dl][0].device)
+    qs = torch.arange(nh + nA, nh + nA + nB, device=Bl[dl][0].device)
+    dev = (rope_shift(C, Bl[dl][0][:, :, seg], nA) - Ql[dl][0][:, :, qs]).float().pow(2).sum((0, 1, 3)).sqrt()
+    sel = bind.blend_select(dev.cpu(), frac)
+    si = torch.tensor(sel, device=seg.device, dtype=torch.long)
+    out = []
+    for l, ((K, V), (Kq, Vq)) in enumerate(zip(Bl, Ql)):
+        if K is None:
+            out.append(None)
+            continue
+        Kb, Vb = rope_shift(C, K[:, :, seg], nA).clone(), V[:, :, seg].clone()
+        Kb[:, :, si], Vb[:, :, si] = Kq[:, :, qs][:, :, si], Vq[:, :, qs][:, :, si]
+        out.append((torch.cat([K[:, :, :nh], Kb], 2).contiguous(), torch.cat([V[:, :, :nh], Vb], 2).contiguous()))
+    return out, sel
+
+
+def _tf_hidden(C, ids, prefix=None):
     start = prefix[1] if prefix else 0
     if prefix is None:
         cache = None if is_hybrid(C) else bind.make_cache([], 1)
@@ -1993,8 +2158,17 @@ def tf_last(C, ids, prefix=None):
     else:
         cache = bind.expand_cache(prefix[0], 1)
     pos = torch.arange(start, start + len(ids))[None].to(C.dev)
-    h = C.body(input_ids=ids[None].to(C.dev), past_key_values=cache, position_ids=pos, use_cache=True).last_hidden_state
-    return C.lm_head(h[:, -1]).float()[0]
+    return C.body(input_ids=ids[None].to(C.dev), past_key_values=cache, position_ids=pos, use_cache=True).last_hidden_state
+
+
+def tf_last(C, ids, prefix=None):
+    """Last-position logits of `ids` (teacher-forced), optionally after a reinstatement prefix."""
+    return C.lm_head(_tf_hidden(C, ids, prefix)[:, -1]).float()[0]
+
+
+def tf_all(C, ids, prefix=None):
+    """Log-probabilities [T, V] at every position of `ids` (teacher-forced), optionally after a prefix."""
+    return torch.log_softmax(C.lm_head(_tf_hidden(C, ids, prefix)[0]).float(), -1)
 
 
 def stage_collide(C, items, out):
@@ -2007,15 +2181,17 @@ def stage_collide(C, items, out):
     cd = collide_dir(out.parent if out.name == "collide" else out)
     gdir = cd / "gen"
     (gdir / "items").mkdir(parents=True, exist_ok=True)
-    conds = list(C.mc["collide_conds"])
+    cs = getattr(C.A, "collide_set", None)
+    conds = list(C.mc[f"collide_conds_{cs}"] if cs else C.mc["collide_conds"])
     pairs = collide_pairs(cfg)
     if C.A.tiny:
         pairs = [p for p in pairs if p[0] in ("dog_cat", "sisters")]
     S = cfg["collide"]["samples"]
     g = cfg["gen"]
     cap, seeds = g["answer_cap"], g["seeds"]
-    checks, items_json = {"t2_equals_joint": [], "pairs": {}}, {}
+    checks, items_json = {"t2_equals_joint": [], "pairs": {}, "seq_equals_joint": [], "reencode_single_fact": []}, {}
     joint_name = "R2-joint-state" if is_hybrid(C) else "R2-joint"
+    seq_name = "R2-seq-jstate" if is_hybrid(C) else "R2-seq"
     for pid, kind, A, B in pairs:
         t1 = time.time()
         R, info = harvest_pair(C, A, B)
@@ -2030,6 +2206,11 @@ def stage_collide(C, items, out):
             d = maxdiff(a, b)
             checks["t2_equals_joint"].append({"member": M["id"], "max_abs_logit_diff": d})
             assert d <= g["splice_tol"], f"{M['id']}: {joint_name} != T2 text ({d})"
+            d2 = maxdiff(tf_last(C, qt, R[seq_name]), a)          # addendum 7 (G): R2-seq is R2-joint
+            checks["seq_equals_joint"].append({"member": M["id"], "max_abs_logit_diff": d2})
+            assert d2 <= g["splice_tol"], f"{M['id']}: {seq_name} != {joint_name} ({d2})"
+        checks["reencode_single_fact"].append({"pair": pid, "max_abs_kv_diff": info["reencode_single_fact_maxdiff"]})
+        assert info["reencode_single_fact_maxdiff"] <= g["splice_tol"], f"{pid}: B re-encoded on the head != B's harvest"
         for M in (A, B):
             f = gdir / "items" / f"{M['id']}.jsonl.gz"
             items_json[M["id"]] = {"id": M["id"], "experience": M["experience"], "group": "facts",
@@ -2188,7 +2369,33 @@ def analyze_collide(cfg, cd, model_key):
             lines += [f"- {k}: {fmt(v)}{'' if ok is None else (' → holds' if ok else ' → does not hold')}"
                       for k, (v, ok) in rules[key].items()]
             lines.append("")
-    L[4:4] = ["## Rules (addendum 5, exploratory)", "", *lines]
+    # addendum 7 (G): the cheap collision fix; (A) the joint-state binding lure
+    conf = lambda c: nested("confusable", c, M["partner confusion"])
+    seqm, sepm, blend, sep = f"R2-seq-min{sfx}", f"R2-min-sep-shift{sfx}", f"R2-blend15{sfx}", f"R2-sep-shift{sfx}"
+    for cand, jn, sp in ((seqm, mjoint, sepm), (blend, joint, sep)):
+        if cand in conds and jn in conds and sp in conds:
+            cc, cj, d = ci(conf(cand)), ci(conf(jn)), ci(paired_diff(conf(cand), conf(sp)))
+            ok = None if any(math.isnan(x["mean"]) for x in (cc, cj, d)) else bool(cc["lo"] <= cj["hi"] and cj["lo"] <= cc["hi"]
+                                                                                   and d["hi"] < 0)
+            rules[f"add7/{cand}"] = {"cheap fix works (confusion CI overlaps the joint's AND paired CI vs sep < 0)": (d, ok),
+                                     f"confusion {cand}": (cc, None), f"confusion {jn}": (cj, None)}
+            lines += [f"**Addendum 7 (G): {cand} vs {jn} and {sp}** ({'decisive' if cand == seqm else 'reported'})", "",
+                      f"- cheap fix works: {'n/a' if ok is None else ('holds' if ok else 'does not hold')}; confusion {cand} "
+                      f"{fmt(cc)}, {jn} {fmt(cj)}; {cand} − {sp} {fmt(d)}", ""]
+    if "R2-state-only-J" in conds:
+        for kind in ("confusable", "different"):
+            per = defaultdict(lambda: {"Yes": [], "No": []})
+            for r in YN:
+                if items[r["item"]]["kind"] == kind and r["cond"] == "R2-state-only-J":
+                    per[r["item"]][r["consistent"]].append(float(r["margin"] > 0))
+            b = ci({i: {0: (sum(v["Yes"]) / len(v["Yes"]) + sum(v["No"]) / len(v["No"])) / 2} for i, v in per.items()
+                    if v["Yes"] and v["No"]})
+            ok = None if math.isnan(b["mean"]) else bool(b["lo"] > 0.5)
+            rules[f"add7/R2-state-only-J/{kind}"] = {"TF balanced yes/no, partner as foil": (b, None)}
+            lab = "n/a" if ok is None else ("the state binds" if ok else "familiarity without conjunction")
+            lines += [f"**Addendum 7 (A) conjunction, R2-state-only-J ({kind}{', decisive' if kind == 'confusable' else ''})**: "
+                      f"TF balanced yes/no with the partner as foil {fmt(b)} → {lab}", ""]
+    L[4:4] = ["## Rules (addendum 5 and 7, exploratory)", "", *lines]
     out = cd / "analysis"
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.md").write_text("\n".join(L))
@@ -2866,6 +3073,296 @@ def analyze_gkey(cfg, cd, model_key):
     log(f"gkey analyze -> {out / 'report.md'}")
 
 
+# =============================================================== addendum 7: probe, directions, pool facts
+
+
+ANSWER = "Answer yes or no."
+LURE_KINDS = ("form", "assoc", "binding")
+
+
+def mdir(C, out_stage, tag):
+    """<run>/<model>_<tag> for a stage called with out = <OUT>/<stage> (OUT may carry a gen-set suffix)."""
+    return Path(out_stage).parent.parent / f"{C.A.model}_{tag}"
+
+
+def _facts_raw(cfg):
+    return {f["id"]: f for f in yaml.safe_load(open(REPO / cfg["bench"] / "facts.yaml"))["facts"]}
+
+
+def lure_probes(cfg, it, tok):
+    """Addendum 7 (A): the item's verify probes, with a kind: 'yes' (the target) and 'unrelated' (the bench's No
+    probes), then the form / assoc / binding lures of config.yaml x the item's 2 verify templates (answer No).
+    Asserts: every lure is one token, not the target's first token, not one of the item's foils.
+    Returns [(text, consistent, kind, value)]."""
+    raw = _facts_raw(cfg)[it["id"]]
+    t0 = text_ids(tok, it["target"]).tolist()[0]
+    foils = {f.strip() for f in it["foils"]}
+    out = [(rp["text"], rp["a"], "yes" if rp["a"] == "Yes" else "unrelated", None) for rp in it["relation_probes"]]
+    for kind in LURE_KINDS:
+        for v in cfg["lures"][it["id"]][kind]:
+            ids = text_ids(tok, v).tolist()
+            assert len(ids) == 1, f"{it['id']}: lure {v!r} is {len(ids)} tokens"
+            assert ids[0] != t0 and v.strip() != it["target"].strip(), f"{it['id']}: lure {v!r} = the target's first token"
+            assert v.strip() not in foils, f"{it['id']}: lure {v!r} is a foil"
+            for tpl in raw["verify"]:
+                out.append((f"{tpl.replace('{v}', v.strip())} {ANSWER}", "No", kind, v.strip()))
+    return out
+
+
+def stage_probe(C, items, out):
+    """Addendum 7 (A, E, F): teacher-forced value / verification table + lure yes/no, per condition (probe_conds):
+    log P(target) and the foils' mean at the direct question's measure prefix; every lure probe's first-token log P(Yes),
+    log P(No) and a greedy 10-token answer. Check (fails the job): R-full(-state) TF == the sentence as a prior turn
+    (T-full)."""
+    cfg, g = C.cfg, C.cfg["gen"]
+    gen_context(C, cfg)
+    t0 = time.time()
+    conds = list(C.mc["probe_conds"])
+    chk = "R-full-state" if is_hybrid(C) else "R-full"
+    rows, checks = [], {"identity": [], "probes": {}}
+    for it in [i for i in items if i["tier"] == "primary"]:
+        R_, _ = harvest_R(C, it, g["orphan_exchange"])
+        t = int(text_ids(C.tok, it["target"])[0])
+        foils = [int(text_ids(C.tok, f)[0]) for f in it["foils"]]
+        pre, q = text_ids(C.tok, it["prefix"]), it["question"]
+        d = maxdiff(tf_last(C, *cond_ids(C, it, chk, q, pre, R_)), tf_last(C, *cond_ids(C, it, "T-full", q, pre, R_)))
+        checks["identity"].append({"item": it["id"], "cond": chk, "vs": "T-full", "max_abs_logit_diff": d})
+        assert d <= g["splice_tol"], f"{it['id']}: {chk} != the sentence as a prior turn ({d})"
+        probes = lure_probes(cfg, it, C.tok)
+        checks["probes"][it["id"]] = len(probes)
+        for c in conds:
+            lp = torch.log_softmax(tf_last(C, *cond_ids(C, it, c, q, pre, R_)), -1)
+            rows.append({"sec": "tf", "item": it["id"], "cond": c, "lp_target": lp[t].item(),
+                         "lp_foils": lp[foils].mean().item(), "rank": int((lp > lp[t]).sum()) + 1})
+            for text, cons, kind, v in probes:
+                ids, pf = cond_ids(C, it, c, text, None, R_)
+                o = gen_batch(C, ids, [(True, None)], prefix=pf, max_new=g["yn_cap"], first_ids=[C.yes, C.no])[0]
+                lpy, lpn = o["first"]
+                ans = C.tok.decode(o["ids"], skip_special_tokens=True).strip()
+                rows.append({"sec": "yn", "item": it["id"], "cond": c, "kind": kind, "value": v, "consistent": cons,
+                             "prompt": text, "lp_yes": lpy, "lp_no": lpn, "tf_yes": lpy > lpn, "answer": ans,
+                             "yn": xr_parse_yn(ans)})
+        log(f"probe {it['id']}: {len(probes)} probes x {len(conds)} conditions; identity {d:.1e}; "
+            f"{(time.time() - t0) / 60:.1f} min")
+    checks["minutes"] = (time.time() - t0) / 60
+    return rows, checks, {}
+
+
+def nonprimary_facts(cfg):
+    """The 52 non-primary facts: the 5 secondary hand-written items + the 47 pool facts (gkey_facts' order)."""
+    return [f for f in gkey_facts(cfg) if f["tier"] != "primary"]
+
+
+def thirds(n):
+    return {"early": [l for l in range(n) if l < n / 3], "mid": [l for l in range(n) if n / 3 <= l < 2 * n / 3],
+            "late": [l for l in range(n) if l >= 2 * n / 3]}
+
+
+def diff_means(X1, X0):
+    """Difference of means per layer (X [N, L, d] -> [L, d]) and the per-layer separation (Cohen's d) of the two sets
+    along the normalised difference."""
+    D = X1.mean(0) - X0.mean(0)
+    u = D / D.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+    p1, p0 = (X1 * u).sum(-1), (X0 * u).sum(-1)               # [N, L]
+    sd = ((p1.var(0, unbiased=True) + p0.var(0, unbiased=True)) / 2).sqrt().clamp_min(1e-12)
+    return D, ((p1.mean(0) - p0.mean(0)) / sd).tolist()
+
+
+def states_tf(C, ids, prefix=None):
+    """Block outputs {l: [T, d]} of a teacher-forced run of `ids` (optionally after a reinstatement prefix)."""
+    with capture(C.model, list(range(C.n))) as st:
+        _tf_hidden(C, ids, prefix)
+    return st
+
+
+def told_pick(cells, min_dlp):
+    """The pre-registered alpha rule: the highest mean prefix-log-prob gain among cells whose mean change in log
+    P(target) >= min_dlp (ties -> smaller alpha); none -> the smallest alpha at the best-scoring layer set."""
+    ok = [c for c in cells if c["dlp"] >= min_dlp]
+    if ok:
+        return dict(max(ok, key=lambda c: (c["score"], -c["alpha"])), rule="best score meeting the constraint")
+    best = max(cells, key=lambda c: c["score"])["set"]
+    return dict(min((c for c in cells if c["set"] == best), key=lambda c: c["alpha"]), rule="none met the constraint")
+
+
+def stage_directions(C, items, out):
+    """Addendum 7 (B1, B2): the known-entity and 'told' directions (difference of means per block, on data disjoint
+    from the 7 test items), the told vector's (layer set, alpha) pick (teacher-forced on the 52 non-primary facts), and
+    the projections of the primary items' prompts per condition (dir_conds). Saves <run>/<model>_dirs/dirs.pt."""
+    cfg, g, tc = C.cfg, C.cfg["gen"], C.cfg["told"]
+    gen_context(C, cfg)
+    tiny = C.A.tiny
+    t0 = time.time()
+    ddir = mdir(C, out, "dirs")
+    ddir.mkdir(parents=True, exist_ok=True)
+    E = yaml.safe_load(open(REPO / cfg["entities"]))
+    fam, made = (E["famous"][:6], E["made_up"][:6]) if tiny else (E["famous"], E["made_up"])
+
+    def ent(X):
+        text = f"Tell me about {X}."
+        ids = chat_ids(C.tok, text)
+        p = bind.subject_sites(C.tok, ids, text, [X])["main"][-1]
+        st, _ = source_run(C, ids)
+        return torch.stack([st[l][p] for l in range(C.n)]).float()
+    d_known, sep_known = diff_means(torch.stack([ent(x) for x in fam]), torch.stack([ent(x) for x in made]))
+    facts = nonprimary_facts(cfg)[:4 if tiny else None]
+    last = lambda ids: torch.stack([v[-1] for _, v in sorted(source_run(C, ids)[0].items())]).float()
+    Tc = torch.stack([last(chat_ids(C.tok, f"{f['experience']} {f['question']}")) for f in facts])
+    Tn = torch.stack([last(chat_ids(C.tok, f["question"])) for f in facts])
+    d_told, sep_told = diff_means(Tc, Tn)
+    log(f"directions: known ({len(fam)} vs {len(made)}) and told ({len(facts)} facts) in {(time.time() - t0) / 60:.1f} min")
+    # --- the told vector's (layer set, alpha): teacher-forced on the non-primary facts, slice X = told_slice
+    X = C.mc["told_slice"]
+    sets = thirds(C.n)
+    alphas = [1.0] if tiny else list(tc["alphas"])
+    acc = defaultdict(lambda: {"score": [], "dlp": []})
+    for f in facts:
+        Rf, _ = harvest_R(C, f, g["orphan_exchange"])
+        qt, pre = qt_ids(C, f["question"]), text_ids(C.tok, f["prefix"])
+        ids, t, Lq = torch.cat([qt, pre]), int(text_ids(C.tok, f["target"])[0]), len(qt)
+
+        def sc(lp):
+            return sum(lp[Lq - 1 + j, int(pre[j])].item() for j in range(len(pre))), lp[-1, t].item()
+        b_pre, b_t = sc(tf_all(C, ids, Rf[X]))
+        for sname, ls in sets.items():
+            for a in alphas:
+                with bind.adding(C.blocks, {l: [(0, [Lq - 1], a * d_told[l])] for l in ls}):
+                    s_pre, s_t = sc(tf_all(C, ids, Rf[X]))
+                acc[(sname, a)]["score"].append(s_pre - b_pre)
+                acc[(sname, a)]["dlp"].append(s_t - b_t)
+        del Rf
+    cells = [{"set": k[0], "alpha": k[1], "layers": sets[k[0]], "score": sum(v["score"]) / len(v["score"]),
+              "dlp": sum(v["dlp"]) / len(v["dlp"])} for k, v in acc.items()]
+    pick = told_pick(cells, tc["min_dlp"])
+    log(f"directions: told pick {pick['set']} alpha {pick['alpha']} (score {pick['score']:.2f}, dlp {pick['dlp']:.2f}); "
+        f"{(time.time() - t0) / 60:.1f} min")
+    torch.save({"known": d_known.cpu(), "told": d_told.cpu(), "sep_known": sep_known, "sep_told": sep_told,
+                "pick": pick, "cells": cells, "slice": X, "n_facts": len(facts), "n_entities": [len(fam), len(made)]},
+               ddir / "dirs.pt")
+    # --- projections (B2)
+    uk = d_known / d_known.norm(dim=-1, keepdim=True)
+    ut = d_told / d_told.norm(dim=-1, keepdim=True)
+    rows = []
+    for it in [i for i in items if i["tier"] == "primary"]:
+        R_, _ = harvest_R(C, it, g["orphan_exchange"])
+        exp = it["experience"]
+        for pi, (kind, text) in enumerate([("related", it["question"])] + [("use", u) for u in it["use"]]):
+            for c in C.mc.get("dir_conds") or []:
+                ids, pf = cond_ids(C, it, c, text, None, R_)
+                if c == "ctx":
+                    S = bind.subject_sites(C.tok, ids, f"{exp} {text}", it["aliases"], user_from=len(exp) + 1)
+                else:
+                    S = bind.subject_sites(C.tok, chat_ids(C.tok, text), text, it["aliases"])
+                off = 0 if pf is None else len(C.head)
+                sp = S["main"][0] - off if S["main"] else None
+                st = states_tf(C, ids, pf)
+                H = torch.stack([st[l] for l in range(C.n)]).float()                          # [L, T, d]
+                pr = lambda u, p: (H[:, p] * u).sum(-1).tolist()
+                rows.append({"item": it["id"], "kind": kind, "pi": pi, "cond": c, "subj_pos": sp,
+                             "known_last": pr(uk, -1), "told_last": pr(ut, -1),
+                             "known_subj": pr(uk, sp) if sp is not None else None,
+                             "told_subj": pr(ut, sp) if sp is not None else None})
+    log(f"directions: {len(rows)} projection rows; {(time.time() - t0) / 60:.1f} min")
+    return rows, {"pick": pick, "cells": cells, "sep_known": sep_known, "sep_told": sep_told,
+                  "minutes": (time.time() - t0) / 60}, {}
+
+
+def told_specs(C, conds, R_item, D, seed):
+    """Addendum 7 (B3): {condition: (prefix or None, {layer: vector})} for X+told, X+told:rand (a random unit
+    direction per block x |v(l)|, fixed seed), X+told:neg and nomem+told; v(l) = alpha * d_told(l) on the picked
+    layer set, added at the last prompt token."""
+    pick = D["pick"]
+    v = {l: pick["alpha"] * D["told"][l].to(C.dev) for l in pick["layers"]}
+    gr = torch.Generator().manual_seed(seed)
+    rv = {}
+    for l in pick["layers"]:
+        u = torch.randn(C.d, generator=gr)
+        rv[l] = (u / u.norm()).to(C.dev) * v[l].norm()
+    var = {"": v, ":rand": rv, ":neg": {l: -x for l, x in v.items()}}
+    out = {}
+    for c in conds:
+        if "+told" in c:
+            base, kind = c.split("+told")
+            out[c] = (None if base == "nomem" else R_item[base], var[kind])
+    return out
+
+
+def pool_gen_items(cfg, tiny=False):
+    """Addendum 7 (C): the 52 non-primary facts (the 5 secondary items, then the 47 pool facts in gkey_facts' order),
+    each with its direct question, ONE templated use prompt (fact_pool.yaml use:), the bench's balanced verify probes,
+    its kind (person / pet / attribute) and the judge's item record ('json'; tier 'pool')."""
+    from seahorse.bench import load_bench
+    from seahorse.bench.data import sample_pool
+    pool = load_bench(REPO / cfg["bench"])["pool"]
+    slots = {s["slot"]: s for s in pool["slots"]}
+    raw = _facts_raw(cfg)
+
+    def use_kind(slot):
+        sl = slots[slot]
+        kind = sl.get("kind")
+        tpl = sl.get("use") or pool["kinds"][kind]["use"]
+        return tpl.replace("{slot}", slot), (kind or "attribute")
+    out = []
+    for it in load_items(cfg):
+        if it["tier"] != "secondary":
+            continue
+        u, kind = use_kind(raw[it["id"]]["slot"])
+        out.append({**it, "tier": "pool", "kind": kind, "use": [u], "swap": None, "h2": None, "harvest_followups": []})
+    hand_slots = {raw[i]["slot"] for i in cfg["primary"] + cfg["secondary"]}
+    for p in sample_pool(pool, None, seed=cfg["gkey"]["pool_seed"], exclude_slots=hand_slots):
+        slot = p["slot"]
+        u, kind = use_kind(slot)
+        out.append({"id": p["id"], "tier": "pool", "kind": kind, "experience": p["experience"],
+                    "target": p["measure"]["target"], "foils": list(p["measure"]["foils"]),
+                    "question": itm.probe_text(p, "related"), "prefix": p["measure"]["prefix"], "use": [u],
+                    "aliases": [f"my {slot}", f"your {slot}", slot], "no_site": False, "swap": None, "h2": None,
+                    "harvest_followups": [], "relation_probes": [{"text": r["text"], "a": r["a"]} for r in p["relation_probes"]]})
+    for f in out:
+        f["json"] = {"id": f["id"], "experience": f["experience"], "group": "facts", "tier": "pool", "kind": f["kind"],
+                     "measure": {"target": f["target"], "prefix": f["prefix"]}}
+    return out[:1] + out[5:7] if tiny else out
+
+
+def s0_pool_items(cfg, tok, tiny=False):
+    """Addendum 7 (D): the 47 pool facts as stage-0 items (tier 'primary' = person / pet facts, which decide the
+    verdict; 'secondary' = attribute slots, reported). Counter from sample_pool; a counter that is not one token is
+    replaced by the slot's first one-token value that is neither the target nor a foil; a fact whose target is not
+    one token is excluded. Returns (items, {'swaps', 'excluded'})."""
+    from seahorse.bench import load_bench
+    from seahorse.bench.data import sample_pool
+    pool = load_bench(REPO / cfg["bench"])["pool"]
+    slots = {s["slot"]: s for s in pool["slots"]}
+    raw = _facts_raw(cfg)
+    hand_slots = {raw[i]["slot"] for i in cfg["primary"] + cfg["secondary"]}
+    one = lambda v: len(text_ids(tok, f" {v}")) == 1
+    out, info = [], {"swaps": {}, "excluded": []}
+    for p in sample_pool(pool, None, seed=cfg["gkey"]["pool_seed"], exclude_slots=hand_slots):
+        slot, sl = p["slot"], slots[p["slot"]]
+        tgt = p["measure"]["target"].strip()
+        if not one(tgt):
+            info["excluded"].append(p["id"])
+            continue
+        tpl = {**pool["kinds"].get(sl.get("kind"), {}), **sl}["experience"].replace("{slot}", slot)
+        cv = p["counter"][len(tpl.split("{v}")[0]):len(p["counter"]) - len(tpl.split("{v}")[1])]
+        assert tpl.replace("{v}", cv) == p["counter"], (p["id"], cv)
+        counter = p["counter"]
+        if not one(cv):
+            foils = {f.strip() for f in p["measure"]["foils"]}
+            vals = sl.get("values") or pool["names"][sl["names"]]
+            nv = next(v for v in vals if v != tgt and v not in foils and one(v))
+            counter = tpl.replace("{v}", nv)
+            info["swaps"][p["id"]] = [cv, nv]
+        out.append({"id": p["id"], "tier": "primary" if sl.get("kind") in ("person", "pet") else "secondary",
+                    "experience": p["experience"], "counter": counter, "counter_overridden": p["id"] in info["swaps"],
+                    "question": itm.probe_text(p, "related"), "prefix": p["measure"]["prefix"],
+                    "target": p["measure"]["target"], "foils": list(p["measure"]["foils"]), "swap": None,
+                    "relation_probes": [], "harvest_followups": [], "h2": None, "use": [],
+                    "aliases": [f"my {slot}", f"your {slot}", slot], "no_site": False})
+    if tiny:
+        out = [x for x in out if x["tier"] == "primary"][:2] + [x for x in out if x["tier"] == "secondary"][:1]
+    return out, info
+
+
 # --------------------------------------------------------------------------- judge (original) + analyze
 
 
@@ -2899,7 +3396,8 @@ def load_labeled(cfg, run_dir, model_key):
     """A run's answers with their labels: (G gen rows, YN yes/no rows, UN unrelated rows, tier, target, n_panel).
     Clean use = the judges' majority (original + gpt-oss + Gemma-4; a tie goes to the original's label)."""
     items = json.load(open(run_dir / "prep" / "items.json"))
-    tier = {i: ("primary" if i in cfg["primary"] else "secondary") for i in items}
+    tier = {i: items[i].get("tier") or ("primary" if i in cfg["primary"] else "secondary") for i in items}
+    model_key = run_dir.name           # the panel keys are "<model dir>:<answer key>"
     target = {i: items[i]["measure"]["target"].strip() for i in items}
     G, YN = [], []
     for f in sorted((run_dir / "gen" / "items").glob("*.jsonl.gz")):
@@ -2992,7 +3490,7 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
          f"Pre-registered (PREREG.md addendum 'Arm R and the Qwen2.5 generation run'). Clean use = the majority of the "
          f"original judge + gpt-oss + Gemma-4 (panel labels for {n_panel}/{len(G)} answers; a tie goes to the original's "
          f"label). Means over items then prompts, two-level bootstrap ({nb}, seed {seed}); seed set 1.", ""]
-    for tr in ("primary", "secondary"):
+    for tr in [t for t in ("primary", "secondary", "pool") if t in set(tier.values())]:
         L += [f"## Use prompts ({tr})", "", "| condition | " + " | ".join(measures) + " | bal yes/no acc | Δ bal acc vs nomem |",
               "|---|" + "---|" * (len(measures) + 2)]
         bal_nm = yn_bal("nomem", tr)
@@ -3102,7 +3600,8 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
     L.append("")
     # rules
     if not has_subj:
-        return analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, paired_diff, n_panel, len(G))
+        return analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, paired_diff, n_panel, len(G),
+                              X=dict(G=G, nested=nested, sel=sel, ci=ci, measures=measures, paired_diff=paired_diff))
     s = {"subj": T[("primary", "subj1")]["clean (majority)"], "subj_m_wrong": PD[("subj1", "ctrl:wrongpos")],
          "bal_gain_subj": T[("primary", "subj1")]["bal_gain"], "bal_subj": T[("primary", "subj1")]["bal"],
          "wrong_gain": PD[("ctrl:wrongpos", "nomem")], "leak_gain": ci(paired_diff(leak["subj1"], leak["nomem"])),
@@ -3123,7 +3622,7 @@ def stage_analyze(cfg, run_dir, model_key="qwen25_15b"):
     return V
 
 
-def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, paired_diff, n_panel, n_answers):
+def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, paired_diff, n_panel, n_answers, X=None):
     """Qwen3.5-2B (PREREG addendum 3): no subj arm (pre-registered skip), so B1-B4 do not apply; B6 for the gated R
     conditions; the predictions are reported: R-full-state ~ ctx, kv6 weaker than Qwen2.5's R (B5), kv6 vs state,
     R-min-kv6 vs R-full-kv6."""
@@ -3188,12 +3687,14 @@ def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, 
         L += ["", f"**Recognition lives in the recurrent state** (R-state-only-rec CI > 0.5 AND within 0.1 of "
               f"R-state-only): {'n/a' if holds is None else ('holds' if holds else 'does not hold')}"
               + ("; only the conv buffer carries it: a short verbatim-buffer effect, not familiarity" if conv_only else ""), ""]
+    add7_lines, add7 = add7_sections(cfg, run_dir, gc, X) if X else ([], {})
+    L += add7_lines
     is2b = model_key.startswith("qwen35")
     V = {"labels": ["reported (no subj arm on the 2B: pre-registered skip; B1-B4 not applicable)" if is2b else
                     "reported (no subj arm in this run; B1-B4 not applicable)"],
-         "B": {"B6": B6}, "reported": rep_, "B5_vs_qwen25": b5, "decomp": decomp}
-    add4 = gc.get("gen_set") in ("state", "text", "decomp")
-    L[4:4] = [f"## Verdicts (PREREG addendum {({'state': '4', 'text': '5 (1)', 'decomp': '6b (C)'}).get(gc.get('gen_set'), '3')}"
+         "B": {"B6": B6}, "reported": rep_, "B5_vs_qwen25": b5, "decomp": decomp, "add7": add7}
+    add4 = gc.get("gen_set") in ("state", "text", "decomp", "refusal", "pool")
+    L[4:4] = [f"## Verdicts (PREREG addendum {({'state': '4', 'text': '5 (1) / 7 (E)', 'decomp': '6b (C)', 'refusal': '7 (B3)', 'pool': '7 (C)'}).get(gc.get('gen_set'), '3')}"
               f"{', exploratory: all reported, not decisive' if add4 else ''})", "",
               ("**No subj arm on Qwen3.5-2B** (pre-registered skip: stage 0 pointer-suspected AND the analytic pre-pass "
                "said NO GAIN), so B1-B4 do not apply. B5 on the 2B is reported, not decisive." if is2b else
@@ -3201,7 +3702,9 @@ def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, 
               f"- B6 (gated R / T conditions, unrel_same >= 0.95): {'holds' if B6 else ('fails' if B6 is not None else 'n/a')}",
               *[f"- {k}: {fmt(v) if 'mean' in v else v}" for k, v in rep_.items() if v],
               *([f"- B5: {k}: {fmt(v) if isinstance(v, dict) and 'mean' in v else v}" for k, v in b5.items()] if b5 else
-                ([] if not ref else ["- B5: Qwen2.5 reference run not found (reported as missing)"])), ""]
+                ([] if not ref else ["- B5: Qwen2.5 reference run not found (reported as missing)"])),
+              *[f"- addendum 7, {k}: {v.get('label') or ('n/a' if v.get('holds') is None else ('holds' if v['holds'] else 'does not hold'))}"
+                for k, v in add7.items()], ""]
     out = run_dir / "analysis"
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.md").write_text("\n".join(L))
@@ -3210,6 +3713,231 @@ def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, 
               open(out / "verdict.json", "w"), indent=2, default=str)
     log(f"analyze -> {out / 'report.md'}: {V['labels']}")
     return V
+
+
+# --------------------------------------------------------------------------- addendum 7 analysis
+
+REFUSAL_RE = re.compile(r"\b(don't|do not|can't|cannot|couldn't)\s+(know|recall|remember|have|access|tell)\b|"
+                        r"\bI'm sorry\b|\bcould you (tell|share|remind)\b", re.I)
+
+
+def _na(d):
+    return d is None or d.get("mean") is None or math.isnan(d["mean"])
+
+
+def add7_sections(cfg, run_dir, gc, X):
+    """Addendum 7 rules for gen sets refusal (B3) and pool (C), and E's "slice > text" on any text set. X: the
+    stage_analyze closures (G, nested, sel, ci, measures, paired_diff). Returns (report lines, rules)."""
+    G, nested, sel, ci, M, paired_diff = (X[k] for k in ("G", "nested", "sel", "ci", "measures", "paired_diff"))
+    gs = gc.get("gen_set")
+    conds = list(dict.fromkeys(r["cond"] for r in G))
+    clean = M["clean (majority)"]
+    L, rules = [], {}
+    if gs == "refusal" and gc.get("told"):
+        Xs = gc["told"]
+        Xt = f"{Xs}+told"
+        dq = lambda c: nested(sel(c, "primary", ("related",)), clean)
+        us = lambda c: nested(sel(c, "primary", ("use",)), clean)
+        ref_ = lambda c: nested(sel(c, "primary", ("related",)), lambda r: bool(REFUSAL_RE.search(r["answer"] or "")))
+        wv = lambda c: nested(sel(c, "primary", ("related",)), lambda r: r["maj"]["wrong_value"])
+        L += ["", "## Addendum 7 (B3): why the attention-only slice refuses", "",
+              "| condition | direct question: clean | refusal (regex) | wrong value (judges) | use prompts: clean |",
+              "|---|---|---|---|---|"]
+        for c in conds:
+            L.append(f"| {c} | {fmt(ci(dq(c)))} | {fmt(ci(ref_(c)))} | {fmt(ci(wv(c)))} | {fmt(ci(us(c)))} |")
+        if Xt in conds and Xs in conds:
+            a = ci(paired_diff(dq(Xt), dq(Xs)))
+            b = ci(paired_diff(dq(Xt), dq(Xt + ":rand"))) if Xt + ":rand" in conds else None
+            n = ci(paired_diff(dq(Xt), dq(Xt + ":neg"))) if Xt + ":neg" in conds else None
+            u = ci(paired_diff(us(Xt), us(Xs)))
+            ok = None if any(_na(x) for x in (a, b, n, u)) else bool(
+                a["lo"] > 0 and b["lo"] > 0 and n["lo"] > 0 and u["mean"] >= -0.1 and u["hi"] >= 0)
+            rules["missing told signal"] = {"holds": ok, "told - slice (direct)": a, "told - rand (direct)": b,
+                                            "told - neg (direct)": n, "told - slice (use)": u}
+            L += ["", f"**Missing told signal** ({Xt} − {Xs} direct CI > 0, above :rand and :neg, use prompts not lowered): "
+                  f"{'n/a' if ok is None else ('holds' if ok else 'does not hold')}",
+                  f"- {Xt} − {Xs} (direct): {fmt(a)}", f"- {Xt} − :rand (direct): {fmt(b)}",
+                  f"- {Xt} − :neg (direct): {fmt(n)}", f"- {Xt} − {Xs} (use): {fmt(u)}",
+                  f"- nomem+told − nomem (direct, clean): {fmt(ci(paired_diff(dq('nomem+told'), dq('nomem'))))}; wrong value "
+                  f"{fmt(ci(wv('nomem+told')))}" if "nomem+told" in conds else ""]
+        sw, pl = "R-min-kv-own+state-swap", "R-min-kv-own+state-plac"
+        if sw in conds and pl in conds and "R-min-state" in conds:
+            r0 = ci(dq("R-min-state"))
+            s_, p_ = ci(dq(sw)), ci(dq(pl))
+            ds, dp = ci(paired_diff(dq(sw), dq("R-min-state"))), ci(paired_diff(dq(pl), dq("R-min-state")))
+            if any(_na(x) for x in (r0, s_, p_, ds, dp)):
+                lab = "n/a"
+            elif s_["mean"] >= r0["mean"] - 0.1 or p_["mean"] >= r0["mean"] - 0.1:
+                lab = "generic response mode"
+            elif ds["hi"] < 0 and dp["hi"] < 0:
+                lab = "item-specific state"
+            else:
+                lab = "in between"
+            rules["state"] = {"label": lab, "R-min-state": r0, sw: s_, pl: p_, f"{sw} - R-min-state": ds,
+                              f"{pl} - R-min-state": dp}
+            L += ["", f"**Own entries + another state** (direct question, clean): **{lab}**",
+                  f"- R-min-state {fmt(r0)}; {sw} {fmt(s_)} (− R-min-state {fmt(ds)}); {pl} {fmt(p_)} (− R-min-state {fmt(dp)})"]
+    if gs == "pool":
+        items = json.load(open(run_dir / "prep" / "items.json"))
+        L += ["", "## Addendum 7 (C): pool scoping (the 52 non-primary facts)", ""]
+        for title, keep in (("all", lambda i: True), ("person", lambda i: items[i]["kind"] == "person"),
+                            ("pet", lambda i: items[i]["kind"] == "pet"), ("attribute", lambda i: items[i]["kind"] == "attribute"),
+                            ("value 1 token", lambda i: items[i].get("n_tok") == 1),
+                            ("value 2+ tokens", lambda i: (items[i].get("n_tok") or 1) >= 2)):
+            L += [f"**{title}** ({sum(map(keep, items))} facts)", "", "| condition | direct question: clean | use prompt: clean |",
+                  "|---|---|---|"]
+            for c in conds:
+                d = ci(nested([r for r in sel(c, "pool", ("related",)) if keep(r["item"])], clean))
+                u = ci(nested([r for r in sel(c, "pool", ("use",)) if keep(r["item"])], clean))
+                L.append(f"| {c} | {fmt(d)} | {fmt(u)} |")
+            L.append("")
+        af = run_dir / "gen" / "analytic_tf.jsonl.gz"
+        if af.exists():
+            an = read_jsonl_gz(af)
+            L += ["**Teacher-forced Δlog P(target) vs nomem** (direct question's measure prefix)", "",
+                  "| condition | all | person | pet | attribute |", "|---|---|---|---|---|"]
+            for c in dict.fromkeys(r["cond"] for r in an):
+                cell = lambda k: fmt(bind.ci({r["item"]: r["dlp"] for r in an if r["cond"] == c and (k is None or r.get("kind") == k)},
+                                             cfg["n_boot"], cfg["seeds"]["bootstrap"]))
+                L.append(f"| {c} | {cell(None)} | {cell('person')} | {cell('pet')} | {cell('attribute')} |")
+            L.append("")
+        d = ci(nested(sel("R-min", "pool", ("related",)), clean))
+        u = ci(nested(sel("R-min", "pool", ("use",)), clean))
+        ok = None if _na(d) or _na(u) else bool(d["lo"] <= 0.89 and d["hi"] >= 0.40 and u["mean"] >= 0.75)
+        rules["prompt-type mismatch"] = {"holds": ok, "R-min direct": d, "R-min use": u,
+                                         "direct CI contains 0.66": None if _na(d) else bool(d["lo"] <= 0.66 <= d["hi"]),
+                                         "R-full direct": ci(nested(sel("R-full", "pool", ("related",)), clean)),
+                                         "R-full use": ci(nested(sel("R-full", "pool", ("use",)), clean))}
+        L += [f"**Prompt-type mismatch** (pool R-min direct CI overlaps the primary [0.40, 0.89] AND pool R-min use ≥ 0.75): "
+              f"{'n/a' if ok is None else ('holds' if ok else 'does not hold')}",
+              f"- pool R-min direct {fmt(d)} (contains 0.66: {rules['prompt-type mismatch']['direct CI contains 0.66']}); "
+              f"use {fmt(u)}; R-full direct {fmt(rules['prompt-type mismatch']['R-full direct'])}, use "
+              f"{fmt(rules['prompt-type mismatch']['R-full use'])}", ""]
+    if "R-min" in conds and "T-min" in conds and gs != "pool":
+        cm = lambda c: nested(sel(c, "primary"), clean)
+        d = ci(paired_diff(cm("R-min"), cm("T-min")))
+        rules["slice > text"] = {"holds": None if _na(d) else bool(d["lo"] > 0), "R-min - T-min": d}
+        L += ["", f"**Addendum 7 (E) slice > text** (R-min − T-min clean use, primary use prompts, CI > 0): "
+              f"{'n/a' if _na(d) else ('holds' if d['lo'] > 0 else 'does not hold')} {fmt(d)}", ""]
+    return [x for x in L if x is not None], rules
+
+
+def _yn_tables(rows, conds, nb, seed, field):
+    """Per condition, per item: accuracy on the Yes probes, false-yes rate per lure kind, balanced accuracies."""
+    per = defaultdict(dict)
+    for c in conds:
+        by = defaultdict(lambda: defaultdict(list))
+        for r in rows:
+            if r["cond"] == c:
+                by[r["item"]][r["kind"]].append(float(r["tf_yes"] if field == "tf" else r["yn"] == "yes"))
+        for i, k in by.items():
+            m = {kk: sum(v) / len(v) for kk, v in k.items()}
+            lures = k["form"] + k["assoc"]
+            m["lures"] = sum(lures) / len(lures) if lures else float("nan")
+            for kk in ("unrelated", "form", "assoc", "binding", "lures"):
+                m[f"bal_{kk}"] = (m.get("yes", float("nan")) + 1 - m.get(kk, float("nan"))) / 2
+            per[c][i] = m
+    return per
+
+
+def analyze_probe(cfg, pdir, model_key):
+    """Addendum 7 (A, F): the value / verification table and the lure rules -> <probe dir>/analysis/report.md."""
+    nb, seed = cfg["n_boot"], cfg["seeds"]["bootstrap"]
+    rows = read_jsonl_gz(pdir / "results.jsonl.gz")
+    tf, yn = [r for r in rows if r["sec"] == "tf"], [r for r in rows if r["sec"] == "yn"]
+    conds = list(dict.fromkeys(r["cond"] for r in tf))
+    lp = {(r["item"], r["cond"]): r for r in tf}
+    st = lambda d: bind.ci(d, nb, seed)
+    dlp = {c: {i: lp[(i, c)]["lp_target"] - lp[(i, "nomem")]["lp_target"] for i, cc in lp if cc == c} for c in conds}
+    dspec = {c: {i: (lp[(i, c)]["lp_target"] - lp[(i, c)]["lp_foils"]) - (lp[(i, "nomem")]["lp_target"] - lp[(i, "nomem")]["lp_foils"])
+                 for i, cc in lp if cc == c} for c in conds}
+    L = [f"# dream_bind addendum 7 (A, F): value / verification and associated lures ({model_key})", "",
+         "Teacher-forced (TF): Δlog P(target) at the direct question's measure prefix vs nomem; yes/no = first-token "
+         "log P(Yes) > log P(No). Greedy = the parsed 10-token answer. FY = false-yes rate (share of that kind's No probes "
+         f"answered yes); bal vs k = (accuracy on Yes + 1 − FY_k) / 2; lures = form + assoc pooled. Means over the 7 primary "
+         f"items, 95% bootstrap CIs over items ({nb}, seed {seed}).", ""]
+    tabs = {f: _yn_tables(yn, conds, nb, seed, f) for f in ("tf", "greedy")}
+    for f, title in (("tf", "teacher-forced"), ("greedy", "greedy")):
+        T = tabs[f]
+        L += [f"## Yes/no ({title})", "", "| condition | Δlog P(target) | Δspec | acc Yes | FY unrelated | FY form | FY assoc | "
+              "FY binding | bal vs unrelated | bal vs lures |", "|---|---|---|---|---|---|---|---|---|---|"]
+        for c in conds:
+            g_ = lambda k: fmt(st({i: m[k] for i, m in T[c].items()}))
+            L.append(f"| {c} | {fmt(st(dlp[c]))} | {fmt(st(dspec[c]))} | {g_('yes')} | {g_('unrelated')} | {g_('form')} | "
+                     f"{g_('assoc')} | {g_('binding')} | {g_('bal_unrelated')} | {g_('bal_lures')} |")
+        L.append("")
+    rules = {}
+    T = tabs["tf"]
+    for c in [c for c in ("R-state-only", "R-state-only-rec") if c in conds]:
+        dd = {k: st({i: m[k] - m["unrelated"] for i, m in T[c].items()}) for k in ("form", "assoc")}
+        bl = st({i: m["bal_lures"] for i, m in T[c].items()})
+        gist = any(d["lo"] > 0 for d in dd.values())
+        item = (not gist) and all(abs(d["mean"]) <= 0.1 for d in dd.values()) and bl["lo"] > 0.5
+        lab = "gist familiarity" if gist else ("item recognition" if item else "in between")
+        rules[c] = {"label": lab, "FY form - FY unrelated": dd["form"], "FY assoc - FY unrelated": dd["assoc"], "bal vs lures": bl,
+                    "decisive": c == "R-state-only"}
+        L += [f"**{c}** (TF{', decisive' if c == 'R-state-only' else ', reported'}): **{lab}**; FY form − unrelated "
+              f"{fmt(dd['form'])}, FY assoc − unrelated {fmt(dd['assoc'])}, bal vs lures {fmt(bl)}"]
+    if "R-min-kv6" in conds and "R-state-only" in conds:
+        kv, cx = st(dlp["R-min-kv6"]), st(dlp["ctx"])
+        kb = st({i: m["bal_unrelated"] for i, m in T["R-min-kv6"].items()})
+        sb = st({i: m["bal_unrelated"] for i, m in T["R-state-only"].items()})
+        ok = bool(kv["mean"] >= 0.8 * cx["mean"] and kb["lo"] <= 0.5 <= kb["hi"] and sb["lo"] > 0.5)
+        rules["the 2B split replicates"] = {"holds": ok, "R-min-kv6 dlp": kv, "ctx dlp": cx, "R-min-kv6 bal": kb,
+                                            "R-state-only bal": sb}
+        L += ["", f"**The 2B split replicates** (R-min-kv6 Δlog P ≥ 0.8 × ctx, its yes/no CI includes 0.5, R-state-only "
+              f"yes/no CI > 0.5): {'holds' if ok else 'does not hold'}; R-min-kv6 Δlog P {fmt(kv)} vs ctx {fmt(cx)}; R-min-kv6 "
+              f"bal {fmt(kb)}; R-state-only bal {fmt(sb)}"]
+    L[4:4] = ["## Rules (PREREG addendum 7)", ""] + [f"- {k}: {v.get('label') or ('holds' if v.get('holds') else 'does not hold')}"
+                                                       for k, v in rules.items()] + [""]
+    ck = json.load(open(pdir / "checks.json"))
+    L += ["", "## Checks", "", f"- identity (R-full(-state) TF vs T-full): max {max(x['max_abs_logit_diff'] for x in ck['identity']):.2e}",
+          f"- probes per item: {ck['probes']}", ""]
+    out = pdir / "analysis"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.md").write_text("\n".join(L))
+    json.dump({"rules": rules}, open(out / "verdict.json", "w"), indent=2, default=str)
+    log(f"probe analyze -> {out / 'report.md'}")
+    return rules
+
+
+def analyze_dirs(cfg, ddir, model_key):
+    """Addendum 7 (B1, B2): the directions' separation, the told pick, and the projections per condition."""
+    nb, seed = cfg["n_boot"], cfg["seeds"]["bootstrap"]
+    D = torch.load(ddir / "dirs.pt")
+    rows = read_jsonl_gz(ddir / "results.jsonl.gz")
+    n = len(D["sep_known"])
+    L = [f"# dream_bind addendum 7 (B1, B2): known-entity and told directions ({model_key})", "",
+         f"Difference of means per block: known = {D['n_entities'][0]} famous − {D['n_entities'][1]} made-up names (last entity "
+         f"token of 'Tell me about X.'); told = ctx − nomem at the direct question's last prompt token over {D['n_facts']} "
+         "non-primary facts. Separation = Cohen's d of the two sets along the direction.", "",
+         f"**Told vector pick** (pre-registered rule, teacher-forced on the non-primary facts, slice {D['slice']}): layer set "
+         f"**{D['pick']['set']}** {D['pick']['layers']}, α = **{D['pick']['alpha']}** ({D['pick']['rule']}; prefix log-prob gain "
+         f"{D['pick']['score']:.2f}, Δlog P(target) {D['pick']['dlp']:.2f})", "",
+         "| layer set | α | prefix log-prob gain | Δlog P(target) |", "|---|---|---|---|"]
+    L += [f"| {c['set']} | {c['alpha']} | {c['score']:.3f} | {c['dlp']:.3f} |" for c in D["cells"]]
+    L += ["", "| block | separation known | separation told |", "|---|---|---|"]
+    L += [f"| {l} | {D['sep_known'][l]:.2f} | {D['sep_told'][l]:.2f} |" for l in range(n)]
+    conds = list(dict.fromkeys(r["cond"] for r in rows))
+    for field, title in (("told_last", "told direction at the last prompt token"), ("known_subj", "known-entity direction at the subject")):
+        L += ["", f"## Projection: {title}, condition − nomem (direct question + use prompts; mean over items)", "",
+              "| block | " + " | ".join(c for c in conds if c != "nomem") + " |", "|---|" + "---|" * (len(conds) - 1)]
+        base = {(r["item"], r["pi"]): r[field] for r in rows if r["cond"] == "nomem" and r[field] is not None}
+        for l in range(n):
+            cells = []
+            for c in conds:
+                if c == "nomem":
+                    continue
+                acc = defaultdict(dict)
+                for r in rows:
+                    if r["cond"] == c and r[field] is not None and (r["item"], r["pi"]) in base:
+                        acc[r["item"]][r["pi"]] = r[field][l] - base[(r["item"], r["pi"])][l]
+                cells.append(fmt(_ci(dict(acc), nb, seed)))
+            L.append(f"| {l} | " + " | ".join(cells) + " |")
+    out = ddir / "analysis"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.md").write_text("\n".join(L))
+    log(f"dirs analyze -> {out / 'report.md'}")
 
 
 # --------------------------------------------------------------------------- main
@@ -3237,6 +3965,10 @@ def main(argv=None):
             analyze_idrepair(cfg, sibling(out, "idrepair"), A.model)
         if (sibling(out, "gkey") / "gen" / "retrieval.jsonl.gz").exists():
             analyze_gkey(cfg, sibling(out, "gkey"), A.model)
+        if (out.parent / f"{A.model}_probe" / "results.jsonl.gz").exists() and out.name == A.model:
+            analyze_probe(cfg, out.parent / f"{A.model}_probe", A.model)
+        if (out.parent / f"{A.model}_dirs" / "dirs.pt").exists() and out.name == A.model:
+            analyze_dirs(cfg, out.parent / f"{A.model}_dirs", A.model)
     stages = [s for s in stages if s not in ("judge", "analyze")]
     if not stages and ("judge" in A.stage or "analyze" in A.stage):
         return
@@ -3246,7 +3978,8 @@ def main(argv=None):
         fns = {"patch": stage_patch, "knockout": stage_knockout, "prefix": stage_prefix,
                "analytic": lambda C_, its, d_: stage_analytic(C_, its, d_, all_items),
                "gen": lambda C_, its, d_: stage_gen(C_, its, d_, all_items),
-               "collide": stage_collide, "idrepair": stage_idrepair, "gkey": stage_gkey}
+               "collide": stage_collide, "idrepair": stage_idrepair, "gkey": stage_gkey, "probe": stage_probe,
+               "directions": stage_directions}
         if "gen" in stages:
             log(f"gen plan: {json.dumps(gen_plan(cfg, items, mc=mc, gen_set=A.gen_set))}")
         if "collide" in stages:
@@ -3256,6 +3989,11 @@ def main(argv=None):
                 torch.cuda.reset_peak_memory_stats()
             model, tok, info = load(A, cfg, mc)
             C = context(A, cfg, mc, model, tok)
+            s0info = None
+            if A.items == "pool":           # addendum 7 (D): the pool facts as stage-0 items
+                assert set(stages) <= {"patch", "knockout"}, "--items pool is for stage 0 (patch / knockout)"
+                items, s0info = s0_pool_items(cfg, tok, A.tiny)
+                log(f"stage 0 on pool facts: {len(items)} items; counter swaps {s0info['swaps']}; excluded {s0info['excluded']}")
             coh = None
             if not A.random_model:
                 coh = coherence_check(C)
@@ -3266,13 +4004,15 @@ def main(argv=None):
                 rows, checks, layouts = fns[st](C, items, out / st)
                 checks["coherence"] = coh
                 d = {"collide": collide_dir(out) / "gen", "idrepair": sibling(out, "idrepair") / "gen",
-                     "gkey": sibling(out, "gkey") / "gen"}.get(st, out / st)
+                     "gkey": sibling(out, "gkey") / "gen", "probe": out.parent / f"{A.model}_probe",
+                     "directions": out.parent / f"{A.model}_dirs"}.get(st, out / st)
                 d.mkdir(parents=True, exist_ok=True)
                 write_jsonl_gz(d / "results.jsonl.gz", rows)
                 json.dump(checks, open(d / "checks.json", "w"), indent=2)
                 meta = {"stage": st, "model_key": A.model, "model": mc["model"], "dtype": A.dtype,
                         "random_model": A.random_model, "tiny": A.tiny, "args": vars(A), "cfg": cfg, "env": env_meta(),
                         "load": info, "n_blocks": C.n, "items": [it["id"] for it in items], "layouts": layouts,
+                        "s0_pool": s0info,
                         "items_sha": {"config": file_sha(A.config), "facts": file_sha(REPO / cfg["bench"] / "facts.yaml"),
                                       "core_v1_items": file_sha(REPO / cfg["items"])},
                         "minutes": round((time.time() - t0) / 60, 2)}

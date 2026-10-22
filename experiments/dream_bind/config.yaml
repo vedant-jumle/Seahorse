@@ -13,7 +13,7 @@ models:
     text_only: true       # load the text decoder + tied lm_head only (no vision tower): fits a 10 GB slice in fp32
     nll_tokens: 256       # coherence-NLL token batch (~one answer per batch): OOMs on the 10 GB slice at 6000 (job 957431) and 1500 (job 983801)
     eager: false          # no knockout on this model (spec section 2)
-    stages: [patch, prefix, analytic, gen, judge, analyze, collide]   # prefix: exploratory (patching only here)
+    stages: [patch, prefix, analytic, gen, judge, analyze, collide, probe, directions]   # prefix: exploratory (patching only here)
     # arm R on the hybrid (PREREG addendum 3). No subj arm: pre-registered skip (stage 0 pointer-suspected AND the
     # analytic pre-pass said NO GAIN on this model).
     gen_conds:
@@ -56,13 +56,33 @@ models:
     # plus two attention-only probes with the head-only DeltaNet state
     collide_conds: [nomem, ctx2, R2-joint-state, R2-sep-overlap-jstate, R2-sep-shift-jstate, R2-min-joint-jstate,
                     R2-min-sep-overlap-jstate, R2-min-sep-shift-jstate, R2-joint-kv6, R2-sep-shift-kv6]
+    # PREREG addendum 7 -------------------------------------------------------------------------------------------
+    # (G) cheap collision fix + (A) the joint-state binding lure; run with --collide-set add7
+    collide_conds_add7: [R2-joint-state, R2-sep-shift-jstate, R2-min-joint-jstate, R2-min-sep-shift-jstate,
+                         R2-seq-min-jstate, R2-blend15-jstate, R2-state-only-J]
+    # (A) + (F) the probe stage (teacher-forced value / verification table + lure yes/no)
+    probe_conds: [nomem, ctx, R-full-state, R-min-state, R-min-kv6, R-state-only, R-state-only-rec, R-state-only-conv]
+    # (B) directions + projections; the told vector is selected on this slice (pool facts, teacher-forced)
+    dir_conds: [nomem, ctx, R-min-kv6, R-min-state, R-state-only]
+    told_slice: R-min-kv6
+    # (B3) the causal arms; run with --gen-set refusal (needs <run>/qwen35_2b_dirs/dirs.pt)
+    gen_conds_refusal:
+      primary: [nomem, ctx, R-min-kv6, R-min-state, R-min-kv6+told, R-min-kv6+told:rand, R-min-kv6+told:neg, nomem+told,
+                R-min-kv-own+state-swap, R-min-kv-own+state-plac]
+      secondary: []
+      seed2: [nomem, R-min-kv6, R-min-kv6+told, R-min-state]
+      leak: null
+      swap_from: R-min-state
+      swap_name: R-swap-min-state   # built, not generated
+      check: R-full-state
+      told: R-min-kv6
   qwen25_15b:
     model: Qwen/Qwen2.5-1.5B-Instruct
     n_blocks: 28          # full attention everywhere
     thinking_template: false
     text_only: false
     eager: true           # knockout and the subject-alone cell edit the eager attention mask
-    stages: [patch, knockout, prefix, analytic, gen, judge, analyze, collide, idrepair, gkey]
+    stages: [patch, knockout, prefix, analytic, gen, judge, analyze, collide, idrepair, gkey, probe, directions]
     # PREREG addendum 5 (1): the plain-text controls; run with --gen-set text
     gen_conds_text:
       primary: [nomem, ctx, T-min, T-full, R-min, R-full]
@@ -72,6 +92,66 @@ models:
       swap_from: R-full         # built, not generated
       check: R-full
     collide_conds: [nomem, ctx2, R2-joint, R2-sep-overlap, R2-sep-shift, R2-min-joint, R2-min-sep-overlap, R2-min-sep-shift]
+    # PREREG addendum 7 -------------------------------------------------------------------------------------------
+    collide_conds_add7: [R2-joint, R2-sep-shift, R2-min-joint, R2-min-sep-shift, R2-seq-min, R2-blend15]   # (G)
+    probe_conds: [nomem, ctx, T-full, T-min, R-full, R-min]                                                # (A)
+    dir_conds: [nomem, ctx, R-min, R-full]                                                                 # (B2)
+    told_slice: R-min
+    gen_conds_refusal:     # (B3); --gen-set refusal (needs <run>/qwen25_15b_dirs/dirs.pt)
+      primary: [nomem, ctx, R-full, R-min, R-min+told, R-min+told:rand, R-min+told:neg, nomem+told]
+      secondary: []
+      seed2: [nomem, R-min, R-min+told, R-full]
+      leak: null
+      swap_from: R-full         # built, not generated
+      check: R-full
+      told: R-min
+    gen_conds_pool:        # (C); --gen-set pool: the 52 non-primary facts (tier "pool": the secondary list applies)
+      items: pool
+      primary: []
+      secondary: [nomem, ctx, R-full, R-min, T-min]
+      seed2: []
+      leak: null
+      swap_from: R-full         # built, not generated
+      check: R-full
+      analytic: [nomem, ctx, R-full, R-min, T-min]
+  # PREREG addendum 7 (E): the second family. fp32 on gpu-v100; eager attention (knockout); 28 blocks like Qwen2.5.
+  llama32_3b:
+    model: meta-llama/Llama-3.2-3B-Instruct
+    n_blocks: 28
+    thinking_template: false
+    text_only: false
+    eager: true
+    date_string: "26 Jul 2024"   # the template writes today's date into the system block: pinned
+    stages: [patch, knockout, gen, judge, analyze, collide, probe]
+    gen_conds_text:
+      primary: [nomem, ctx, R-full, R-min, R-orphan, R-swap, T-min, T-full]
+      secondary: [nomem, ctx, T-min, R-min]
+      seed2: [nomem, ctx, T-min, R-min]
+      leak: null
+      swap_from: R-full
+      check: R-full
+    gen_conds_pool:
+      items: pool
+      primary: []
+      secondary: [nomem, ctx, R-full, R-min, T-min]
+      seed2: []
+      leak: null
+      swap_from: R-full
+      check: R-full
+      analytic: [nomem, ctx, R-full, R-min, T-min]
+    collide_conds: [nomem, ctx2, R2-joint, R2-sep-overlap, R2-sep-shift, R2-min-joint, R2-min-sep-overlap, R2-min-sep-shift]
+    collide_conds_add7: [nomem, ctx2, R2-joint, R2-sep-overlap, R2-sep-shift, R2-min-joint, R2-min-sep-overlap,
+                         R2-min-sep-shift, R2-seq-min, R2-blend15]
+    probe_conds: [nomem, ctx, T-full, T-min, R-full, R-min]
+  # PREREG addendum 7 (F): teacher-forced probe only; fp32 on a full A100 (never fp16 on a V100)
+  qwen35_9b:
+    model: Qwen/Qwen3.5-9B
+    n_blocks: 32
+    thinking_template: true
+    text_only: true
+    eager: false
+    stages: [probe, analyze]
+    probe_conds: [nomem, ctx, R-full-state, R-min-state, R-min-kv6, R-state-only, R-state-only-rec, R-state-only-conv]
 
 dtype: fp32               # both models (Qwen2.5: RTX 4060 locally; Qwen3.5-2B: A100 MIG 10 GB slice)
 band: 5                   # bands and knockout windows: 5 consecutive blocks
@@ -202,6 +282,14 @@ lures:
   grandmother_name: {form: [" Easter", " Lester"], assoc: [" Rebecca", " Leah"], binding: [" Omar", " Gordon"]}
   best_friend_name: {form: [" Amar", " Homer"], assoc: [" Ali", " Hassan"], binding: [" Gordon", " Pepper"]}
   boss_name: {form: [" Jordan", " Morgan"], assoc: [" Douglas", " Duncan"], binding: [" Omar", " Pepper"]}
+
+# PREREG addendum 7 (B): the told vector's selection grid (teacher-forced on the 52 non-primary facts only)
+told:
+  thirds: true             # layer sets: blocks [0, n/3), [n/3, 2n/3), [2n/3, n)
+  alphas: [0.25, 0.5, 1, 2]
+  min_dlp: -1.0            # constraint: mean change in log P(target | prefix) vs the slice alone >= -1 nat
+  rand_seed: 4321
+entities: data/bench_v1/entities.yaml
 
 # PREREG addendum 6 (Qwen2.5): (A) binding-ID repair, (B) G-key retrieval + capacity
 idrepair:

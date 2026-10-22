@@ -214,7 +214,8 @@ def best(cv):
 # ------------------------------------------------------------------------------ verdict
 
 
-def verdict(subj, attr, ko_subj=None, ko_attr=None, suff=None, suff_net=None, suff_sanity=None, n_flagged=0):
+def verdict(subj, attr, ko_subj=None, ko_attr=None, suff=None, suff_net=None, suff_sanity=None, n_flagged=0,
+            max_flagged=MAX_FLAGGED):
     """The pre-registered stage-0 read-out for one model (PREREG.md). Every argument except n_flagged is a
     curve (cell label -> {mean, lo, hi, n}) over the primary items:
       subj       patching the question-subject's LAST token (blocks and bands)
@@ -225,8 +226,8 @@ def verdict(subj, attr, ko_subj=None, ko_attr=None, suff=None, suff_net=None, su
                  minus the blocked-no-patch baseline; suff_sanity {mean, ...} of that baseline
     Returns {label, reasons, ...}. Labels: subject | pointer-suspected | in between | undetermined."""
     out = {"reasons": []}
-    if n_flagged > MAX_FLAGGED:
-        out.update(label="undetermined", reasons=[f"{n_flagged} primary items flagged (> {MAX_FLAGGED})"])
+    if n_flagged > max_flagged:
+        out.update(label="undetermined", reasons=[f"{n_flagged} primary items flagged (> {max_flagged})"])
         return out
     sb, sbs = best(subj)
     ab, abs_ = best(attr)
@@ -583,6 +584,18 @@ def linear_states_equal(a, b):
     return True
 
 
+def linear_states_close(a, b, tol):
+    """True if every linear-attention layer of caches a and b holds conv and recurrent states within tol (max abs)."""
+    for La, Lb in zip(a.layers, b.layers):
+        if is_linear_layer(La):
+            for da, db in ((La.conv_states, Lb.conv_states), (La.recurrent_states, Lb.recurrent_states)):
+                for i in da:
+                    x, y = da[i], db.get(i)
+                    if (x is None) != (y is None) or (x is not None and (x.float() - y.float()).abs().max().item() > tol):
+                        return False
+    return True
+
+
 def cache_summary(cache):
     """[('lin', has_previous_state) | ('attn', n_entries)] per layer (checks and the position record)."""
     out = []
@@ -592,6 +605,12 @@ def cache_summary(cache):
         else:
             out.append(("attn", int(L.keys.shape[-2]) if getattr(L, "is_initialized", False) else 0))
     return out
+
+
+def blend_select(dev, frac=0.15):
+    """CacheBlend's selection: the ceil(frac * n) positions with the largest deviation dev [n] (sorted indices)."""
+    k = max(1, math.ceil(frac * len(dev)))
+    return sorted(torch.as_tensor(dev).topk(k).indices.tolist())
 
 
 def pair_plan(nh, nA, nB, aA, aB):
@@ -612,13 +631,23 @@ def pair_plan(nh, nA, nB, aA, aB):
             "R2-sep-shift": ([("A", head + segA, 0), ("B", segB, nA)], sh),
             "R2-min-joint": ([("J", head + minA + jminB, 0)], sh),
             "R2-min-sep-overlap": ([("A", head + minA, 0), ("B", minB, 0)], ov),
-            "R2-min-sep-shift": ([("A", head + minA, 0), ("B", minB, nA)], sh)}
+            "R2-min-sep-shift": ([("A", head + minA, 0), ("B", minB, nA)], sh),
+            # addendum 7. 'Qf' = [head][A's turn] (A's stored full slice) + B's turn re-encoded on top of it (one pass
+            # over B; == the joint harvest); 'Qm' = [head][A's 2 stored positions] + B's turn re-encoded on top (at B's
+            # joint positions h + nA ..); 'Bb' = B's separate slice shifted by +nA with the most-deviating 15% of its
+            # positions replaced from 'Qf' (laid out as 'B': head, then B's turn)
+            "R2-state-only": ([("J", head, 0)], sh),
+            "R2-seq": ([("Qf", head + segA + jB, 0)], sh),
+            "R2-seq-min": ([("Qm", head + [nh, nh + 1, nh + 2 + aB, nh + 3 + aB], 0)], sh),
+            "R2-blend15": ([("A", head + segA, 0), ("Bb", segB, 0)], sh)}
 
 
 def hybrid_collide_names(base):
-    """2B names: every R2 condition with the JOINT DeltaNet state ('-jstate'; R2-joint -> R2-joint-state), plus the
-    two attention-only probes with the head-only DeltaNet state (-kv6). Returns {name: (base plan key, lin source)}."""
-    out = {("R2-joint-state" if b == "R2-joint" else f"{b}-jstate"): (b, "J") for b in base}
+    """2B names: every R2 condition with the JOINT DeltaNet state ('-jstate'; R2-joint -> R2-joint-state;
+    R2-state-only -> R2-state-only-J), plus the two attention-only probes with the head-only DeltaNet state (-kv6).
+    Returns {name: (base plan key, lin source)}."""
+    nm = {"R2-joint": "R2-joint-state", "R2-state-only": "R2-state-only-J"}
+    out = {nm.get(b, f"{b}-jstate"): (b, "J") for b in base}
     out.update({"R2-joint-kv6": ("R2-joint", "H"), "R2-sep-shift-kv6": ("R2-sep-shift", "H")})
     return out
 
