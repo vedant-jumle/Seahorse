@@ -14,7 +14,8 @@
 #   addendum 7); llama on gpu-v100 (fp32).
 # Times: addendum 7's measured durations (jobs.txt + sacct: Qwen2.5 MIG ~60 answers/min, the 2B on a full A100 ~90/min,
 # Llama on a V100 ~100/min; the judge ~134 answers/min and the panels ~79/min at the slowest), scaled to the counts in
-# PREREG addendum 8, + 30%.
+# PREREG addendum 8, + 30%, + ~30 min per job for the slow Python start-up on /scratch seen on 2026-10-25 (one
+# interpreter per job via experiments/dream_bind/multi.py; the first smokes, at 0:45-0:50, timed out in 7 start-ups).
 # From the repo on DelftBlue (/scratch/$USER/Seahorse), after `git pull`:
 #   bash experiments/dream_bind/submit_add8.sh [RUN_ROOT]          # PARTS="qwen25 2b llama" by default
 set -euo pipefail
@@ -54,21 +55,21 @@ chain() {  # model key, tag, resources, partition name, fit limit, smoke / dp / 
   cp=$(sub $GPU a8_${tag}_comply $R --time=$TC --dependency=afterok:$rf "MODEL=$M,STAGES=gen,OUT=$RUN/${M}_comply,EXTRA=--gen-set comply")
   c1=$(sub $GPU a8_${tag}_collide $R --time=$T1 --dependency=afterok:$sm "MODEL=$M,STAGES=collide,OUT=$RUN/$M,EXTRA=--collide-set add8")
   c2=$(sub $GPU a8_${tag}_poolpairs $R --time=$T2 --dependency=afterok:$c1 "MODEL=$M,STAGES=collide,OUT=$RUN/${M}_pp,EXTRA=--collide-set add8pool")
-  read -r j pa pb <<< "$(judges $M $tag $cp:$c2 02:45:00 04:30:00 04:30:00 "${M}_refusal8 ${M}_comply ${M}_collide ${M}_pp_collide" \
+  read -r j pa pb <<< "$(judges $M $tag $cp:$c2 03:15:00 05:00:00 05:00:00 "${M}_refusal8 ${M}_comply ${M}_collide ${M}_pp_collide" \
     "judge|$RUN/${M}_refusal8|;judge|$RUN/${M}_comply|;judge|$RUN/$M|;judge|$RUN/${M}_pp|")"
-  an=$(sub $ANA a8_${tag}_analyze $CPU --time=01:00:00 --dependency=afterok:$j:$pa:$pb:$dp "MODEL=$M,OUTS=$RUN/$M $RUN/${M}_refusal8 $RUN/${M}_comply $RUN/${M}_pp")
-  echo "$M ($pn): smoke $sm ($TS) -> dirs8+probe+probepool $dp ($TD) -> refusal8 $rf ($TR) -> comply $cp ($TC); smoke -> collide add8 $c1 ($T1) -> add8pool $c2 ($T2) -> judge $j (2:45), gptoss $pa (4:30), gemma4 $pb (4:30, after gptoss) (gpu-a100) -> analyze $an (1:00)"
+  an=$(sub $ANA a8_${tag}_analyze $CPU --time=02:00:00 --dependency=afterok:$j:$pa:$pb:$dp "MODEL=$M,OUTS=$RUN/$M $RUN/${M}_refusal8 $RUN/${M}_comply $RUN/${M}_pp")
+  echo "$M ($pn): smoke $sm ($TS) -> dirs8+probe+probepool $dp ($TD) -> refusal8 $rf ($TR) -> comply $cp ($TC); smoke -> collide add8 $c1 ($T1) -> add8pool $c2 ($T2) -> judge $j (3:15), gptoss $pa (5:00), gemma4 $pb (5:00, after gptoss) (gpu-a100) -> analyze $an (2:00)"
 }
 
 {
   echo "dream_bind addendum 8 run $RUN, parts '$PARTS', submitted $(date -Is) at commit $(git rev-parse HEAD)"
   for P in $PARTS; do
     case $P in
-    qwen25) chain qwen25_15b q25 "$A100J" gpu-a100 70 00:45:00 01:00:00 01:15:00 00:40:00 01:45:00 04:00:00 ;;
-    2b)     chain qwen35_2b 2b "$A100J" gpu-a100 70 00:50:00 01:15:00 01:30:00 00:40:00 01:30:00 03:30:00 ;;
+    qwen25) chain qwen25_15b q25 "$A100J" gpu-a100 70 01:30:00 01:30:00 01:45:00 01:00:00 02:15:00 04:30:00 ;;
+    2b)     chain qwen35_2b 2b "$A100J" gpu-a100 70 01:30:00 01:45:00 02:00:00 01:00:00 02:00:00 04:00:00 ;;
     llama)
       ls /scratch/$USER/hf_cache/hub | grep -q "models--meta-llama--Llama-3.2-3B-Instruct" || { echo "Llama-3.2-3B-Instruct not in the HF cache"; exit 1; }
-      chain llama32_3b ll "$V100" gpu-v100 28 00:45:00 01:00:00 01:15:00 00:40:00 01:30:00 03:30:00 ;;
+      chain llama32_3b ll "$V100" gpu-v100 28 01:30:00 01:30:00 01:45:00 01:00:00 02:00:00 04:00:00 ;;
     *) echo "unknown part $P"; exit 1 ;;
     esac
   done

@@ -41,12 +41,8 @@ cd "$REPO"
 echo "dream_bind MODEL=$MODEL SPECS=$SPECS commit=$(git log -1 --oneline) node=$(hostname) job=$SLURM_JOB_ID"
 python -c "import torch, transformers; print(torch.__version__, transformers.__version__, torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
 command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=name,memory.total --format=csv || true
-pytest -q tests
-echo "pytest passed"
-IFS=';' read -ra RUNS <<< "$SPECS"
-for spec in "${RUNS[@]}"; do
-  IFS='|' read -r st out ex <<< "$spec"
-  echo "=== run.py --stage $st --out $out $ex"
-  python experiments/dream_bind/run.py --model "$MODEL" --stage $st --out "$out" --device cuda --dtype fp32 $ex
-  echo "Done: $out"
-done
+# pytest and every run.py call in ONE Python process (experiments/dream_bind/multi.py): importing torch / transformers
+# from the conda env on /scratch took ~12 min per interpreter on 2026-10-25. The slow tests (marked 'slow': the data-file
+# rebuild with three tokenizers, the stage-level add8 test) run in the CPU analyze job instead.
+export SPECS
+python experiments/dream_bind/multi.py --model "$MODEL" --device cuda --dtype fp32 --pytest "-q tests -m 'not slow'"

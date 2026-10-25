@@ -26,9 +26,9 @@ export HF_HUB_OFFLINE=1
 export PYTHONUNBUFFERED=1
 cd "$REPO"
 echo "dream_bind analyze MODEL=$MODEL OUTS=$OUTS commit=$(git log -1 --oneline) node=$(hostname) job=$SLURM_JOB_ID"
-pytest -q tests/test_dream_bind.py
-echo "pytest passed"
-for OUT in $OUTS; do
-  python experiments/dream_bind/run.py --model "$MODEL" --stage analyze --out "$OUT" --device cpu
-  echo "Done: $OUT/analysis"
-done
+# pytest (the whole dream_bind file, slow tests included) and every analyze call in ONE Python process
+# (experiments/dream_bind/multi.py; see slurm/dream_bind.slurm)
+SPECS=""
+for OUT in $OUTS; do SPECS="$SPECS;analyze|$OUT|"; done
+export SPECS
+python experiments/dream_bind/multi.py --model "$MODEL" --device cpu --pytest "-q tests/test_dream_bind.py"

@@ -1101,6 +1101,7 @@ def _all_toks():
     return t if all(t) else None
 
 
+@pytest.mark.slow
 def test_add8_data_files_match_generator():
     """The generated data files equal a fresh deterministic rebuild (parsed, so YAML formatting cannot matter)."""
     if _all_toks() is None:
@@ -1310,6 +1311,7 @@ def test_told_specs_comply(tiny_real_tok):
     assert all(torch.equal(S7[c][1][l], S[c][1][l]) for c in S7 for l in S7[c][1])  # the told arms are unchanged
 
 
+@pytest.mark.slow
 def test_probe_add8_and_directions8(tiny_real_tok, tmp_path):
     """The probe stage with the part-6 wordings (primary item and pool facts), and the add8 directions stage (half A only)."""
     C = tiny_real_tok
