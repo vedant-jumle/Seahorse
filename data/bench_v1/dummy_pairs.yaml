@@ -1,0 +1,23 @@
+# dream_bind PREREG addendum 8, part 1: the dummy 'pair 1' sentences "My {slot}'s name is {name}." stored
+# before a member's sentence in the same user turn (its positions are dropped at reinstatement). Member
+# role r (A = 0, B = 1) of the k-th pair (the collide set's pair order) gets dummies[(2k + r) % 8]
+# (bind.dummy_for). Slots: none of fact_pool.yaml's slots; names: in no name / value list, foil, counter,
+# lure or collide value; one token (leading space) on the Qwen2.5, Qwen3.5 and Llama-3.2 tokenizers.
+# Written by experiments/dream_bind/add8_data.py.
+dummies:
+- slot: gardener
+  name: Brian
+- slot: mechanic
+  name: Keith
+- slot: postman
+  name: Derek
+- slot: locksmith
+  name: Trevor
+- slot: tailor
+  name: Colin
+- slot: barber
+  name: Graham
+- slot: florist
+  name: Janet
+- slot: butcher
+  name: Gary

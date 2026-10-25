@@ -1,0 +1,754 @@
+# dream_bind PREREG addendum 8, part 2a: lures for the 52 non-primary facts (run.pool_gen_items order).
+# counter = the counter sentence's value (bind.counter_value; the job override 'plumber').
+# form lures (addendum 8, pool): from the slot's own value list, the values that are not the target, not the counter, not one of the 3 measure foils, and one token with a leading space on the Qwen2.5, Qwen3.5 and Llama-3.2 tokenizers; ranked by (same first letter as the target first, case-insensitive; longer common prefix; smaller Levenshtein distance; list order); the first 2.
+# binding lures (addendum 8, pool): the values of the next facts in the pool order (cyclically) whose slot uses the same name list (female / male people, pets), skipping values that are the target, the counter, a foil, a form lure, already taken, or not one token on all three tokenizers; the first 2. Attribute facts get none.
+# Attribute slots with no unused one-token value get fewer (or no) form lures. Associate lures are not drawn for
+# the pool. Written by experiments/dream_bind/add8_data.py.
+facts:
+- id: job
+  kind: attribute
+  slot: job
+  target: pharmacist
+  counter: plumber
+  foils:
+  - teacher
+  - nurse
+  - lawyer
+  form:
+  - pilot
+  - journalist
+  binding: []
+- id: hometown
+  kind: attribute
+  slot: hometown
+  target: Leeds
+  counter: Glasgow
+  foils:
+  - London
+  - Manchester
+  - Bristol
+  form:
+  - Lyon
+  - Porto
+  binding: []
+- id: first_language
+  kind: attribute
+  slot: first language
+  target: Portuguese
+  counter: Polish
+  foils:
+  - English
+  - Spanish
+  - French
+  form:
+  - Turkish
+  - Korean
+  binding: []
+- id: university
+  kind: attribute
+  slot: university
+  target: Edinburgh
+  counter: Warwick
+  foils:
+  - Oxford
+  - Cambridge
+  - Manchester
+  form:
+  - Durham
+  - Bath
+  binding: []
+- id: favourite_colour
+  kind: attribute
+  slot: favourite colour
+  target: teal
+  counter: orange
+  foils:
+  - blue
+  - green
+  - red
+  form:
+  - turquoise
+  - yellow
+  binding: []
+- id: pool_favourite_board_game
+  kind: attribute
+  slot: favourite board game
+  target: Monopoly
+  counter: backgammon
+  foils:
+  - Scrabble
+  - Risk
+  - chess
+  form: []
+  binding: []
+- id: pool_doctor
+  kind: person
+  slot: doctor
+  target: Amelia
+  counter: Diana
+  foils:
+  - Paula
+  - Rosa
+  - Laura
+  form:
+  - Ava
+  - Alice
+  binding:
+  - Rachel
+  - Emily
+- id: pool_star_sign
+  kind: attribute
+  slot: star sign
+  target: Leo
+  counter: Scorpio
+  foils:
+  - Virgo
+  - Pisces
+  - Capricorn
+  form:
+  - Gemini
+  - Cancer
+  binding: []
+- id: pool_daughter
+  kind: person
+  slot: daughter
+  target: Rachel
+  counter: Irene
+  foils:
+  - Emma
+  - Fiona
+  - Ada
+  form:
+  - Ruth
+  - Ruby
+  binding:
+  - Emily
+  - Lily
+- id: pool_cousin
+  kind: person
+  slot: cousin
+  target: Jonas
+  counter: Luca
+  foils:
+  - Mark
+  - Daniel
+  - Tomas
+  form:
+  - James
+  - Jack
+  binding:
+  - Stefan
+  - Diego
+- id: pool_goldfish
+  kind: pet
+  slot: goldfish
+  target: Bella
+  counter: Pixel
+  foils:
+  - Oscar
+  - Bean
+  - Bear
+  form:
+  - Blue
+  - Buddy
+  binding:
+  - Thor
+  - Sherlock
+- id: pool_grandfather
+  kind: person
+  slot: grandfather
+  target: Stefan
+  counter: Diego
+  foils:
+  - Fred
+  - Oscar
+  - Ivan
+  form:
+  - Simon
+  - Samuel
+  binding:
+  - Dennis
+  - George
+- id: pool_dentist
+  kind: person
+  slot: dentist
+  target: Diego
+  counter: Tomas
+  foils:
+  - Pedro
+  - Hugo
+  - Rafael
+  form:
+  - Daniel
+  - David
+  binding:
+  - Dennis
+  - Ivan
+- id: pool_childhood_friend
+  kind: person
+  slot: childhood friend
+  target: Emily
+  counter: Ella
+  foils:
+  - Ava
+  - Amelia
+  - Martha
+  form:
+  - Emma
+  - Evelyn
+  binding:
+  - Lily
+  - Chloe
+- id: pool_hamster
+  kind: pet
+  slot: hamster
+  target: Thor
+  counter: Ruby
+  foils:
+  - Jasper
+  - Coco
+  - Maple
+  form:
+  - Toby
+  - Tiger
+  binding:
+  - Sherlock
+  - Shadow
+- id: pool_horse
+  kind: pet
+  slot: horse
+  target: Sherlock
+  counter: Toby
+  foils:
+  - Luna
+  - Captain
+  - Buddy
+  form:
+  - Shadow
+  - Scout
+  binding:
+  - Charlie
+  - Daisy
+- id: pool_favourite_flower
+  kind: attribute
+  slot: favourite flower
+  target: iris
+  counter: lavender
+  foils:
+  - tulip
+  - rose
+  - sunflower
+  form:
+  - jasmine
+  binding: []
+- id: pool_football_team
+  kind: attribute
+  slot: football team
+  target: Ajax
+  counter: Barcelona
+  foils:
+  - Celtic
+  - Everton
+  - Juventus
+  form:
+  - Arsenal
+  - Chelsea
+  binding: []
+- id: pool_tennis_coach
+  kind: person
+  slot: tennis coach
+  target: Lily
+  counter: Nora
+  foils:
+  - Olivia
+  - Esther
+  - Alice
+  form:
+  - Leah
+  - Lena
+  binding:
+  - Chloe
+  - Hannah
+- id: pool_husband
+  kind: person
+  slot: husband
+  target: Dennis
+  counter: Lucas
+  foils:
+  - Carl
+  - Hans
+  - David
+  form:
+  - Daniel
+  - Diego
+  binding:
+  - Ivan
+  - George
+- id: pool_ferret
+  kind: pet
+  slot: ferret
+  target: Shadow
+  counter: Maple
+  foils:
+  - Bear
+  - Sherlock
+  - Loki
+  form:
+  - Sunny
+  - Scout
+  binding:
+  - Charlie
+  - Buddy
+- id: pool_guinea_pig
+  kind: pet
+  slot: guinea pig
+  target: Charlie
+  counter: Ranger
+  foils:
+  - Coco
+  - Chester
+  - Honey
+  form:
+  - Cookie
+  - Captain
+  binding:
+  - Buddy
+  - Daisy
+- id: pool_neighbour
+  kind: person
+  slot: neighbour
+  target: Ivan
+  counter: Tomas
+  foils:
+  - Hugo
+  - Harold
+  - Jack
+  form:
+  - Liam
+  - Noah
+  binding:
+  - George
+  - Simon
+- id: pool_stepfather
+  kind: person
+  slot: stepfather
+  target: George
+  counter: Walter
+  foils:
+  - Stefan
+  - Erik
+  - Bernard
+  form:
+  - Gordon
+  - Henry
+  binding:
+  - Simon
+  - Jack
+- id: pool_coworker
+  kind: person
+  slot: coworker
+  target: Chloe
+  counter: Ava
+  foils:
+  - Fiona
+  - Rachel
+  - Ruby
+  form:
+  - Clara
+  - Carmen
+  binding:
+  - Lena
+  - Hannah
+- id: pool_godmother
+  kind: person
+  slot: godmother
+  target: Lena
+  counter: Wendy
+  foils:
+  - Elena
+  - Carmen
+  - Maya
+  form:
+  - Leah
+  - Lily
+  binding:
+  - Hannah
+  - Sylvia
+- id: pool_mother_in_law
+  kind: person
+  slot: mother-in-law
+  target: Hannah
+  counter: Wendy
+  foils:
+  - Helen
+  - Lucia
+  - Alice
+  form:
+  - Harper
+  - Anna
+  binding:
+  - Sylvia
+  - Rosa
+- id: pool_babysitter
+  kind: person
+  slot: babysitter
+  target: Sylvia
+  counter: Ella
+  foils:
+  - Martha
+  - Zoe
+  - Ava
+  form:
+  - Sophia
+  - Sofia
+  binding:
+  - Harper
+  - Rosa
+- id: pool_parrot
+  kind: pet
+  slot: parrot
+  target: Buddy
+  counter: Shadow
+  foils:
+  - Rex
+  - Hazel
+  - Rocky
+  form:
+  - Bella
+  - Bean
+  binding:
+  - Daisy
+  - Ruby
+- id: pool_aunt
+  kind: person
+  slot: aunt
+  target: Harper
+  counter: Esther
+  foils:
+  - Mia
+  - Wendy
+  - Sarah
+  form:
+  - Hannah
+  - Helen
+  binding:
+  - Rosa
+  - Iris
+- id: pool_piano_teacher
+  kind: person
+  slot: piano teacher
+  target: Simon
+  counter: Lucas
+  foils:
+  - Henry
+  - Bruce
+  - Norman
+  form:
+  - Samuel
+  - Stefan
+  binding:
+  - Jack
+  - Rafael
+- id: pool_favourite_painter
+  kind: attribute
+  slot: favourite painter
+  target: Monet
+  counter: Rembrandt
+  foils:
+  - Vermeer
+  - Picasso
+  - Turner
+  form: []
+  binding: []
+- id: pool_personal_trainer
+  kind: person
+  slot: personal trainer
+  target: Jack
+  counter: Theo
+  foils:
+  - Pedro
+  - Mark
+  - Karl
+  form:
+  - James
+  - Jonas
+  binding:
+  - Rafael
+  - Victor
+- id: pool_father_in_law
+  kind: person
+  slot: father-in-law
+  target: Rafael
+  counter: Theo
+  foils:
+  - Ralph
+  - Frank
+  - Gordon
+  form:
+  - Roger
+  - Daniel
+  binding:
+  - Jack
+  - Victor
+- id: pool_favourite_subject
+  kind: attribute
+  slot: favourite subject
+  target: history
+  counter: biology
+  foils:
+  - maths
+  - Latin
+  - physics
+  form:
+  - chemistry
+  - art
+  binding: []
+- id: pool_birthday_month
+  kind: attribute
+  slot: birthday month
+  target: June
+  counter: October
+  foils:
+  - May
+  - December
+  - March
+  form:
+  - July
+  - January
+  binding: []
+- id: pool_mother
+  kind: person
+  slot: mother
+  target: Rosa
+  counter: Naomi
+  foils:
+  - Lucia
+  - Ava
+  - Ruby
+  form:
+  - Ruth
+  - Rachel
+  binding:
+  - Iris
+  - Sofia
+- id: pool_hairdresser
+  kind: person
+  slot: hairdresser
+  target: Jack
+  counter: Harold
+  foils:
+  - David
+  - Marco
+  - Roger
+  form:
+  - James
+  - Jonas
+  binding:
+  - Victor
+  - Vincent
+- id: pool_favourite_book
+  kind: attribute
+  slot: favourite book
+  target: Matilda
+  counter: Beloved
+  foils:
+  - Middlemarch
+  - Macbeth
+  - Frankenstein
+  form:
+  - Emma
+  - Rebecca
+  binding: []
+- id: pool_father
+  kind: person
+  slot: father
+  target: Victor
+  counter: Theo
+  foils:
+  - Omar
+  - Roger
+  - Anton
+  form:
+  - Vincent
+  - Nico
+  binding:
+  - Stefan
+  - Hans
+- id: pool_instrument
+  kind: attribute
+  slot: instrument
+  target: clarinet
+  counter: flute
+  foils:
+  - harp
+  - guitar
+  - violin
+  form:
+  - trumpet
+  - piano
+  binding: []
+- id: pool_niece
+  kind: person
+  slot: niece
+  target: Iris
+  counter: Eva
+  foils:
+  - Maya
+  - Ruby
+  - Sophia
+  form:
+  - Irene
+  - Mia
+  binding:
+  - Sofia
+  - Sylvia
+- id: pool_roommate
+  kind: person
+  slot: roommate
+  target: Sofia
+  counter: Sarah
+  foils:
+  - Lena
+  - Hannah
+  - Paula
+  form:
+  - Sophia
+  - Sylvia
+  binding:
+  - Grace
+  - Amelia
+- id: pool_therapist
+  kind: person
+  slot: therapist
+  target: Sylvia
+  counter: Anna
+  foils:
+  - Amelia
+  - Laura
+  - Fiona
+  form:
+  - Sophia
+  - Sofia
+  binding:
+  - Grace
+  - Rachel
+- id: pool_vet
+  kind: person
+  slot: vet
+  target: Vincent
+  counter: Hans
+  foils:
+  - Mark
+  - Otto
+  - Diego
+  form:
+  - Victor
+  - Ben
+  binding:
+  - Stefan
+  - Simon
+- id: pool_accountant
+  kind: person
+  slot: accountant
+  target: Grace
+  counter: Sarah
+  foils:
+  - Nina
+  - Sophia
+  - Harper
+  form:
+  - Alice
+  - Kate
+  binding:
+  - Amelia
+  - Rachel
+- id: pool_rabbit
+  kind: pet
+  slot: rabbit
+  target: Daisy
+  counter: Duke
+  foils:
+  - Rocky
+  - Charlie
+  - Ranger
+  form:
+  - Max
+  - Buddy
+  binding:
+  - Ruby
+  - Bella
+- id: pool_nephew
+  kind: person
+  slot: nephew
+  target: Stefan
+  counter: Tomas
+  foils:
+  - Liam
+  - Henry
+  - Kevin
+  form:
+  - Simon
+  - Samuel
+  binding:
+  - Hans
+  - Anton
+- id: pool_landlord
+  kind: person
+  slot: landlord
+  target: Hans
+  counter: Erik
+  foils:
+  - Hugo
+  - Ben
+  - Carl
+  form:
+  - Harold
+  - Henry
+  binding:
+  - Simon
+  - Anton
+- id: pool_uncle
+  kind: person
+  slot: uncle
+  target: Simon
+  counter: Tomas
+  foils:
+  - Leo
+  - Leon
+  - Peter
+  form:
+  - Samuel
+  - Stefan
+  binding:
+  - Anton
+  - Jonas
+- id: pool_tortoise
+  kind: pet
+  slot: tortoise
+  target: Ruby
+  counter: Rex
+  foils:
+  - Luna
+  - Zeus
+  - Pumpkin
+  form:
+  - Rocky
+  - Ranger
+  binding:
+  - Bella
+  - Thor
+- id: pool_son
+  kind: person
+  slot: son
+  target: Anton
+  counter: Omar
+  foils:
+  - Harold
+  - Vincent
+  - Roger
+  form:
+  - Adam
+  - Leon
+  binding:
+  - Jonas
+  - Stefan

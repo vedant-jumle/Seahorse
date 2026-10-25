@@ -1,0 +1,824 @@
+# dream_bind PREREG addendum 8, part 2c: two-fact pairs from the pool slots. Confusable: 'older / younger
+# {slot}' (person slots) and 'first / second {pet}'; different-subject: two person slots (12) or a person
+# and a pet (5), slots from a seeded shuffle (seed 17 / 18), one partner slot (no husband). Values drawn
+# with random.Random(13) from the slot's name list, distinct across the whole file, never a primary /
+# addendum-5 collide value or a dummy name, one token (leading space) on all three tokenizers. Templates:
+# the pool's person / pet kinds (experience, question, prefix, verify, ONE use prompt).
+# Written by experiments/dream_bind/add8_data.py.
+pairs:
+- id: ppc_sister
+  kind: confusable
+  a:
+    id: ppc_older_sister
+    experience: My older sister's name is Ruby.
+    value: ' Ruby'
+    question: What's my older sister's name?
+    prefix: Your older sister's name is
+    use:
+    - Write a short birthday message to my older sister.
+    verify:
+    - Is my older sister's name {v}?
+    - Is {v} the name of my older sister?
+  b:
+    id: ppc_younger_sister
+    experience: My younger sister's name is Clara.
+    value: ' Clara'
+    question: What's my younger sister's name?
+    prefix: Your younger sister's name is
+    use:
+    - Write a short birthday message to my younger sister.
+    verify:
+    - Is my younger sister's name {v}?
+    - Is {v} the name of my younger sister?
+- id: ppc_brother
+  kind: confusable
+  a:
+    id: ppc_older_brother
+    experience: My older brother's name is Norman.
+    value: ' Norman'
+    question: What's my older brother's name?
+    prefix: Your older brother's name is
+    use:
+    - Write a short birthday message to my older brother.
+    verify:
+    - Is my older brother's name {v}?
+    - Is {v} the name of my older brother?
+  b:
+    id: ppc_younger_brother
+    experience: My younger brother's name is Edgar.
+    value: ' Edgar'
+    question: What's my younger brother's name?
+    prefix: Your younger brother's name is
+    use:
+    - Write a short birthday message to my younger brother.
+    verify:
+    - Is my younger brother's name {v}?
+    - Is {v} the name of my younger brother?
+- id: ppc_cousin
+  kind: confusable
+  a:
+    id: ppc_older_cousin
+    experience: My older cousin's name is Ben.
+    value: ' Ben'
+    question: What's my older cousin's name?
+    prefix: Your older cousin's name is
+    use:
+    - Write a short birthday message to my older cousin.
+    verify:
+    - Is my older cousin's name {v}?
+    - Is {v} the name of my older cousin?
+  b:
+    id: ppc_younger_cousin
+    experience: My younger cousin's name is Harold.
+    value: ' Harold'
+    question: What's my younger cousin's name?
+    prefix: Your younger cousin's name is
+    use:
+    - Write a short birthday message to my younger cousin.
+    verify:
+    - Is my younger cousin's name {v}?
+    - Is {v} the name of my younger cousin?
+- id: ppc_niece
+  kind: confusable
+  a:
+    id: ppc_older_niece
+    experience: My older niece's name is Zoe.
+    value: ' Zoe'
+    question: What's my older niece's name?
+    prefix: Your older niece's name is
+    use:
+    - Write a short birthday message to my older niece.
+    verify:
+    - Is my older niece's name {v}?
+    - Is {v} the name of my older niece?
+  b:
+    id: ppc_younger_niece
+    experience: My younger niece's name is Naomi.
+    value: ' Naomi'
+    question: What's my younger niece's name?
+    prefix: Your younger niece's name is
+    use:
+    - Write a short birthday message to my younger niece.
+    verify:
+    - Is my younger niece's name {v}?
+    - Is {v} the name of my younger niece?
+- id: ppc_nephew
+  kind: confusable
+  a:
+    id: ppc_older_nephew
+    experience: My older nephew's name is Oscar.
+    value: ' Oscar'
+    question: What's my older nephew's name?
+    prefix: Your older nephew's name is
+    use:
+    - Write a short birthday message to my older nephew.
+    verify:
+    - Is my older nephew's name {v}?
+    - Is {v} the name of my older nephew?
+  b:
+    id: ppc_younger_nephew
+    experience: My younger nephew's name is Felix.
+    value: ' Felix'
+    question: What's my younger nephew's name?
+    prefix: Your younger nephew's name is
+    use:
+    - Write a short birthday message to my younger nephew.
+    verify:
+    - Is my younger nephew's name {v}?
+    - Is {v} the name of my younger nephew?
+- id: ppc_son
+  kind: confusable
+  a:
+    id: ppc_older_son
+    experience: My older son's name is Stefan.
+    value: ' Stefan'
+    question: What's my older son's name?
+    prefix: Your older son's name is
+    use:
+    - Write a short birthday message to my older son.
+    verify:
+    - Is my older son's name {v}?
+    - Is {v} the name of my older son?
+  b:
+    id: ppc_younger_son
+    experience: My younger son's name is Fred.
+    value: ' Fred'
+    question: What's my younger son's name?
+    prefix: Your younger son's name is
+    use:
+    - Write a short birthday message to my younger son.
+    verify:
+    - Is my younger son's name {v}?
+    - Is {v} the name of my younger son?
+- id: ppc_daughter
+  kind: confusable
+  a:
+    id: ppc_older_daughter
+    experience: My older daughter's name is Chloe.
+    value: ' Chloe'
+    question: What's my older daughter's name?
+    prefix: Your older daughter's name is
+    use:
+    - Write a short birthday message to my older daughter.
+    verify:
+    - Is my older daughter's name {v}?
+    - Is {v} the name of my older daughter?
+  b:
+    id: ppc_younger_daughter
+    experience: My younger daughter's name is Emily.
+    value: ' Emily'
+    question: What's my younger daughter's name?
+    prefix: Your younger daughter's name is
+    use:
+    - Write a short birthday message to my younger daughter.
+    verify:
+    - Is my younger daughter's name {v}?
+    - Is {v} the name of my younger daughter?
+- id: ppc_dog
+  kind: confusable
+  a:
+    id: ppc_first_dog
+    experience: My first dog's name is Bella.
+    value: ' Bella'
+    question: What's my first dog's name?
+    prefix: Your first dog's name is
+    use:
+    - Write a short, funny poem about my first dog.
+    verify:
+    - Is my first dog's name {v}?
+    - Is {v} the name of my first dog?
+  b:
+    id: ppc_second_dog
+    experience: My second dog's name is Scout.
+    value: ' Scout'
+    question: What's my second dog's name?
+    prefix: Your second dog's name is
+    use:
+    - Write a short, funny poem about my second dog.
+    verify:
+    - Is my second dog's name {v}?
+    - Is {v} the name of my second dog?
+- id: ppc_cat
+  kind: confusable
+  a:
+    id: ppc_first_cat
+    experience: My first cat's name is Maple.
+    value: ' Maple'
+    question: What's my first cat's name?
+    prefix: Your first cat's name is
+    use:
+    - Write a short, funny poem about my first cat.
+    verify:
+    - Is my first cat's name {v}?
+    - Is {v} the name of my first cat?
+  b:
+    id: ppc_second_cat
+    experience: My second cat's name is Lucky.
+    value: ' Lucky'
+    question: What's my second cat's name?
+    prefix: Your second cat's name is
+    use:
+    - Write a short, funny poem about my second cat.
+    verify:
+    - Is my second cat's name {v}?
+    - Is {v} the name of my second cat?
+- id: ppc_rabbit
+  kind: confusable
+  a:
+    id: ppc_first_rabbit
+    experience: My first rabbit's name is Buddy.
+    value: ' Buddy'
+    question: What's my first rabbit's name?
+    prefix: Your first rabbit's name is
+    use:
+    - Write a short, funny poem about my first rabbit.
+    verify:
+    - Is my first rabbit's name {v}?
+    - Is {v} the name of my first rabbit?
+  b:
+    id: ppc_second_rabbit
+    experience: My second rabbit's name is Apollo.
+    value: ' Apollo'
+    question: What's my second rabbit's name?
+    prefix: Your second rabbit's name is
+    use:
+    - Write a short, funny poem about my second rabbit.
+    verify:
+    - Is my second rabbit's name {v}?
+    - Is {v} the name of my second rabbit?
+- id: ppc_parrot
+  kind: confusable
+  a:
+    id: ppc_first_parrot
+    experience: My first parrot's name is Shadow.
+    value: ' Shadow'
+    question: What's my first parrot's name?
+    prefix: Your first parrot's name is
+    use:
+    - Write a short, funny poem about my first parrot.
+    verify:
+    - Is my first parrot's name {v}?
+    - Is {v} the name of my first parrot?
+  b:
+    id: ppc_second_parrot
+    experience: My second parrot's name is Max.
+    value: ' Max'
+    question: What's my second parrot's name?
+    prefix: Your second parrot's name is
+    use:
+    - Write a short, funny poem about my second parrot.
+    verify:
+    - Is my second parrot's name {v}?
+    - Is {v} the name of my second parrot?
+- id: ppc_horse
+  kind: confusable
+  a:
+    id: ppc_first_horse
+    experience: My first horse's name is Honey.
+    value: ' Honey'
+    question: What's my first horse's name?
+    prefix: Your first horse's name is
+    use:
+    - Write a short, funny poem about my first horse.
+    verify:
+    - Is my first horse's name {v}?
+    - Is {v} the name of my first horse?
+  b:
+    id: ppc_second_horse
+    experience: My second horse's name is Comet.
+    value: ' Comet'
+    question: What's my second horse's name?
+    prefix: Your second horse's name is
+    use:
+    - Write a short, funny poem about my second horse.
+    verify:
+    - Is my second horse's name {v}?
+    - Is {v} the name of my second horse?
+- id: ppc_hamster
+  kind: confusable
+  a:
+    id: ppc_first_hamster
+    experience: My first hamster's name is Daisy.
+    value: ' Daisy'
+    question: What's my first hamster's name?
+    prefix: Your first hamster's name is
+    use:
+    - Write a short, funny poem about my first hamster.
+    verify:
+    - Is my first hamster's name {v}?
+    - Is {v} the name of my first hamster?
+  b:
+    id: ppc_second_hamster
+    experience: My second hamster's name is Captain.
+    value: ' Captain'
+    question: What's my second hamster's name?
+    prefix: Your second hamster's name is
+    use:
+    - Write a short, funny poem about my second hamster.
+    verify:
+    - Is my second hamster's name {v}?
+    - Is {v} the name of my second hamster?
+- id: ppc_goldfish
+  kind: confusable
+  a:
+    id: ppc_first_goldfish
+    experience: My first goldfish's name is Winston.
+    value: ' Winston'
+    question: What's my first goldfish's name?
+    prefix: Your first goldfish's name is
+    use:
+    - Write a short, funny poem about my first goldfish.
+    verify:
+    - Is my first goldfish's name {v}?
+    - Is {v} the name of my first goldfish?
+  b:
+    id: ppc_second_goldfish
+    experience: My second goldfish's name is Cookie.
+    value: ' Cookie'
+    question: What's my second goldfish's name?
+    prefix: Your second goldfish's name is
+    use:
+    - Write a short, funny poem about my second goldfish.
+    verify:
+    - Is my second goldfish's name {v}?
+    - Is {v} the name of my second goldfish?
+- id: ppc_tortoise
+  kind: confusable
+  a:
+    id: ppc_first_tortoise
+    experience: My first tortoise's name is Blue.
+    value: ' Blue'
+    question: What's my first tortoise's name?
+    prefix: Your first tortoise's name is
+    use:
+    - Write a short, funny poem about my first tortoise.
+    verify:
+    - Is my first tortoise's name {v}?
+    - Is {v} the name of my first tortoise?
+  b:
+    id: ppc_second_tortoise
+    experience: My second tortoise's name is Ranger.
+    value: ' Ranger'
+    question: What's my second tortoise's name?
+    prefix: Your second tortoise's name is
+    use:
+    - Write a short, funny poem about my second tortoise.
+    verify:
+    - Is my second tortoise's name {v}?
+    - Is {v} the name of my second tortoise?
+- id: ppc_guinea_pig
+  kind: confusable
+  a:
+    id: ppc_first_guinea_pig
+    experience: My first guinea pig's name is Sunny.
+    value: ' Sunny'
+    question: What's my first guinea pig's name?
+    prefix: Your first guinea pig's name is
+    use:
+    - Write a short, funny poem about my first guinea pig.
+    verify:
+    - Is my first guinea pig's name {v}?
+    - Is {v} the name of my first guinea pig?
+  b:
+    id: ppc_second_guinea_pig
+    experience: My second guinea pig's name is Milo.
+    value: ' Milo'
+    question: What's my second guinea pig's name?
+    prefix: Your second guinea pig's name is
+    use:
+    - Write a short, funny poem about my second guinea pig.
+    verify:
+    - Is my second guinea pig's name {v}?
+    - Is {v} the name of my second guinea pig?
+- id: ppc_ferret
+  kind: confusable
+  a:
+    id: ppc_first_ferret
+    experience: My first ferret's name is Bean.
+    value: ' Bean'
+    question: What's my first ferret's name?
+    prefix: Your first ferret's name is
+    use:
+    - Write a short, funny poem about my first ferret.
+    verify:
+    - Is my first ferret's name {v}?
+    - Is {v} the name of my first ferret?
+  b:
+    id: ppc_second_ferret
+    experience: My second ferret's name is Duke.
+    value: ' Duke'
+    question: What's my second ferret's name?
+    prefix: Your second ferret's name is
+    use:
+    - Write a short, funny poem about my second ferret.
+    verify:
+    - Is my second ferret's name {v}?
+    - Is {v} the name of my second ferret?
+- id: ppd_tennis_coach_landlord
+  kind: different
+  a:
+    id: ppd_tennis_coach
+    experience: My tennis coach's name is Julia.
+    value: ' Julia'
+    question: What's my tennis coach's name?
+    prefix: Your tennis coach's name is
+    use:
+    - Write a short birthday message to my tennis coach.
+    verify:
+    - Is my tennis coach's name {v}?
+    - Is {v} the name of my tennis coach?
+  b:
+    id: ppd_landlord
+    experience: My landlord's name is Diego.
+    value: ' Diego'
+    question: What's my landlord's name?
+    prefix: Your landlord's name is
+    use:
+    - Write a short birthday message to my landlord.
+    verify:
+    - Is my landlord's name {v}?
+    - Is {v} the name of my landlord?
+- id: ppd_vet_grandmother
+  kind: different
+  a:
+    id: ppd_vet
+    experience: My vet's name is Bruce.
+    value: ' Bruce'
+    question: What's my vet's name?
+    prefix: Your vet's name is
+    use:
+    - Write a short birthday message to my vet.
+    verify:
+    - Is my vet's name {v}?
+    - Is {v} the name of my vet?
+  b:
+    id: ppd_grandmother
+    experience: My grandmother's name is Carmen.
+    value: ' Carmen'
+    question: What's my grandmother's name?
+    prefix: Your grandmother's name is
+    use:
+    - Write a short birthday message to my grandmother.
+    verify:
+    - Is my grandmother's name {v}?
+    - Is {v} the name of my grandmother?
+- id: ppd_personal_trainer_accountant
+  kind: different
+  a:
+    id: ppd_personal_trainer
+    experience: My personal trainer's name is Otto.
+    value: ' Otto'
+    question: What's my personal trainer's name?
+    prefix: Your personal trainer's name is
+    use:
+    - Write a short birthday message to my personal trainer.
+    verify:
+    - Is my personal trainer's name {v}?
+    - Is {v} the name of my personal trainer?
+  b:
+    id: ppd_accountant
+    experience: My accountant's name is Ada.
+    value: ' Ada'
+    question: What's my accountant's name?
+    prefix: Your accountant's name is
+    use:
+    - Write a short birthday message to my accountant.
+    verify:
+    - Is my accountant's name {v}?
+    - Is {v} the name of my accountant?
+- id: ppd_father_therapist
+  kind: different
+  a:
+    id: ppd_father
+    experience: My father's name is Tomas.
+    value: ' Tomas'
+    question: What's my father's name?
+    prefix: Your father's name is
+    use:
+    - Write a short birthday message to my father.
+    verify:
+    - Is my father's name {v}?
+    - Is {v} the name of my father?
+  b:
+    id: ppd_therapist
+    experience: My therapist's name is Eva.
+    value: ' Eva'
+    question: What's my therapist's name?
+    prefix: Your therapist's name is
+    use:
+    - Write a short birthday message to my therapist.
+    verify:
+    - Is my therapist's name {v}?
+    - Is {v} the name of my therapist?
+- id: ppd_stepfather_sister
+  kind: different
+  a:
+    id: ppd_stepfather
+    experience: My stepfather's name is Jack.
+    value: ' Jack'
+    question: What's my stepfather's name?
+    prefix: Your stepfather's name is
+    use:
+    - Write a short birthday message to my stepfather.
+    verify:
+    - Is my stepfather's name {v}?
+    - Is {v} the name of my stepfather?
+  b:
+    id: ppd_sister
+    experience: My sister's name is Leah.
+    value: ' Leah'
+    question: What's my sister's name?
+    prefix: Your sister's name is
+    use:
+    - Write a short birthday message to my sister.
+    verify:
+    - Is my sister's name {v}?
+    - Is {v} the name of my sister?
+- id: ppd_aunt_son
+  kind: different
+  a:
+    id: ppd_aunt
+    experience: My aunt's name is Anna.
+    value: ' Anna'
+    question: What's my aunt's name?
+    prefix: Your aunt's name is
+    use:
+    - Write a short birthday message to my aunt.
+    verify:
+    - Is my aunt's name {v}?
+    - Is {v} the name of my aunt?
+  b:
+    id: ppd_son
+    experience: My son's name is Luca.
+    value: ' Luca'
+    question: What's my son's name?
+    prefix: Your son's name is
+    use:
+    - Write a short birthday message to my son.
+    verify:
+    - Is my son's name {v}?
+    - Is {v} the name of my son?
+- id: ppd_best_friend_dentist
+  kind: different
+  a:
+    id: ppd_best_friend
+    experience: My best friend's name is Anton.
+    value: ' Anton'
+    question: What's my best friend's name?
+    prefix: Your best friend's name is
+    use:
+    - Write a short birthday message to my best friend.
+    verify:
+    - Is my best friend's name {v}?
+    - Is {v} the name of my best friend?
+  b:
+    id: ppd_dentist
+    experience: My dentist's name is Carl.
+    value: ' Carl'
+    question: What's my dentist's name?
+    prefix: Your dentist's name is
+    use:
+    - Write a short birthday message to my dentist.
+    verify:
+    - Is my dentist's name {v}?
+    - Is {v} the name of my dentist?
+- id: ppd_boss_nephew
+  kind: different
+  a:
+    id: ppd_boss
+    experience: My boss's name is Irene.
+    value: ' Irene'
+    question: What's my boss's name?
+    prefix: Your boss's name is
+    use:
+    - Write a short birthday message to my boss.
+    verify:
+    - Is my boss's name {v}?
+    - Is {v} the name of my boss?
+  b:
+    id: ppd_nephew
+    experience: My nephew's name is Frank.
+    value: ' Frank'
+    question: What's my nephew's name?
+    prefix: Your nephew's name is
+    use:
+    - Write a short birthday message to my nephew.
+    verify:
+    - Is my nephew's name {v}?
+    - Is {v} the name of my nephew?
+- id: ppd_neighbour_hairdresser
+  kind: different
+  a:
+    id: ppd_neighbour
+    experience: My neighbour's name is Dennis.
+    value: ' Dennis'
+    question: What's my neighbour's name?
+    prefix: Your neighbour's name is
+    use:
+    - Write a short birthday message to my neighbour.
+    verify:
+    - Is my neighbour's name {v}?
+    - Is {v} the name of my neighbour?
+  b:
+    id: ppd_hairdresser
+    experience: My hairdresser's name is Ivan.
+    value: ' Ivan'
+    question: What's my hairdresser's name?
+    prefix: Your hairdresser's name is
+    use:
+    - Write a short birthday message to my hairdresser.
+    verify:
+    - Is my hairdresser's name {v}?
+    - Is {v} the name of my hairdresser?
+- id: ppd_wife_daughter
+  kind: different
+  a:
+    id: ppd_wife
+    experience: My wife's name is Nina.
+    value: ' Nina'
+    question: What's my wife's name?
+    prefix: Your wife's name is
+    use:
+    - Write a short birthday message to my wife.
+    verify:
+    - Is my wife's name {v}?
+    - Is {v} the name of my wife?
+  b:
+    id: ppd_daughter
+    experience: My daughter's name is Nora.
+    value: ' Nora'
+    question: What's my daughter's name?
+    prefix: Your daughter's name is
+    use:
+    - Write a short birthday message to my daughter.
+    verify:
+    - Is my daughter's name {v}?
+    - Is {v} the name of my daughter?
+- id: ppd_uncle_mother
+  kind: different
+  a:
+    id: ppd_uncle
+    experience: My uncle's name is Jonas.
+    value: ' Jonas'
+    question: What's my uncle's name?
+    prefix: Your uncle's name is
+    use:
+    - Write a short birthday message to my uncle.
+    verify:
+    - Is my uncle's name {v}?
+    - Is {v} the name of my uncle?
+  b:
+    id: ppd_mother
+    experience: My mother's name is Kate.
+    value: ' Kate'
+    question: What's my mother's name?
+    prefix: Your mother's name is
+    use:
+    - Write a short birthday message to my mother.
+    verify:
+    - Is my mother's name {v}?
+    - Is {v} the name of my mother?
+- id: ppd_brother_cousin
+  kind: different
+  a:
+    id: ppd_brother
+    experience: My brother's name is Peter.
+    value: ' Peter'
+    question: What's my brother's name?
+    prefix: Your brother's name is
+    use:
+    - Write a short birthday message to my brother.
+    verify:
+    - Is my brother's name {v}?
+    - Is {v} the name of my brother?
+  b:
+    id: ppd_cousin
+    experience: My cousin's name is Karl.
+    value: ' Karl'
+    question: What's my cousin's name?
+    prefix: Your cousin's name is
+    use:
+    - Write a short birthday message to my cousin.
+    verify:
+    - Is my cousin's name {v}?
+    - Is {v} the name of my cousin?
+- id: ppd_coworker_dog
+  kind: different
+  a:
+    id: ppd_coworker
+    experience: My coworker's name is Ruth.
+    value: ' Ruth'
+    question: What's my coworker's name?
+    prefix: Your coworker's name is
+    use:
+    - Write a short birthday message to my coworker.
+    verify:
+    - Is my coworker's name {v}?
+    - Is {v} the name of my coworker?
+  b:
+    id: ppd_dog
+    experience: My dog's name is Tiger.
+    value: ' Tiger'
+    question: What's my dog's name?
+    prefix: Your dog's name is
+    use:
+    - Write a short, funny poem about my dog.
+    verify:
+    - Is my dog's name {v}?
+    - Is {v} the name of my dog?
+- id: ppd_roommate_horse
+  kind: different
+  a:
+    id: ppd_roommate
+    experience: My roommate's name is Maya.
+    value: ' Maya'
+    question: What's my roommate's name?
+    prefix: Your roommate's name is
+    use:
+    - Write a short birthday message to my roommate.
+    verify:
+    - Is my roommate's name {v}?
+    - Is {v} the name of my roommate?
+  b:
+    id: ppd_horse
+    experience: My horse's name is Bear.
+    value: ' Bear'
+    question: What's my horse's name?
+    prefix: Your horse's name is
+    use:
+    - Write a short, funny poem about my horse.
+    verify:
+    - Is my horse's name {v}?
+    - Is {v} the name of my horse?
+- id: ppd_father_in_law_goldfish
+  kind: different
+  a:
+    id: ppd_father_in_law
+    experience: My father-in-law's name is Marco.
+    value: ' Marco'
+    question: What's my father-in-law's name?
+    prefix: Your father-in-law's name is
+    use:
+    - Write a short birthday message to my father-in-law.
+    verify:
+    - Is my father-in-law's name {v}?
+    - Is {v} the name of my father-in-law?
+  b:
+    id: ppd_goldfish
+    experience: My goldfish's name is Rex.
+    value: ' Rex'
+    question: What's my goldfish's name?
+    prefix: Your goldfish's name is
+    use:
+    - Write a short, funny poem about my goldfish.
+    verify:
+    - Is my goldfish's name {v}?
+    - Is {v} the name of my goldfish?
+- id: ppd_piano_teacher_parrot
+  kind: different
+  a:
+    id: ppd_piano_teacher
+    experience: My piano teacher's name is Victor.
+    value: ' Victor'
+    question: What's my piano teacher's name?
+    prefix: Your piano teacher's name is
+    use:
+    - Write a short birthday message to my piano teacher.
+    verify:
+    - Is my piano teacher's name {v}?
+    - Is {v} the name of my piano teacher?
+  b:
+    id: ppd_parrot
+    experience: My parrot's name is Chester.
+    value: ' Chester'
+    question: What's my parrot's name?
+    prefix: Your parrot's name is
+    use:
+    - Write a short, funny poem about my parrot.
+    verify:
+    - Is my parrot's name {v}?
+    - Is {v} the name of my parrot?
+- id: ppd_godmother_hamster
+  kind: different
+  a:
+    id: ppd_godmother
+    experience: My godmother's name is Vera.
+    value: ' Vera'
+    question: What's my godmother's name?
+    prefix: Your godmother's name is
+    use:
+    - Write a short birthday message to my godmother.
+    verify:
+    - Is my godmother's name {v}?
+    - Is {v} the name of my godmother?
+  b:
+    id: ppd_hamster
+    experience: My hamster's name is Mango.
+    value: ' Mango'
+    question: What's my hamster's name?
+    prefix: Your hamster's name is
+    use:
+    - Write a short, funny poem about my hamster.
+    verify:
+    - Is my hamster's name {v}?
+    - Is {v} the name of my hamster?

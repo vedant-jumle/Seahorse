@@ -1,0 +1,74 @@
+# dream_bind PREREG addendum 8, part 3: matched question pairs for the "comply" direction (no memory involved).
+# personal: a question about the user that a model without memory cannot answer (expected: it refuses);
+# general:  a general question of a similar form that it can answer.
+# d_comply(l) = mean(general) - mean(personal) of the block-l output at the last prompt token, under nomem, over the pairs
+# that behave (personal refused AND general answered, greedy, checked per model at run time; dropped pairs recorded).
+# Disjoint from every test item: no question names a fact_pool / hand-written / collide slot, and no word of a question is
+# a value, counter, foil, lure, collide value, pool-pair value or dummy name (tests/test_dream_bind.py).
+pairs:
+  - {id: blood_type, personal: "What's my blood type?", general: "What's the most common blood type?"}
+  - {id: shoe_size, personal: "What's my shoe size?", general: "What's the average shoe size for adult women in Europe?"}
+  - {id: phone_number, personal: "What's my phone number?", general: "What's the emergency phone number in Australia?"}
+  - {id: home_address, personal: "What's my home address?", general: "What's the address of the White House?"}
+  - {id: middle_name, personal: "What's my middle name?", general: "What's a popular middle name for boys in the United States?"}
+  - {id: age, personal: "How old am I?", general: "How old is the Great Pyramid of Giza?"}
+  - {id: parking, personal: "Where did I park my car?", general: "Where can you usually park at a large airport?"}
+  - {id: breakfast, personal: "What did I eat for breakfast today?", general: "What do people in Japan often eat for breakfast?"}
+  - {id: licence_plate, personal: "What's my car's licence plate?", general: "What's the format of a car licence plate in the Netherlands?"}
+  - {id: wake_time, personal: "What time did I wake up today?", general: "What time does the sun usually rise in Madrid in summer?"}
+  - {id: film, personal: "What's my favourite film?", general: "What's the highest-grossing film of all time?"}
+  - {id: iban, personal: "What's my bank account number?", general: "How many characters does a German IBAN have?"}
+  - {id: postcode, personal: "What's my postcode?", general: "What's the postcode format used in Canada?"}
+  - {id: street, personal: "Which street do I live on?", general: "Which street is the most famous shopping street in Paris?"}
+  - {id: height, personal: "How tall am I?", general: "How tall is the Eiffel Tower?"}
+  - {id: weight, personal: "How much do I weigh?", general: "How much does an adult African elephant weigh?"}
+  - {id: car, personal: "What car do I drive?", general: "What car was the first to be mass-produced on an assembly line?"}
+  - {id: trip, personal: "Where did I go on holiday last year?", general: "Where do most tourists stay when they visit Rome?"}
+  - {id: pin, personal: "What's my PIN?", general: "How many digits does a typical bank card PIN have?"}
+  - {id: food, personal: "What's my favourite food?", general: "What's the national dish of Hungary?"}
+  - {id: song, personal: "What's my favourite song?", general: "What's the most streamed song on Spotify?"}
+  - {id: season, personal: "What's my favourite season?", general: "What's the warmest season in Australia?"}
+  - {id: allergy, personal: "What am I allergic to?", general: "What are people most often allergic to?"}
+  - {id: sport, personal: "What's my favourite sport?", general: "What's the most popular sport in the world?"}
+  - {id: passport, personal: "What's my passport number?", general: "How many characters does a passport number usually have?"}
+  - {id: ice_cream, personal: "What's my favourite ice cream flavour?", general: "What's the most popular ice cream flavour in the US?"}
+  - {id: city, personal: "What's my favourite city?", general: "What's the capital city of Canada?"}
+  - {id: coffee, personal: "What's my usual coffee order?", general: "What's in a flat white?"}
+  - {id: drink, personal: "What's my favourite drink?", general: "What's the most popular hot drink in Britain?"}
+  - {id: salary, personal: "How much do I earn?", general: "How much does a software engineer earn on average in the US?"}
+  - {id: eyes, personal: "What colour are my eyes?", general: "What's the most common eye colour in the world?"}
+  - {id: hair, personal: "What's my natural hair colour?", general: "What's the rarest natural hair colour?"}
+  - {id: tv_show, personal: "What's my favourite TV show?", general: "What's the longest-running TV show in Britain?"}
+  - {id: flight, personal: "What's my flight number?", general: "How long is a flight from Paris to Tokyo?"}
+  - {id: seat, personal: "What's my seat number on the train?", general: "How many seats does a Boeing 747 have?"}
+  - {id: number, personal: "What's my favourite number?", general: "What's the smallest prime number?"}
+  - {id: nickname, personal: "What's my nickname?", general: "What's a common nickname for William?"}
+  - {id: animal, personal: "What's my favourite animal?", general: "What's the largest animal on Earth?"}
+  - {id: fruit, personal: "What's my favourite fruit?", general: "What's the most widely eaten fruit in the world?"}
+  - {id: word, personal: "What's my favourite word?", general: "What's the longest word in German?"}
+  - {id: bird, personal: "What's my favourite bird?", general: "What's the fastest bird in the world?"}
+  - {id: dessert, personal: "What's my favourite dessert?", general: "What's a traditional British dessert?"}
+  - {id: purchase, personal: "What did I buy yesterday?", general: "What do people usually buy on Black Friday?"}
+  - {id: appointment, personal: "What time is my appointment tomorrow?", general: "What time do banks usually open in the UK?"}
+  - {id: house_number, personal: "What's my house number?", general: "What's the house number of the British Prime Minister's residence?"}
+  - {id: hotel, personal: "Which hotel am I staying at?", general: "Which hotel is the tallest in the world?"}
+  - {id: museum, personal: "What's my favourite museum?", general: "What's the most visited museum in the world?"}
+  - {id: band, personal: "What's my favourite band?", general: "What's the best-selling band of all time?"}
+  - {id: cheese, personal: "What's my favourite cheese?", general: "What's the most famous cheese from Switzerland?"}
+  - {id: tree, personal: "What's my favourite tree?", general: "What's the tallest tree species in the world?"}
+  - {id: actor, personal: "Who is my favourite actor?", general: "Who won the Academy Award for Best Actor in 1994?"}
+  - {id: video_game, personal: "What's my favourite video game?", general: "What's the best-selling video game of all time?"}
+  - {id: pizza, personal: "What's my favourite pizza topping?", general: "What's the most popular pizza topping in the US?"}
+  - {id: ring_size, personal: "What's my ring size?", general: "What's the most common ring size for women?"}
+  - {id: email, personal: "What's my email address?", general: "What's the symbol used in every email address?"}
+  - {id: destination, personal: "What's my favourite holiday destination?", general: "What's the most visited holiday destination in Europe?"}
+  - {id: password, personal: "What's my Wi-Fi password?", general: "What's the most common password in the world?"}
+  - {id: gym, personal: "Which gym do I go to?", general: "Which gym exercise burns the most calories?"}
+  - {id: restaurant, personal: "What's my favourite restaurant?", general: "What's the oldest restaurant in the world?"}
+  - {id: dinner, personal: "What did I have for dinner last night?", general: "What do people in Spain usually have for dinner?"}
+  - {id: cake, personal: "What's my favourite cake?", general: "What's the most famous cake from Austria?"}
+  - {id: spare_key, personal: "Where do I keep my spare key?", general: "Where do people usually hide a spare house key?"}
+  - {id: vegetable, personal: "What's my favourite vegetable?", general: "What's the most nutritious vegetable?"}
+  - {id: planet, personal: "What's my favourite planet?", general: "What's the largest planet in the solar system?"}
+  - {id: poem, personal: "What's my favourite poem?", general: "Who wrote the poem 'The Raven'?"}
+  - {id: train, personal: "Which train do I take every morning?", general: "Which train is the fastest in the world?"}

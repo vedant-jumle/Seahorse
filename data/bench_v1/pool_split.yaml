@@ -1,0 +1,68 @@
+# dream_bind PREREG addendum 8, part 2b: the two fixed halves of the 52 non-primary facts (bind.pool_split:
+# per kind, random.Random(seed + kind index).shuffle, the first ceil(n / 2) to half A). The told and comply
+# directions and their (layer set, alpha) are built and picked on half A only; the refusal arms run on B.
+# Written by experiments/dream_bind/add8_data.py.
+seed: 8
+A:
+- favourite_colour
+- pool_grandfather
+- pool_hamster
+- pool_horse
+- pool_favourite_flower
+- pool_football_team
+- pool_tennis_coach
+- pool_husband
+- pool_stepfather
+- pool_babysitter
+- pool_parrot
+- pool_piano_teacher
+- pool_favourite_painter
+- pool_father_in_law
+- pool_favourite_subject
+- pool_birthday_month
+- pool_mother
+- pool_favourite_book
+- pool_father
+- pool_roommate
+- pool_vet
+- pool_accountant
+- pool_nephew
+- pool_landlord
+- pool_uncle
+- pool_tortoise
+B:
+- job
+- hometown
+- first_language
+- university
+- pool_favourite_board_game
+- pool_doctor
+- pool_star_sign
+- pool_daughter
+- pool_cousin
+- pool_goldfish
+- pool_dentist
+- pool_childhood_friend
+- pool_ferret
+- pool_guinea_pig
+- pool_neighbour
+- pool_coworker
+- pool_godmother
+- pool_mother_in_law
+- pool_aunt
+- pool_personal_trainer
+- pool_hairdresser
+- pool_instrument
+- pool_niece
+- pool_therapist
+- pool_rabbit
+- pool_son
+counts:
+  A:
+    person: 15
+    pet: 4
+    attribute: 7
+  B:
+    person: 15
+    pet: 4
+    attribute: 7

@@ -779,3 +779,224 @@ def gen_rules(s):
 def no_gain(stats):
     """PREREG: 'no gain' = the best cell's 95% CI of the mean dlog P(target) includes 0 or lies below it."""
     return stats is None or math.isnan(stats["mean"]) or stats["lo"] <= 0
+
+
+# =============================================================== addendum 8 (PREREG addendum 8)
+
+
+_SUBJ_PHRASE = re.compile(r"^My (.+?)(?:'s name is| is called| was called| is| was)\b")
+
+
+def subject_phrase(sentence):
+    """The stored sentence's subject phrase as a character span (start, end): the words between the leading "My " and the
+    first relation ("'s name is" / " is called" / " was called" / " is" / " was"), e.g. 'younger sister' in "My younger
+    sister's name is Maria.", "son's teacher" in "My son's teacher is called Hugo." (the min+subj slice, part 1b)."""
+    m = _SUBJ_PHRASE.match(sentence)
+    assert m, f"no subject phrase in {sentence!r}"
+    return m.start(1), m.end(1)
+
+
+def merge_parts(parts):
+    """[(source, [indices], shift)] with consecutive parts of the same source and shift joined (compose_prefix concatenates
+    the parts in order, so joining changes nothing in the composed cache)."""
+    out = []
+    for src, idx, sh in parts:
+        if not idx:
+            continue
+        if out and out[-1][0] == src and out[-1][2] == sh:
+            out[-1] = (src, out[-1][1] + list(idx), sh)
+        else:
+            out.append((src, list(idx), sh))
+    return out
+
+
+def place(src, nh, I, h, d, base):
+    """Parts that put the member's turn indices I (indices into its STANDALONE turn [header][sentence][end]) at the final
+    positions base + i, read from a harvest [head][header][d dropped prefix tokens][sentence][end] (d = 0: the standalone
+    harvest). Harvest index of i: nh + i, + d for i >= h (after the header); RoPE shift = final - harvest position."""
+    parts = []
+    for i in sorted(I):
+        t = nh + i + (d if i >= h else 0)
+        parts.append((src, [t], base + i - t))
+    return merge_parts(parts)
+
+
+def minsubj(s, a):
+    """The min+subj slice of one turn: the subject-span indices s plus the value and the next token (a, a + 1)."""
+    assert not set(s) & {a, a + 1}, (s, a)
+    return sorted(set(s) | {a, a + 1})
+
+
+def add8_plan(nh, nA, nB, aA, aB, sA, sB, h, dA, dB, dP, tagB="Bt"):
+    """Addendum 8 two-fact plans (part 1), in the R2-sep-shift layout (A's turn at nh .., B's at nh + nA ..; the question
+    at nh + nA + nB). Sources: 'A', 'B', 'J' as in pair_plan; 'At' = A's turn harvested after A's dummy pair (dA dropped
+    tokens), tagB (default 'Bt') = B's turn after B's dummy pair (dB), 'Bp' = B's turn after the placebo sentence (dP).
+    The dropped prefix tokens are never kept; h = header tokens of a user turn (the same for every turn); sA / sB =
+    subject-span indices in A's / B's standalone turn. With dB = 0 (an empty dummy) R2-sep-tagged is R2-sep-shift."""
+    head = [("A", list(range(nh)), 0)]
+    full = lambda n: range(n)
+    mn = lambda a: [a, a + 1]
+    sh = nh + nA + nB
+    sep = lambda srcA, IA, dA_, srcB, IB, dB_: (merge_parts(head + place(srcA, nh, IA, h, dA_, nh) +
+                                                          place(srcB, nh, IB, h, dB_, nh + nA)), sh)
+    return {"R2-sep-tagged": sep("A", full(nA), 0, tagB, full(nB), dB),
+            "R2-sep-bothtagged": sep("At", full(nA), dA, tagB, full(nB), dB),
+            "R2-sep-placebo": sep("A", full(nA), 0, "Bp", full(nB), dP),
+            "R2-min-sep-tagged": sep("A", mn(aA), 0, tagB, mn(aB), dB),
+            "R2-min-sep-bothtagged": sep("At", mn(aA), dA, tagB, mn(aB), dB),
+            "R2-min-sep-placebo": sep("A", mn(aA), 0, "Bp", mn(aB), dP),
+            "R2-minsubj-joint": ([("J", list(range(nh)) + [nh + i for i in minsubj(sA, aA)] +
+                                   [nh + nA + i for i in minsubj(sB, aB)], 0)], sh),
+            "R2-minsubj-sep-shift": sep("A", minsubj(sA, aA), 0, "B", minsubj(sB, aB), 0)}
+
+
+def flat_parts(parts):
+    """[(source, index, shift)] per kept entry, in order (plans that compose the same cache flatten equally)."""
+    return [(src, i, sh) for src, idx, sh in parts for i in idx]
+
+
+def dummy_for(k, role, dummies):
+    """Addendum 8: the dummy pair sentence for member `role` ('A' / 'B') of the k-th pair: dummies[(2k + r) % n]."""
+    d = dummies[(2 * k + (0 if role == "A" else 1)) % len(dummies)]
+    return f"My {d['slot']}'s name is {d['name']}."
+
+
+def levenshtein(a, b):
+    prev = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        cur = [i]
+        for j, y in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x != y)))
+        prev = cur
+    return prev[-1]
+
+
+def common_prefix(a, b):
+    n = 0
+    while n < min(len(a), len(b)) and a[n] == b[n]:
+        n += 1
+    return n
+
+
+FORM_RULE = ("form lures (addendum 8, pool): from the slot's own value list, the values that are not the target, not the "
+             "counter, not one of the 3 measure foils, and one token with a leading space on the Qwen2.5, Qwen3.5 and "
+             "Llama-3.2 tokenizers; ranked by (same first letter as the target first, case-insensitive; longer common "
+             "prefix; smaller Levenshtein distance; list order); the first 2.")
+
+
+def form_lures(target, values, exclude, one_token, k=2):
+    """The deterministic form-lure draw (FORM_RULE). target / values / exclude: stripped strings; one_token(v) -> bool."""
+    t = target.lower()
+    ex = {e.lower() for e in exclude} | {t}
+    cand = [(0 if v[0].lower() == t[0] else 1, -common_prefix(v.lower(), t), levenshtein(v.lower(), t), i, v)
+            for i, v in enumerate(values) if v.lower() not in ex and one_token(v)]
+    return [c[-1] for c in sorted(cand)[:k]]
+
+
+BINDING_RULE = ("binding lures (addendum 8, pool): the values of the next facts in the pool order (cyclically) whose slot uses "
+                "the same name list (female / male people, pets), skipping values that are the target, the counter, a foil, "
+                "a form lure, already taken, or not one token on all three tokenizers; the first 2. Attribute facts get none.")
+
+
+def binding_lures(i, facts, exclude, one_token, k=2):
+    """facts: [(name list, value)] in the pool order ('attribute' for attribute slots); the BINDING_RULE draw for fact i
+    ([] for attributes)."""
+    kind = facts[i][0]
+    if kind == "attribute":
+        return []
+    ex = {e.lower() for e in exclude} | {facts[i][1].lower()}
+    out = []
+    n = len(facts)
+    for j in range(1, n):
+        kj, v = facts[(i + j) % n]
+        if kj == kind and v.lower() not in ex and one_token(v):
+            out.append(v)
+            ex.add(v.lower())
+            if len(out) == k:
+                break
+    return out
+
+
+def pool_split(facts, seed):
+    """Two fixed halves of the pool facts [(id, kind)], stratified by kind: per kind (in order of first appearance), the
+    ids shuffled with random.Random(seed + kind index); the first ceil(n / 2) go to half A. Returns (A ids, B ids), each
+    in the input order."""
+    import random
+    kinds = list(dict.fromkeys(k for _, k in facts))
+    A = set()
+    for ki, kind in enumerate(kinds):
+        ids = [i for i, k in facts if k == kind]
+        random.Random(seed + ki).shuffle(ids)
+        A |= set(ids[:math.ceil(len(ids) / 2)])
+    return [i for i, _ in facts if i in A], [i for i, _ in facts if i not in A]
+
+
+def counter_value(experience, counter):
+    """The counter's value from the experience and counter sentences (they differ in one word or phrase): the common prefix
+    cut back to a word boundary and the common suffix cut forward to a non-word character."""
+    p = common_prefix(experience, counter)
+    p = experience.rfind(" ", 0, p) + 1 if p < len(experience) else p
+    s = common_prefix(experience[::-1], counter[::-1])
+    while s and (experience[len(experience) - s].isalnum()):
+        s -= 1
+    return counter[p:len(counter) - s]
+
+
+# ------------------------------------------------------------------ addendum 8 rules (pure; CI dicts {mean, lo, hi})
+
+
+def _nan(*ds):
+    return any(d is None or d.get("mean") is None or math.isnan(d["mean"]) for d in ds)
+
+
+def overlap(a, b):
+    return a["lo"] <= b["hi"] and b["lo"] <= a["hi"]
+
+
+def tag_rule(d_tag_sep, c_tag, c_joint, d_both_sep):
+    """Part 1a "the tag causes the swaps": (tagged - sep-shift) confusion paired CI hi < 0 AND tagged's confusion CI overlaps
+    the joint's AND (bothtagged - sep-shift) paired CI includes 0. None if any input is missing."""
+    if _nan(d_tag_sep, c_tag, c_joint, d_both_sep):
+        return None
+    return bool(d_tag_sep["hi"] < 0 and overlap(c_tag, c_joint) and d_both_sep["lo"] <= 0 <= d_both_sep["hi"])
+
+
+def entity_rule(d_ms_min, c_ms, c_joint):
+    """Part 1b "the entity side carries the tag": (minsubj-joint - min-joint) confusion paired CI hi < 0 AND minsubj-joint's
+    confusion CI overlaps R2-joint's."""
+    if _nan(d_ms_min, c_ms, c_joint):
+        return None
+    return bool(d_ms_min["hi"] < 0 and overlap(c_ms, c_joint))
+
+
+def comply_rule(d_told_comply, told, comply):
+    """Part 3: 'told is specific' if (X+told - X+comply) direct-question clean use has a paired CI lo > 0; else 'generic
+    comply' if |X+comply - X+told| (point estimates) <= 0.1; else 'in between'."""
+    if _nan(d_told_comply, told, comply):
+        return "n/a"
+    if d_told_comply["lo"] > 0:
+        return "told is specific"
+    if abs(comply["mean"] - told["mean"]) <= 0.1:
+        return "generic comply"
+    return "in between"
+
+
+def recognition_rule(d_form, bal_lures):
+    """Part 2a (addendum 7 A's rule with the form lures only; associate lures are not drawn for the pool): 'gist familiarity'
+    if (FY_form - FY_unrelated) has a paired CI lo > 0; 'item recognition' if not, AND |point| <= 0.1, AND the balanced
+    accuracy against the form lures has CI lo > 0.5; otherwise 'in between'."""
+    if _nan(d_form, bal_lures):
+        return "n/a"
+    if d_form["lo"] > 0:
+        return "gist familiarity"
+    if abs(d_form["mean"]) <= 0.1 and bal_lures["lo"] > 0.5:
+        return "item recognition"
+    return "in between"
+
+
+def verification_rule(ctx, tfull, thr=0.9):
+    """Part 6 "verification usable" under one wording: ctx's and T-full's point estimates (balanced accuracy; two-choice:
+    accuracy) both >= 0.9."""
+    if _nan(ctx, tfull):
+        return None
+    return bool(ctx["mean"] >= thr and tfull["mean"] >= thr)
