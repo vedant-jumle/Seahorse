@@ -984,3 +984,362 @@ def test_probe_identity_hybrid(tiny_hybrid):
         a = run.tf_last(C, *run.cond_ids(C, it, "R-full-state", it["question"], pre, R))
         b = run.tf_last(C, *run.cond_ids(C, it, "T-full", it["question"], pre, R))
     assert torch.allclose(a, b, atol=1e-4)
+
+
+# ================================================= addendum 8: tag at storage, min+subj, pool probe / split, comply, wordings
+
+
+ADD8 = _load("test_dream_bind_add8_data", EXP / "add8_data.py")
+
+
+def _y(name):
+    return yaml.safe_load(open(ROOT / "data" / "bench_v1" / name))
+
+
+def test_add8_plan_identities():
+    """With 0 dropped tokens the tagged plans flatten to the R2-sep-shift / R2-min-sep-shift plans; bothtagged is symmetric;
+    min+subj keeps head + subject span + value + full stop of each member at the joint / shifted positions."""
+    nh, nA, nB, aA, aB, h = 3, 9, 9, 6, 6, 2
+    sA, sB = [3, 4], [3, 4]
+    P = bind.pair_plan(nh, nA, nB, aA, aB)
+    Z = bind.add8_plan(nh, nA, nB, aA, aB, sA, sB, h, 0, 0, 0)
+    ren = lambda parts, *ab: [(dict(ab).get(s, s), i, sh) for s, i, sh in bind.flat_parts(parts)]
+    assert ren(Z["R2-sep-tagged"][0], ("Bt", "B")) == bind.flat_parts(P["R2-sep-shift"][0])
+    assert Z["R2-sep-tagged"][0] == [("A", list(range(nh + nA)), 0), ("Bt", list(range(nh, nh + nB)), nA)]
+    assert ren(Z["R2-sep-bothtagged"][0], ("At", "A"), ("Bt", "B")) == bind.flat_parts(P["R2-sep-shift"][0])
+    assert ren(Z["R2-sep-placebo"][0], ("Bp", "B")) == bind.flat_parts(P["R2-sep-shift"][0])
+    assert ren(Z["R2-min-sep-tagged"][0], ("Bt", "B")) == bind.flat_parts(P["R2-min-sep-shift"][0])
+    assert ren(Z["R2-min-sep-bothtagged"][0], ("At", "A"), ("Bt", "B")) == bind.flat_parts(P["R2-min-sep-shift"][0])
+    assert all(Z[k][1] == P["R2-sep-shift"][1] == nh + nA + nB for k in Z)
+    # dropped tokens: B's kept entries come from after the dummy, re-rotated onto B's joint positions
+    T = bind.add8_plan(nh, nA, nB, aA, aB, sA, sB, h, 5, 7, 4)
+    parts = T["R2-sep-tagged"][0]
+    assert parts[0] == ("A", list(range(nh + nA)), 0)
+    assert parts[1] == ("Bt", [nh, nh + 1], nA) and parts[2] == ("Bt", list(range(nh + h + 7, nh + nB + 7)), nA - 7)
+    final = [i + sh for _, idx, sh in parts[1:] for i in idx]
+    assert final == list(range(nh + nA, nh + nA + nB))                      # contiguous after A, like R2-sep-shift
+    assert T["R2-min-sep-tagged"][0][-1] == ("Bt", [nh + aB + 7, nh + aB + 8], nA - 7)
+    # bothtagged: symmetric in A and B (same dropped count, same layouts): B's parts = A's parts moved by nA
+    S = bind.add8_plan(nh, nA, nB, aA, aB, sA, sB, h, 6, 6, 4)
+    fa = [(i, sh) for s, i, sh in bind.flat_parts(S["R2-sep-bothtagged"][0]) if s == "At"]
+    fb = [(i, sh) for s, i, sh in bind.flat_parts(S["R2-sep-bothtagged"][0]) if s == "Bt"]
+    assert [i for i, _ in fa] == [i for i, _ in fb] and all(sb == sa + nA for (_, sa), (_, sb) in zip(fa, fb))
+    assert {s for s, *_ in bind.flat_parts(S["R2-sep-bothtagged"][0])} == {"A", "At", "Bt"}   # head from A (identical everywhere)
+    # min+subj
+    assert T["R2-minsubj-joint"] == ([("J", [0, 1, 2, 6, 7, 9, 10, 15, 16, 18, 19], 0)], 21)
+    assert bind.flat_parts(T["R2-minsubj-sep-shift"][0]) == (
+        [("A", i, 0) for i in [0, 1, 2, 6, 7, 9, 10]] + [("B", i, nA) for i in [6, 7, 9, 10]])
+    with pytest.raises(AssertionError):
+        bind.minsubj([5, 6], 6)                                               # the subject span may not hold the value
+    assert bind.merge_parts([("A", [0], 0), ("A", [3], 0), ("B", [1], 2), ("B", [], 5)]) == [("A", [0, 3], 0), ("B", [1], 2)]
+
+
+def test_subject_phrase_and_counter_value():
+    want = {"My younger sister's name is Maria.": "younger sister", "My first dog was called Pepper.": "first dog",
+            "My friend from work is called Omar.": "friend from work", "My son's teacher is called Hugo.": "son's teacher",
+            "My grandmother on my mother's side is called Esther.": "grandmother on my mother's side",
+            "My boss's name is Gordon.": "boss", "My mother-in-law's name is Hannah.": "mother-in-law",
+            "My guinea pig's name is Sunny.": "guinea pig"}
+    for s_, w in want.items():
+        a, b = bind.subject_phrase(s_)
+        assert s_[a:b] == w
+    for _, _, A, B in run.collide_pairs(CFG) + run.pool_pairs(CFG):
+        for M in (A, B):
+            a, b = bind.subject_phrase(M["experience"])
+            assert M["value"].strip() not in M["experience"][a:b] and b > a
+    assert bind.counter_value("I grew up in Leeds.", "I grew up in Lyon.") == "Lyon"
+    assert bind.counter_value("I work as a pharmacist.", "I work as a plumber.") == "plumber"
+    assert bind.counter_value("My dog's name is Pepper.", "My dog's name is Rocky.") == "Rocky"
+    assert bind.dummy_for(0, "A", [{"slot": "x", "name": "Y"}, {"slot": "z", "name": "W"}]) == "My x's name is Y."
+    assert bind.dummy_for(3, "B", [{"slot": "s", "name": str(i)} for i in range(8)]) == "My s's name is 7."
+
+
+def test_pool_split_deterministic_disjoint():
+    F = run.pool_gen_items(CFG)
+    facts = [(f["id"], f["kind"]) for f in F]
+    S = _y("pool_split.yaml")
+    A, B = bind.pool_split(facts, S["seed"])
+    assert (A, B) == bind.pool_split(facts, S["seed"]) and (A, B) == (S["A"], S["B"])
+    assert not set(A) & set(B) and set(A) | set(B) == {i for i, _ in facts} and len(A) == len(B) == 26
+    kind = dict(facts)
+    for k, n in (("person", 15), ("pet", 4), ("attribute", 7)):
+        assert sum(kind[i] == k for i in A) == sum(kind[i] == k for i in B) == n
+    assert bind.pool_split(facts, S["seed"] + 1) != (A, B)
+    assert run.load_split(CFG) == (A, B)
+    half = run.pool_half_items(CFG, "B")
+    assert [f["id"] for f in half] == B
+    for f in half:                                                             # the swap partner: same kind, same half
+        assert f["swap"] in B and f["swap"] != f["id"] and kind[f["swap"]] == f["kind"]
+
+
+def test_form_and_binding_lure_draw():
+    one = lambda v: v not in ("Penny",)
+    vals = ["Max", "Penny", "Piper", "Pepper", "Pip", "Rocky", "Pumpkin", "Peaches"]
+    a = bind.form_lures("Pepper", vals, ["Max", "Pip"], one)
+    assert a == bind.form_lures("Pepper", vals, ["Max", "Pip"], one) == ["Peaches", "Piper"]   # shared prefix "Pe" first
+    assert "Pepper" not in a and "Penny" not in a and len(bind.form_lures("Rex", ["Rex", "Ann"], [], lambda v: True)) == 1
+    facts = [("female", "Ann"), ("male", "Bob"), ("female", "Cat"), ("attribute", "teal"), ("female", "Dee"), ("female", "Ann")]
+    assert bind.binding_lures(0, facts, [], lambda v: True) == ["Cat", "Dee"]
+    assert bind.binding_lures(4, facts, ["Cat"], lambda v: True) == ["Ann"]     # cyclic; Ann (the target of 5) once
+    assert bind.binding_lures(3, facts, [], lambda v: True) == []
+    # the written file obeys the rules
+    L = _y("pool_lures.yaml")["facts"]
+    F = run.pool_gen_items(CFG)
+    assert [f["id"] for f in L] == [f["id"] for f in F]
+    for f, it in zip(L, F):
+        ex = {f["target"], f["counter"], *f["foils"]}
+        assert f["target"] == it["target"].strip() and not ex & set(f["form"] + f["binding"])
+        assert len(set(f["form"] + f["binding"])) == len(f["form"]) + len(f["binding"])
+        assert (f["kind"] == "attribute") or (len(f["form"]) == 2 and len(f["binding"]) == 2)
+        if f["kind"] == "attribute":
+            assert f["binding"] == []
+    assert sum(f["kind"] in ("person", "pet") for f in L) == 38
+
+
+def _all_toks():
+    t = [_qwen25_tok(), _tok("Qwen/Qwen3.5-2B"), _tok("meta-llama/Llama-3.2-3B-Instruct")]
+    return t if all(t) else None
+
+
+def test_add8_data_files_match_generator():
+    """The generated data files equal a fresh deterministic rebuild (parsed, so YAML formatting cannot matter)."""
+    if _all_toks() is None:
+        pytest.skip("the three tokenizers are not all in the local cache")
+    for name, text in ADD8.build_all(CFG).items():
+        assert yaml.safe_load(text) == _y(name), name
+
+
+def test_dummy_pool_pair_and_comply_files():
+    D = _y("dummy_pairs.yaml")["dummies"]
+    assert D == ADD8.DUMMIES and len(D) == 8
+    names = ADD8.test_names(CFG)
+    pp = run.pool_pairs(CFG)
+    pool = _y("fact_pool.yaml")
+    pslots = {s["slot"] for s in pool["slots"]}
+    for d in D:
+        assert d["name"].lower() not in names and d["slot"] not in pslots
+    assert [k for _, k, _, _ in pp].count("confusable") == 17 and [k for _, k, _, _ in pp].count("different") == 17
+    vals = [M["value"] for _, _, A, B in pp for M in (A, B)]
+    ids = [M["id"] for _, _, A, B in pp for M in (A, B)]
+    assert len(set(vals)) == len(vals) == 68 and len(set(ids)) == 68
+    assert not {v.strip().lower() for v in vals} & {d["name"].lower() for d in D}
+    for _, kind, A, B in pp:
+        assert A["partner_value"] == B["value"] and len(A["use"]) == 1 and len(A["verify"]) == 2
+        if kind == "different":
+            assert bind.subject_phrase(A["experience"]) != bind.subject_phrase(B["experience"]) or A["experience"] != B["experience"]
+    toks = [t for t in (_qwen25_tok(), _tok("Qwen/Qwen3.5-2B"), _tok("meta-llama/Llama-3.2-3B-Instruct", llama=True)) if t]
+    for t in toks:
+        for v in vals + [f" {d['name']}" for d in D]:
+            assert len(t(v, add_special_tokens=False).input_ids) == 1, v
+    # comply pairs: >= 60, distinct, no "my" in the general question, disjoint from every test item
+    C_ = _y("comply_pairs.yaml")["pairs"]
+    assert len(C_) >= 60 and len({c["id"] for c in C_}) == len(C_)
+    allv = names | {v.strip().lower() for v in vals} | {d["name"].lower() for d in D}
+    slots = pslots | {"best friend", "friend", "teacher", "grandmother", "work", "school", "job", "hometown", "university"}
+    for _, _, A, B in run.collide_pairs(CFG):
+        for M in (A, B):
+            a, b = bind.subject_phrase(M["experience"])
+            slots.add(M["experience"][a:b])
+    for c in C_:
+        assert re.search(r"\b(my|I)\b", c["personal"]) and not re.search(r"\b(my|I)\b", c["general"], re.I), c
+        for q in (c["personal"], c["general"]):
+            assert not {w.lower() for w in re.findall(r"[A-Za-z][A-Za-z'-]*", q)} & allv, q
+            assert not [s for s in slots if re.search(rf"(?<![\w-]){re.escape(s)}(?![\w-])", q, re.I)], q
+
+
+def test_comply_regex_and_wordings():
+    R = run.COMPLY_REFUSAL_RE
+    for t in ("I don't have access to your personal information.", "I'm sorry, but I can't know that.",
+              "As an AI, I have no way of knowing your blood type.", "I'm not able to determine that.",
+              "Could you tell me more?", "Only you know that."):
+        assert R.search(t), t
+    for t in ("The most common blood type is O positive.", "Ottawa is the capital of Canada."):
+        assert not R.search(t), t
+    assert run.told_wording("Is my dog called Pepper? Answer yes or no.", "Based on what I told you earlier, ") == \
+        "Based on what I told you earlier, is my dog called Pepper? Answer yes or no."
+    assert run.told_wording("Do I work as a pilot? Answer yes or no.", "X, ") == "X, do I work as a pilot? Answer yes or no."
+    with pytest.raises(AssertionError):
+        run.told_wording("Is my dog called Pepper?", "X")
+    tok = _qwen25_tok()
+    if tok is None:
+        pytest.skip("Qwen2.5 tokenizer not in the local cache")
+    it = next(i for i in run.load_items(CFG) if i["id"] == "dog_name")
+    P = run.choice_probes(CFG, it, tok, CFG["lures"]["dog_name"], "pet")
+    assert len(P) == 8 * 2 * 2 and all(t.endswith("Answer with the name only.") for _, t, *_ in P)
+    assert P[0][1] == "Is my dog called Pepper or Max? Answer with the name only." and P[1][1].startswith("Is my dog called Max or Pepper?")
+    assert all(x[0] is None or x[0][0] != x[0][1] for x in P) and {k for _, _, k, _, _ in P} == {"unrelated", "form", "assoc", "binding"}
+    pf = next(f for f in run.pool_gen_items(CFG) if f["id"] == "pool_instrument")
+    PL = {f["id"]: f for f in _y("pool_lures.yaml")["facts"]}
+    Pc = run.choice_probes(CFG, pf, tok, PL["pool_instrument"], "attribute")
+    assert all(t.endswith("Answer with one word only.") for _, t, *_ in Pc) and len(Pc) == 4 * 2 * 2
+    assert run.verify_templates(CFG, pf) == ["Do I play the {v}?", "Is the {v} my instrument?"]
+    pp = next(f for f in run.pool_gen_items(CFG) if f["id"] == "pool_mother_in_law")
+    assert run.verify_templates(CFG, pp) == ["Is my mother-in-law's name {v}?", "Is {v} the name of my mother-in-law?"]
+    probes = run.pool_probes(CFG, pp, tok, PL["pool_mother_in_law"])
+    kinds = [k for _, _, k, _ in probes]
+    assert len(probes) == 12 and kinds.count("form") == kinds.count("binding") == 4 and kinds.count("yes") == 2
+    bad = {**PL["pool_mother_in_law"], "form": [PL["pool_mother_in_law"]["counter"], "Anna"]}
+    with pytest.raises(AssertionError):
+        run.pool_probes(CFG, pp, tok, bad)                                       # the counter is never a lure
+
+
+def test_add8_rules():
+    c = lambda m, lo, hi: {"mean": m, "lo": lo, "hi": hi, "n": 10}
+    nan = c(float("nan"), float("nan"), float("nan"))
+    assert bind.tag_rule(c(-0.2, -0.35, -0.05), c(0.1, 0.0, 0.2), c(0.05, 0.0, 0.12), c(0.0, -0.1, 0.1))
+    assert not bind.tag_rule(c(-0.2, -0.35, 0.01), c(0.1, 0.0, 0.2), c(0.05, 0.0, 0.12), c(0.0, -0.1, 0.1))
+    assert not bind.tag_rule(c(-0.2, -0.35, -0.05), c(0.3, 0.2, 0.4), c(0.05, 0.0, 0.12), c(0.0, -0.1, 0.1))   # no overlap
+    assert not bind.tag_rule(c(-0.2, -0.35, -0.05), c(0.1, 0.0, 0.2), c(0.05, 0.0, 0.12), c(-0.2, -0.3, -0.1))
+    assert bind.tag_rule(nan, c(0.1, 0.0, 0.2), c(0.05, 0.0, 0.12), c(0.0, -0.1, 0.1)) is None
+    assert bind.entity_rule(c(-0.1, -0.2, -0.01), c(0.05, 0.0, 0.1), c(0.03, 0.0, 0.08))
+    assert not bind.entity_rule(c(-0.1, -0.2, 0.01), c(0.05, 0.0, 0.1), c(0.03, 0.0, 0.08))
+    assert bind.comply_rule(c(0.3, 0.1, 0.5), c(0.8, 0.7, 0.9), c(0.5, 0.3, 0.6)) == "told is specific"
+    assert bind.comply_rule(c(0.05, -0.05, 0.15), c(0.8, 0.7, 0.9), c(0.75, 0.6, 0.9)) == "generic comply"
+    assert bind.comply_rule(c(0.2, -0.05, 0.4), c(0.8, 0.7, 0.9), c(0.6, 0.4, 0.8)) == "in between"
+    assert bind.comply_rule(nan, nan, nan) == "n/a"
+    assert bind.recognition_rule(c(0.1, 0.02, 0.2), c(0.9, 0.8, 1.0)) == "gist familiarity"
+    assert bind.recognition_rule(c(-0.02, -0.08, 0.04), c(0.9, 0.8, 1.0)) == "item recognition"
+    assert bind.recognition_rule(c(-0.02, -0.08, 0.04), c(0.6, 0.45, 0.7)) == "in between"
+    assert bind.verification_rule(c(0.95, 0.9, 1.0), c(0.9, 0.8, 1.0)) and not bind.verification_rule(c(0.95, 0.9, 1.0), c(0.85, 0.8, 1.0))
+
+
+def test_rope_shift_negative(tiny_real_tok):
+    C = tiny_real_tok
+    ids = run.chat_ids(C.tok, "My dog's name is Pepper.").tolist()
+    with torch.no_grad():
+        K9, K4 = _keys_at(C, ids, 9, 1), _keys_at(C, ids, 4, 1)
+        assert torch.allclose(run.rope_shift(C, K9, -5), K4, atol=1e-5)       # tagged slices move back over the dummy
+
+
+def test_tagged_turn_layout(tiny_real_tok):
+    C = tiny_real_tok
+    exp, pre = "My younger sister's name is Maria.", "My mechanic's name is Keith."
+    T = run.tagged_turn(C, exp, pre)
+    P0 = run.turn_pieces(C.tok, exp)
+    assert T.dropped == pre and C.tok.decode(T.Seg[T.h:T.h + T.d]) == pre and T.n_diff <= 1
+    kept = T.Seg[:T.h] + T.Seg[T.h + T.d:]
+    assert len(kept) == len(P0.Seg) and C.tok.decode(kept[T.h:]).strip() == C.tok.decode(P0.Seg[T.h:]).strip()
+    assert C.tok.decode(T.Seg[:T.h]) == "<|im_start|>user\n"
+    E = run.tagged_turn(C, exp, "")
+    assert E.d == 0 and E.Seg == P0.Seg and E.n_diff == 0
+    Pl = run.tagged_turn(C, exp, CFG["gen"]["placebo"])
+    assert Pl.dropped == CFG["gen"]["placebo"] and Pl.Seg[Pl.h + Pl.d:] == T.Seg[T.h + T.d:]
+    s = run.subject_indices(C, P0.Seg, exp)
+    assert [C.tok.decode([P0.Seg[i]]) for i in s] == [" younger", " sister"]
+    tl = _tok("meta-llama/Llama-3.2-3B-Instruct", llama=True)
+    if tl is not None:
+        Cl = SimpleNamespace(tok=tl)
+        Tl = run.tagged_turn(Cl, exp, pre)
+        assert Tl.dropped == pre and Tl.n_diff <= 1
+        assert [tl.decode([run.turn_pieces(tl, exp).Seg[i]]) for i in run.subject_indices(Cl, run.turn_pieces(tl, exp).Seg, exp)] == \
+            [" younger", " sister"]
+
+
+def _add8_prefixes(k=1):
+    D = _y("dummy_pairs.yaml")["dummies"]
+    return {"A": bind.dummy_for(k, "A", D), "B": bind.dummy_for(k, "B", D), "placebo": CFG["gen"]["placebo"]}
+
+
+def test_collide_add8_harvest(tiny_real_tok):
+    C = tiny_real_tok
+    C.mc = {**CFG["models"]["qwen25_15b"]}
+    _, _, A, B = _collide_pair(CFG, "sisters")
+    conds = CFG["models"]["qwen25_15b"]["collide_conds_add8"]
+    with torch.no_grad():
+        R, info = run.harvest_pair(C, A, B, add8=_add8_prefixes(), need=set(conds) - {"ctx2"})
+        nh, nA, nB = info["n_head"], info["n_A"], info["n_B"]
+        assert set(conds) - {"ctx2"} <= set(R) and "R2-sep-tagged@0" in R and "R2-seq" in R and "R2-blend15" not in R
+        n = lambda c: R[c][0][0][0].shape[2]
+        for c in ("R2-sep-tagged", "R2-sep-bothtagged", "R2-sep-placebo"):
+            assert n(c) == nh + nA + nB and R[c][1] == nh + nA + nB
+        assert n("R2-min-sep-tagged") == n("R2-min-sep-placebo") == nh + 4
+        i8 = info["add8"]
+        assert n("R2-minsubj-joint") == n("R2-minsubj-sep-shift") == nh + 4 + len(i8["subj_A"]) + len(i8["subj_B"])
+        assert i8["subj_A"] == [" older", " sister"] and i8["dropped"]["B0"] == 0 and i8["dropped"]["Bt"] > 0
+        q = B["question"]
+        qt = run.qt_ids(C, q)
+        assert torch.allclose(run.tf_last(C, qt, R["R2-sep-tagged@0"]), run.tf_last(C, qt, R["R2-sep-shift"]), atol=1e-5)
+        assert not torch.allclose(run.tf_last(C, qt, R["R2-sep-tagged"]), run.tf_last(C, qt, R["R2-sep-shift"]), atol=1e-4)
+        # A's part of R2-sep-tagged is A's own harvest (as in R2-sep-shift); B's entries differ (stored after the dummy)
+        T, S = R["R2-sep-tagged"][0][1][0], R["R2-sep-shift"][0][1][0]
+        assert torch.allclose(T[:, :, :nh + nA], S[:, :, :nh + nA], atol=1e-6)
+        # the tagged B entries == B's after-dummy harvest, re-rotated: recompute its keys at the joint positions
+        PB = run.turn_pieces(C.tok, B["experience"])
+        tB = run.tagged_turn(C, B["experience"], _add8_prefixes()["B"])
+        kv = bind.kv_list(run.run_cache(C, PB.H + tB.Seg))
+        idx = list(range(nh + tB.h + tB.d, nh + len(tB.Seg)))
+        want = run.rope_shift(C, kv[1][0][:, :, idx], nA - tB.d)
+        assert torch.allclose(T[:, :, nh + nA + tB.h:], want, atol=1e-5)
+    full, _ = run.harvest_pair(C, A, B)
+    assert "R2-sep-tagged" not in full and len(full) == 10                     # without add8: the addendum-5/7 plans only
+
+
+def test_collide_add8_hybrid(tiny_hybrid):
+    C = tiny_hybrid
+    _, _, A, B = _collide_pair(CFG, "dogs")
+    conds = CFG["models"]["qwen35_2b"]["collide_conds_add8"]
+    with torch.no_grad():
+        R, info = run.harvest_pair(C, A, B, add8=_add8_prefixes(2), need=set(conds) - {"ctx2"})
+        assert set(conds) - {"ctx2"} <= set(R) and "R2-sep-tagged@0-jstate" in R
+        J = R["R2-joint-state"][0]
+        for c in R:
+            assert bind.linear_states_equal(R[c][0], J), c                        # the joint DeltaNet state everywhere
+        q = A["question"]
+        qt = run.qt_ids(C, q)
+        assert torch.allclose(run.tf_last(C, qt, R["R2-sep-tagged@0-jstate"]), run.tf_last(C, qt, R["R2-sep-shift-jstate"]), atol=1e-5)
+        nh, nA, nB = info["n_head"], info["n_A"], info["n_B"]
+        att = [k for k, _ in bind.cache_summary(J)]
+        for c, want in (("R2-sep-bothtagged-jstate", nh + nA + nB), ("R2-min-sep-placebo-jstate", nh + 4)):
+            assert all(n == want for k, n in bind.cache_summary(R[c][0]) if k == "attn"), c
+        assert "lin" in att
+
+
+def test_told_specs_comply(tiny_real_tok):
+    C = tiny_real_tok
+    it = next(i for i in run.load_items(CFG) if i["id"] == "cat_name")
+    with torch.no_grad():
+        R, _ = run.harvest_R(C, it, CFG["gen"]["orphan_exchange"])
+    D = {"pick": {"layers": [0, 2], "alpha": 2.0}, "told": torch.randn(3, C.d),
+         "pick_comply": {"layers": [1], "alpha": 0.5}, "comply": torch.randn(3, C.d)}
+    conds = ["nomem", "R-min+told", "R-min+told:rand", "R-min+comply", "R-min+comply:rand"]
+    S = run.told_specs(C, conds, R, D, 4321)
+    assert set(S) == set(conds[1:]) and S["R-min+comply"][0] is R["R-min"]
+    assert set(S["R-min+comply"][1]) == {1} and torch.allclose(S["R-min+comply"][1][1], 0.5 * D["comply"][1])
+    assert torch.allclose(S["R-min+comply:rand"][1][1].norm(), S["R-min+comply"][1][1].norm(), atol=1e-4)
+    S7 = run.told_specs(C, conds[:3], R, {k: D[k] for k in ("pick", "told")}, 4321)
+    assert all(torch.equal(S7[c][1][l], S[c][1][l]) for c in S7 for l in S7[c][1])  # the told arms are unchanged
+
+
+def test_probe_add8_and_directions8(tiny_real_tok, tmp_path):
+    """The probe stage with the part-6 wordings (primary item and pool facts), and the add8 directions stage (half A only)."""
+    C = tiny_real_tok
+    C.mc = {**CFG["models"]["qwen25_15b"], "probe_conds": ["nomem", "T-full"]}
+    C.A.model, C.A.probe_set = "qwen25_15b", "add8"
+    it = next(i for i in run.load_items(CFG) if i["id"] == "dog_name")
+    try:
+        with torch.no_grad():
+            rows, checks, _ = run.stage_probe(C, [it], Path("/nonexistent/probe"))
+            sec = lambda s: sum(r["sec"] == s for r in rows)
+            assert sec("yn") == sec("yn_told") == 16 * 2 and sec("choice") == 32 * 2 - 4 * len(checks["choice_skipped"]) * 0
+            assert all(r["answer"] is not None for r in rows if r["sec"] == "yn_told")
+            assert all(r["prompt"].startswith("Based on what I told you earlier, ") for r in rows if r["sec"] == "yn_told")
+            C.A.items = "pool"
+            rows_p, checks_p, _ = run.stage_probe(C, [it], Path("/nonexistent/probe"))
+            ids = {r["item"] for r in rows_p}
+            assert ids == {f["id"] for f in run.pool_gen_items(CFG, tiny=True)} and all(r["answer"] is None for r in rows_p if r["sec"] == "yn_told")
+            assert {r["kind"] for r in rows_p if r["sec"] == "yn"} <= {"yes", "unrelated", "form", "binding"}
+            C.A.items, C.A.probe_set, C.A.dir_set = "main", None, "add8"
+            C.mc = {**CFG["models"]["qwen25_15b"]}
+            out = tmp_path / "qwen25_15b" / "directions"
+            rows_d, checks_d, _ = run.stage_directions(C, [it], out)
+        D = torch.load(tmp_path / "qwen25_15b_dirs8" / "dirs.pt")
+        A_, B_ = run.load_split(CFG)
+        assert set(D["facts"]) <= set(A_) and not set(D["facts"]) & set(B_) and len(D["cos"]) == C.n
+        assert D["told"].shape == D["comply"].shape == (C.n, C.d) and D["pick"]["set"] in ("early", "mid", "late")
+        assert len(rows_d) == 4 and all(r["sec"] == "comply" for r in rows_d)
+        run.write_jsonl_gz(tmp_path / "qwen25_15b_dirs8" / "results.jsonl.gz", rows_d)
+        run.analyze_dirs8(CFG, tmp_path / "qwen25_15b_dirs8", "qwen25_15b")
+        assert (tmp_path / "qwen25_15b_dirs8" / "analysis" / "report.md").exists()
+    finally:
+        C.A.items, C.A.probe_set, C.A.dir_set = "main", None, None
+        C.mc = {**CFG["models"]["qwen25_15b"]}

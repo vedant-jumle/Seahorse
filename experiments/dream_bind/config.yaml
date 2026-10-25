@@ -76,6 +76,37 @@ models:
       swap_name: R-swap-min-state   # built, not generated
       check: R-full-state
       told: R-min-kv6
+    # PREREG addendum 8 ---------------------------------------------------------------------------------------------
+    # parts 1 and 2c: tag at storage, min+subj (--collide-set add8 on the addendum-5 pairs, add8pool on the pool pairs)
+    collide_conds_add8: &c8_2b [ctx2, R2-joint-state, R2-sep-shift-jstate, R2-min-joint-jstate, R2-min-sep-shift-jstate,
+                                R2-sep-tagged-jstate, R2-sep-bothtagged-jstate, R2-sep-placebo-jstate, R2-min-sep-tagged-jstate,
+                                R2-min-sep-bothtagged-jstate, R2-min-sep-placebo-jstate, R2-minsubj-joint-jstate,
+                                R2-minsubj-sep-shift-jstate]
+    collide_conds_add8pool: *c8_2b
+    # parts 2b + 3: the arms on pool half B (needs <run>/qwen35_2b_dirs8/dirs.pt); --gen-set refusal8
+    gen_conds_refusal8:
+      items: poolB
+      dirs: dirs8
+      primary: []
+      secondary: [nomem, ctx, R-min-kv6, R-min-kv6+told, R-min-kv6+told:rand, R-min-kv6+told:neg, nomem+told, R-min-state,
+                  R-min-kv-own+state-swap, R-min-kv-own+state-plac, R-min-kv6+comply, R-min-kv6+comply:rand]
+      seed2: []
+      leak: null
+      swap_from: R-min-state
+      swap_name: R-swap-min-state   # built, not generated
+      check: R-full-state
+      told: R-min-kv6
+    # part 3 on the 7 primary items; --gen-set comply
+    gen_conds_comply:
+      dirs: dirs8
+      primary: [nomem, ctx, R-min-kv6, R-min-kv6+told, R-min-kv6+comply, R-min-kv6+comply:rand]
+      secondary: []
+      seed2: []
+      leak: null
+      swap_from: R-min-state
+      swap_name: R-swap-min-state
+      check: R-full-state
+      told: R-min-kv6
   qwen25_15b:
     model: Qwen/Qwen2.5-1.5B-Instruct
     n_blocks: 28          # full attention everywhere
@@ -114,6 +145,30 @@ models:
       swap_from: R-full         # built, not generated
       check: R-full
       analytic: [nomem, ctx, R-full, R-min, T-min]
+    # PREREG addendum 8 ---------------------------------------------------------------------------------------------
+    collide_conds_add8: &c8 [ctx2, R2-joint, R2-sep-shift, R2-min-joint, R2-min-sep-shift, R2-sep-tagged, R2-sep-bothtagged,
+                             R2-sep-placebo, R2-min-sep-tagged, R2-min-sep-bothtagged, R2-min-sep-placebo, R2-minsubj-joint,
+                             R2-minsubj-sep-shift]
+    collide_conds_add8pool: *c8
+    gen_conds_refusal8: &r8
+      items: poolB
+      dirs: dirs8
+      primary: []
+      secondary: [nomem, ctx, R-min, R-min+told, R-min+told:rand, R-min+told:neg, nomem+told, R-min+comply, R-min+comply:rand]
+      seed2: []
+      leak: null
+      swap_from: R-full         # built, not generated
+      check: R-full
+      told: R-min
+    gen_conds_comply: &cp8
+      dirs: dirs8
+      primary: [nomem, ctx, R-min, R-min+told, R-min+comply, R-min+comply:rand]
+      secondary: []
+      seed2: []
+      leak: null
+      swap_from: R-full
+      check: R-full
+      told: R-min
   # PREREG addendum 7 (E): the second family. fp32 on gpu-v100; eager attention (knockout); 28 blocks like Qwen2.5.
   llama32_3b:
     model: meta-llama/Llama-3.2-3B-Instruct
@@ -122,7 +177,7 @@ models:
     text_only: false
     eager: true
     date_string: "26 Jul 2024"   # the template writes today's date into the system block: pinned
-    stages: [patch, knockout, gen, judge, analyze, collide, probe]
+    stages: [patch, knockout, gen, judge, analyze, collide, probe, directions]
     gen_conds_text:
       primary: [nomem, ctx, R-full, R-min, R-orphan, R-swap, T-min, T-full]
       secondary: [nomem, ctx, T-min, R-min]
@@ -143,6 +198,12 @@ models:
     collide_conds_add7: [nomem, ctx2, R2-joint, R2-sep-overlap, R2-sep-shift, R2-min-joint, R2-min-sep-overlap,
                          R2-min-sep-shift, R2-seq-min, R2-blend15]
     probe_conds: [nomem, ctx, T-full, T-min, R-full, R-min]
+    # PREREG addendum 8 (Llama joins the refusal arms and part 3)
+    told_slice: R-min
+    collide_conds_add8: *c8
+    collide_conds_add8pool: *c8
+    gen_conds_refusal8: *r8
+    gen_conds_comply: *cp8
   # PREREG addendum 7 (F): teacher-forced probe only; fp32 on a full A100 (never fp16 on a V100)
   qwen35_9b:
     model: Qwen/Qwen3.5-9B
@@ -290,6 +351,17 @@ told:
   min_dlp: -1.0            # constraint: mean change in log P(target | prefix) vs the slice alone >= -1 nat
   rand_seed: 4321
 entities: data/bench_v1/entities.yaml
+
+# PREREG addendum 8: data files (written by experiments/dream_bind/add8_data.py; comply_pairs.yaml by hand)
+add8:
+  dummies: data/bench_v1/dummy_pairs.yaml      # part 1: dummy "pair 1" sentences (bind.dummy_for)
+  pool_lures: data/bench_v1/pool_lures.yaml    # part 2a
+  pool_split: data/bench_v1/pool_split.yaml    # part 2b (seed 8, by kind)
+  pool_pairs: data/bench_v1/pool_pairs.yaml    # part 2c (--collide-set add8pool)
+  comply_pairs: data/bench_v1/comply_pairs.yaml  # part 3
+  comply_cap: 60                               # greedy tokens for the comply behaviour check
+  told_prefix: "Based on what I told you earlier, "   # part 6 wording (i)
+  choice_suffix: {name: "Answer with the name only.", attribute: "Answer with one word only."}   # part 6 wording (ii)
 
 # PREREG addendum 6 (Qwen2.5): (A) binding-ID repair, (B) G-key retrieval + capacity
 idrepair:

@@ -85,8 +85,14 @@ def parse_args(argv=None):
                    help="tiny random model with the config model's tokenizer (CPU dry runs): qwen2 / llama (eager) or qwen3_5 "
                         "(the hybrid DeltaNet + full-attention classes; needs transformers >= 5)")
     p.add_argument("--items", default="main", choices=["main", "pool"],
-                   help="stage 0 (patch / knockout): the hand-written items or the pool facts (PREREG addendum 7 (D))")
-    p.add_argument("--collide-set", default=None, help="collide: use the model's collide_conds_<SET> (e.g. add7)")
+                   help="stage 0 (patch / knockout): the hand-written items or the pool facts (PREREG addendum 7 (D)); "
+                        "probe: the 52 non-primary facts with the pool lures (addendum 8, part 2a)")
+    p.add_argument("--collide-set", default=None, help="collide: use the model's collide_conds_<SET> (e.g. add7, add8; add8pool "
+                                                       "also uses the pool pairs, addendum 8 part 2c)")
+    p.add_argument("--probe-set", default=None, choices=["add8"],
+                   help="probe: add8 adds the 'told' and two-choice wordings (PREREG addendum 8, part 6)")
+    p.add_argument("--dir-set", default=None, choices=["add8"],
+                   help="directions: add8 = told + comply directions picked on pool half A (addendum 8, parts 2b and 3)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu", choices=["cuda", "cpu"])
     p.add_argument("--dtype", default="fp32", choices=["fp32", "bf16"])
     p.add_argument("--gen-set", default=None, help="gen: use the model's gen_conds_<SET> condition set (e.g. state)")
@@ -1568,7 +1574,7 @@ def gen_context(C, cfg):
                            seed2=list(gc.get("seed2", g["seed2"])), leak=gc.get("leak", "R-full"),
                            swap_from=gc.get("swap_from", "R-full"), check=gc.get("check", "R-full"),
                            swap_name=gc.get("swap_name"),
-                           b5_ref=gc.get("b5_ref"), items=gc.get("items"), told=gc.get("told"))
+                           b5_ref=gc.get("b5_ref"), items=gc.get("items"), told=gc.get("told"), dirs=gc.get("dirs", "dirs"))
     C.yes, C.no = int(text_ids(C.tok, "Yes")[0]), int(text_ids(C.tok, "No")[0])
 
 
@@ -1721,6 +1727,11 @@ def stage_gen(C, items, out, all_items):
         items = all_items = pool_gen_items(cfg, C.A.tiny)
         for it in items:
             it["json"]["n_tok"] = len(text_ids(C.tok, it["target"]))
+    elif C.gc.items in ("poolA", "poolB"):   # addendum 8 (2b): one half of the split (swap partners within the half)
+        all_items = pool_half_items(cfg, C.gc.items[-1])
+        items = all_items[:3] if C.A.tiny else all_items
+        for it in all_items:
+            it["json"]["n_tok"] = len(text_ids(C.tok, it["target"]))
     by_id = {it["id"]: it for it in all_items}
     sel = {it["id"] for it in items}
     need = sel | {by_id[i]["swap"] for i in sel}
@@ -1786,11 +1797,14 @@ def stage_gen(C, items, out, all_items):
     Ms = {iid: item_memory(C, cfg, by_id[iid], V.get(iid), V.get(by_id[iid]["swap"]), Vplac.get(iid), U[iid], R[iid],
                            R.get(by_id[iid]["swap"])) for iid in sel}
     if C.gc.told:                       # addendum 7 (B3): the told vector picked by the directions stage
-        D = torch.load(mdir(C, out, "dirs") / "dirs.pt")
+        D = torch.load(mdir(C, out, C.gc.dirs) / "dirs.pt")
         checks["told_pick"] = D["pick"]
+        if "pick_comply" in D:          # addendum 8: picked on pool half A; the arms run on half B / the primary items
+            checks["comply_pick"] = D["pick_comply"]
+            assert not set(D["facts"]) & {it["id"] for it in items}, "the directions were picked on facts of this gen set"
         for iid in sel:
             Ms[iid].told = told_specs(C, C.gc.primary, R[iid], D, cfg["told"]["rand_seed"])
-        log(f"gen: told vector {D['pick']['set']} alpha {D['pick']['alpha']} from {mdir(C, out, 'dirs')}")
+        log(f"gen: told vector {D['pick']['set']} alpha {D['pick']['alpha']} from {mdir(C, out, C.gc.dirs)}")
     (out / "items").mkdir(parents=True, exist_ok=True)
     (out / "unrel").mkdir(parents=True, exist_ok=True)
     an_conds = (C.mc.get(f"gen_conds_{getattr(C.A, 'gen_set', None)}") or {}).get("analytic")
@@ -2053,8 +2067,11 @@ def collide_pairs(cfg):
     return out
 
 
-def harvest_pair(C, A, B):
-    """The R2 reinstatement prefixes of one pair: {condition: (prefix, question start)} + info."""
+def harvest_pair(C, A, B, add8=None, need=None):
+    """The R2 reinstatement prefixes of one pair: {condition: (prefix, question start)} + info. Addendum 8: add8 =
+    {"A": A's dummy sentence, "B": B's dummy sentence, "placebo": the placebo sentence} adds the tagged / placebo / min+subj
+    plans (bind.add8_plan) and 'R2-sep-tagged@0' (B harvested with an EMPTY prefix through the same code path; == R2-sep-shift).
+    need: build only these condition names (+ the ones the checks use); None = every plan entry."""
     tok = C.tok
     PA, PB = turn_pieces(tok, A["experience"]), turn_pieces(tok, B["experience"])
     assert PA.H == PB.H
@@ -2082,19 +2099,93 @@ def harvest_pair(C, A, B):
     if hyb:
         assert bind.linear_states_close(solo, srcs["B"], C.cfg["gen"]["splice_tol"]), "re-encoded DeltaNet state != the separate harvest"
     srcs["Bb"], blend_pos = blend_source(C, srcs["B"], srcs["Qf"], nh, nA, nB)
+    info8 = {}
+    if add8:
+        T = {"At": tagged_turn(C, A["experience"], add8["A"]), "Bt": tagged_turn(C, B["experience"], add8["B"]),
+             "Bp": tagged_turn(C, B["experience"], add8["placebo"]), "B0": tagged_turn(C, B["experience"], "")}
+        h = T["B0"].h
+        assert all(t.h == h for t in T.values()) and T["B0"].d == 0 and T["B0"].Seg == PB.Seg
+        for k, t in T.items():
+            M_, a_ = (A, att[0]) if k == "At" else (B, att[1])
+            assert t.Seg[a_ + t.d] == text_ids(tok, M_["value"])[0], f"{M_['id']}: value not at its shifted index in {k}"
+            srcs[k] = run_cache(C, PA.H + t.Seg)
+        sA, sB = subject_indices(C, PA.Seg, A["experience"]), subject_indices(C, PB.Seg, B["experience"])
+        p8 = bind.add8_plan(nh, nA, nB, att[0], att[1], sA, sB, h, T["At"].d, T["Bt"].d, T["Bp"].d)
+        p8["R2-sep-tagged@0"] = bind.add8_plan(nh, nA, nB, att[0], att[1], sA, sB, h, 0, 0, 0, tagB="B0")["R2-sep-tagged"]
+        plan.update(p8)
+        info8 = {"header_tokens": h, "dropped": {k: t.d for k, t in T.items()}, "dropped_text": {k: t.dropped for k, t in T.items()},
+                 "kept_tokens_differing": {k: t.n_diff for k, t in T.items()},
+                 "subj_A": [tok.decode([PA.Seg[i]]) for i in sA], "subj_B": [tok.decode([PB.Seg[i]]) for i in sB],
+                 "prefixes": dict(add8)}
     out = {}
-    if is_hybrid(C):
-        lin = {"J": srcs["J"], "H": run_cache(C, PA.H)}
-        for name, (base, ls) in bind.hybrid_collide_names(plan).items():
-            parts, start = plan[base]
-            out[name] = (compose_prefix(C, parts, srcs, lin[ls]), start)
-    else:
-        for name, (parts, start) in plan.items():
-            out[name] = (compose_prefix(C, parts, srcs), start)
+    hyb_ = is_hybrid(C)
+    names = bind.hybrid_collide_names(plan) if hyb_ else {k: (k, None) for k in plan}
+    if need is not None:
+        sfx = "-jstate" if hyb_ else ""
+        keep_ = set(need) | {"R2-joint-state" if hyb_ else "R2-joint", "R2-seq-jstate" if hyb_ else "R2-seq",
+                             f"R2-sep-shift{sfx}", f"R2-sep-tagged@0{sfx}"}
+        names = {k: v for k, v in names.items() if k in keep_}
+    lin = {"J": srcs["J"], "H": run_cache(C, PA.H)} if hyb_ else None
+    for name, (base, ls) in names.items():
+        parts, start = plan[base]
+        out[name] = (compose_prefix(C, parts, srcs, lin[ls]), start) if hyb_ else (compose_prefix(C, parts, srcs), start)
     info = {"n_head": nh, "n_A": nA, "n_B": nB, "attr_A": att[0], "attr_B": att[1], "starts": {k: s for k, (_, s) in out.items()},
             "reencode_single_fact_maxdiff": ident, "blend_positions": blend_pos,
-            "blend_tokens": [tok.decode([PB.Seg[i]]) for i in blend_pos]}
+            "blend_tokens": [tok.decode([PB.Seg[i]]) for i in blend_pos], **({"add8": info8} if info8 else {})}
     return out, info
+
+
+def tagged_turn(C, exp, pre):
+    """Addendum 8 (1a): the user turn '{pre} {exp}' (one turn: the prefix sentence, a space, the member's sentence; pre = ''
+    gives exp alone). Returns Seg (the turn's tokens), h (the header tokens before the content), d (the prefix sentence's
+    tokens, right after the header; dropped at reinstatement), n_diff and the dropped text. Asserts: the content starts at
+    a token boundary; the prefix's tokens are contiguous and decode to it; the kept tokens (header + the rest) are as many
+    as the standalone turn's and differ from them at most at the first content token (" My" vs "My")."""
+    tok = C.tok
+    content = f"{pre} {exp}" if pre else exp
+    P, P0 = turn_pieces(tok, content), turn_pieces(tok, exp)
+    _, hdr = user_turn_start(tok)
+    spans, text = bind.char_spans(tok, P.Seg)
+    assert text.startswith(hdr + content), repr(text[:80])
+    c0 = len(hdr)
+    h = sum(1 for _, b in spans if b <= c0)
+    assert spans[h][0] == c0, "the content does not start at a token boundary"
+    d = 0
+    if pre:
+        drop = bind.tokens_overlapping(spans, c0, c0 + len(pre))
+        assert drop == list(range(h, h + len(drop))), drop
+        d = len(drop)
+        assert spans[h + d][0] == c0 + len(pre), "the prefix sentence shares a token with the member's sentence"
+    kept = P.Seg[:h] + P.Seg[h + d:]
+    assert len(kept) == len(P0.Seg), (len(kept), len(P0.Seg))
+    diff = [i for i, (x, y) in enumerate(zip(kept, P0.Seg)) if x != y]
+    assert set(diff) <= {h}, f"kept tokens differ from the standalone turn at {diff}"
+    dropped = tok.decode(P.Seg[h:h + d]) if d else ""
+    assert dropped == pre, (dropped, pre)
+    return SimpleNamespace(Seg=P.Seg, h=h, d=d, n_diff=len(diff), dropped=dropped)
+
+
+def subject_indices(C, Seg, exp):
+    """Addendum 8 (1b): the token indices (in the standalone turn Seg) of the stored sentence's subject phrase."""
+    _, hdr = user_turn_start(C.tok)
+    spans, text = bind.char_spans(C.tok, Seg)
+    assert text.startswith(hdr + exp)
+    s, e = bind.subject_phrase(exp)
+    idx = bind.tokens_overlapping(spans, len(hdr) + s, len(hdr) + e)
+    assert idx, exp
+    return idx
+
+
+def pool_pairs(cfg):
+    """Addendum 8 (2c): the pool pairs of data/bench_v1/pool_pairs.yaml as collide_pairs tuples."""
+    import copy
+    out = []
+    for p in yaml.safe_load(open(REPO / cfg["add8"]["pool_pairs"]))["pairs"]:
+        A, B = copy.deepcopy(p["a"]), copy.deepcopy(p["b"])
+        A.update(pair=p["id"], kind=p["kind"], role="A", partner=B["id"], partner_value=B["value"])
+        B.update(pair=p["id"], kind=p["kind"], role="B", partner=A["id"], partner_value=A["value"])
+        out.append((p["id"], p["kind"], A, B))
+    return out
 
 
 def _attn_list(src):
@@ -2183,19 +2274,38 @@ def stage_collide(C, items, out):
     (gdir / "items").mkdir(parents=True, exist_ok=True)
     cs = getattr(C.A, "collide_set", None)
     conds = list(C.mc[f"collide_conds_{cs}"] if cs else C.mc["collide_conds"])
-    pairs = collide_pairs(cfg)
+    pairs = pool_pairs(cfg) if cs == "add8pool" else collide_pairs(cfg)
+    pidx = {p[0]: k for k, p in enumerate(pairs)}          # addendum 8: the dummy assignment uses the full pair order
+    add8 = any(x in c for c in conds for x in ("tagged", "placebo", "minsubj"))
+    dummies = yaml.safe_load(open(REPO / cfg["add8"]["dummies"]))["dummies"] if add8 else []
+    for d_ in dummies:
+        assert len(text_ids(C.tok, f" {d_['name']}")) == 1, f"dummy name {d_['name']!r} is not one token"
     if C.A.tiny:
-        pairs = [p for p in pairs if p[0] in ("dog_cat", "sisters")]
+        keep_ids = ("dog_cat", "sisters") if cs != "add8pool" else (
+            next(p[0] for p in pairs if p[1] == "confusable"), next(p[0] for p in pairs if p[1] == "different"))
+        pairs = [p for p in pairs if p[0] in keep_ids]
     S = cfg["collide"]["samples"]
     g = cfg["gen"]
     cap, seeds = g["answer_cap"], g["seeds"]
-    checks, items_json = {"t2_equals_joint": [], "pairs": {}, "seq_equals_joint": [], "reencode_single_fact": []}, {}
+    checks, items_json = {"t2_equals_joint": [], "pairs": {}, "seq_equals_joint": [], "reencode_single_fact": [],
+                          "tagged_empty_equals_sep_shift": []}, {}
     joint_name = "R2-joint-state" if is_hybrid(C) else "R2-joint"
     seq_name = "R2-seq-jstate" if is_hybrid(C) else "R2-seq"
+    sfx8 = "-jstate" if is_hybrid(C) else ""
     for pid, kind, A, B in pairs:
         t1 = time.time()
-        R, info = harvest_pair(C, A, B)
+        for M in (A, B):
+            assert len(text_ids(C.tok, M["value"])) == 1, f"{M['id']}: value {M['value']!r} is not one token"
+        pre8 = ({"A": bind.dummy_for(pidx[pid], "A", dummies), "B": bind.dummy_for(pidx[pid], "B", dummies),
+                 "placebo": g["placebo"]} if add8 else None)
+        R, info = harvest_pair(C, A, B, add8=pre8, need=set(conds) if add8 else None)
         checks["pairs"][pid] = info
+        if add8:                       # addendum 8: the tagged path with an empty dummy == R2-sep-shift
+            for M in (A, B):
+                qt = qt_ids(C, M["question"])
+                d8 = maxdiff(tf_last(C, qt, R[f"R2-sep-tagged@0{sfx8}"]), tf_last(C, qt, R[f"R2-sep-shift{sfx8}"]))
+                checks["tagged_empty_equals_sep_shift"].append({"member": M["id"], "max_abs_logit_diff": d8})
+                assert d8 <= g["splice_tol"], f"{M['id']}: R2-sep-tagged with an empty dummy != R2-sep-shift ({d8})"
         # check: R2-joint == both sentences as separate prior user turns (T2), for both questions
         for M in (A, B):
             qt = qt_ids(C, M["question"])
@@ -2395,7 +2505,8 @@ def analyze_collide(cfg, cd, model_key):
             lab = "n/a" if ok is None else ("the state binds" if ok else "familiarity without conjunction")
             lines += [f"**Addendum 7 (A) conjunction, R2-state-only-J ({kind}{', decisive' if kind == 'confusable' else ''})**: "
                       f"TF balanced yes/no with the partner as foil {fmt(b)} → {lab}", ""]
-    L[4:4] = ["## Rules (addendum 5 and 7, exploratory)", "", *lines]
+    lines += collide_add8_rules(conds, nested, M, ci, paired_diff, sfx, joint, mjoint, hyb, rules)
+    L[4:4] = ["## Rules (addendum 5, 7 and 8, exploratory)", "", *lines]
     out = cd / "analysis"
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.md").write_text("\n".join(L))
@@ -2404,6 +2515,54 @@ def analyze_collide(cfg, cd, model_key):
               open(out / "verdict.json", "w"), indent=2, default=str)
     log(f"collide analyze -> {out / 'report.md'}")
     return rules
+
+
+def _lab(ok):
+    return "n/a" if ok is None else ("holds" if ok else "does not hold")
+
+
+def collide_add8_rules(conds, nested, M, ci, paired_diff, sfx, joint, mjoint, hyb, rules):
+    """Addendum 8 (parts 1 and 2c): "the tag causes the swaps" (1a; decisive: full slices, confusable pairs) and "the entity
+    side carries the tag" (1b; decisive on the pure transformers, confusable pairs); everything else reported. Fills
+    `rules`; returns report lines."""
+    lines = []
+    conf = lambda kind, c: nested(kind, c, M["partner confusion"])
+    for size, names, jn in (("full", ("R2-sep-tagged", "R2-sep-bothtagged", "R2-sep-placebo", "R2-sep-shift"), joint),
+                            ("min", ("R2-min-sep-tagged", "R2-min-sep-bothtagged", "R2-min-sep-placebo", "R2-min-sep-shift"), mjoint)):
+        tg, bt, pl, sp = (f"{x}{sfx}" for x in names)
+        if not all(c in conds for c in (tg, bt, pl, sp, jn)):
+            continue
+        for kind in ("confusable", "different"):
+            d1, ct, cj = ci(paired_diff(conf(kind, tg), conf(kind, sp))), ci(conf(kind, tg)), ci(conf(kind, jn))
+            d2, dp = ci(paired_diff(conf(kind, bt), conf(kind, sp))), ci(paired_diff(conf(kind, pl), conf(kind, sp)))
+            ok = bind.tag_rule(d1, ct, cj, d2)
+            dec = size == "full" and kind == "confusable"
+            rules[f"add8/tag/{size}/{kind}"] = {"the tag causes the swaps": (d1, ok), f"confusion {tg}": (ct, None),
+                                                f"confusion {jn}": (cj, None), f"{bt} - {sp}": (d2, None), f"{pl} - {sp}": (dp, None),
+                                                "decisive": ({"mean": float(dec)}, None)}
+            lines += [f"**Addendum 8 (1a) the tag causes the swaps — {size} slices, {kind} pairs "
+                      f"({'decisive' if dec else 'reported'})**: {_lab(ok)}",
+                      f"- {tg} − {sp}: {fmt(d1)} (needs hi < 0); confusion {tg} {fmt(ct)} vs {jn} {fmt(cj)} (need overlap); "
+                      f"{bt} − {sp}: {fmt(d2)} (needs to include 0); {pl} − {sp}: {fmt(dp)} (reported)", ""]
+    ms, mss, msep, sep = f"R2-minsubj-joint{sfx}", f"R2-minsubj-sep-shift{sfx}", f"R2-min-sep-shift{sfx}", f"R2-sep-shift{sfx}"
+    if all(c in conds for c in (ms, mjoint, joint)):
+        for kind in ("confusable", "different"):
+            d, cm_, cj = ci(paired_diff(conf(kind, ms), conf(kind, mjoint))), ci(conf(kind, ms)), ci(conf(kind, joint))
+            ok = bind.entity_rule(d, cm_, cj)
+            dec = kind == "confusable" and not hyb
+            r = {"the entity side carries the tag": (d, ok), f"confusion {ms}": (cm_, None), f"confusion {joint}": (cj, None),
+                 "decisive": ({"mean": float(dec)}, None)}
+            extra = ""
+            if mss in conds and msep in conds and sep in conds:
+                a_, b_ = ci(paired_diff(conf(kind, mss), conf(kind, msep))), ci(paired_diff(conf(kind, mss), conf(kind, sep)))
+                r.update({f"{mss} - {msep}": (a_, None), f"{mss} - {sep}": (b_, None), f"confusion {mss}": (ci(conf(kind, mss)), None)})
+                extra = f"; {mss} {fmt(ci(conf(kind, mss)))}: − {msep} {fmt(a_)}, − {sep} {fmt(b_)}"
+            rules[f"add8/entity/{kind}"] = r
+            lines += [f"**Addendum 8 (1b) the entity side carries the tag — {kind} pairs "
+                      f"({'decisive' if dec else 'reported'})**: {_lab(ok)}",
+                      f"- {ms} − {mjoint}: {fmt(d)} (needs hi < 0); confusion {ms} {fmt(cm_)} vs {joint} {fmt(cj)} "
+                      f"(need overlap){extra}", ""]
+    return lines
 
 
 def collide_plan(cfg, mc, n_prompts=3, n_probes=4):
@@ -3120,7 +3279,12 @@ def stage_probe(C, items, out):
     conds = list(C.mc["probe_conds"])
     chk = "R-full-state" if is_hybrid(C) else "R-full"
     rows, checks = [], {"identity": [], "probes": {}}
-    for it in [i for i in items if i["tier"] == "primary"]:
+    pool = getattr(C.A, "items", "main") == "pool"            # addendum 8 (2a): the 52 non-primary facts, pool lures
+    w8 = getattr(C.A, "probe_set", None) == "add8"            # addendum 8 (part 6): the two new wordings
+    if pool:
+        items = pool_gen_items(cfg, C.A.tiny)
+        PL = {f["id"]: f for f in yaml.safe_load(open(REPO / cfg["add8"]["pool_lures"]))["facts"]}
+    for it in [i for i in items if i["tier"] == ("pool" if pool else "primary")]:
         R_, _ = harvest_R(C, it, g["orphan_exchange"])
         t = int(text_ids(C.tok, it["target"])[0])
         foils = [int(text_ids(C.tok, f)[0]) for f in it["foils"]]
@@ -3128,19 +3292,41 @@ def stage_probe(C, items, out):
         d = maxdiff(tf_last(C, *cond_ids(C, it, chk, q, pre, R_)), tf_last(C, *cond_ids(C, it, "T-full", q, pre, R_)))
         checks["identity"].append({"item": it["id"], "cond": chk, "vs": "T-full", "max_abs_logit_diff": d})
         assert d <= g["splice_tol"], f"{it['id']}: {chk} != the sentence as a prior turn ({d})"
-        probes = lure_probes(cfg, it, C.tok)
+        probes = pool_probes(cfg, it, C.tok, PL[it["id"]]) if pool else lure_probes(cfg, it, C.tok)
         checks["probes"][it["id"]] = len(probes)
+        fk = it.get("kind") or "person"                     # the primary items are people and pets
+        choices = choice_probes(cfg, it, C.tok, PL[it["id"]] if pool else cfg["lures"][it["id"]], fk) if w8 else []
+        checks.setdefault("choice_skipped", []).extend([[it["id"], x[2], x[3], x[4]] for x in choices if x[0] is None])
+        choices = [x for x in choices if x[0] is not None]
         for c in conds:
             lp = torch.log_softmax(tf_last(C, *cond_ids(C, it, c, q, pre, R_)), -1)
-            rows.append({"sec": "tf", "item": it["id"], "cond": c, "lp_target": lp[t].item(),
+            rows.append({"sec": "tf", "item": it["id"], "cond": c, "lp_target": lp[t].item(), "fkind": fk,
                          "lp_foils": lp[foils].mean().item(), "rank": int((lp > lp[t]).sum()) + 1})
+            if w8:                      # addendum 8 (part 6): wording (i) on every yes/no probe; wording (ii) two-choice
+                for text, cons, kind, v in probes:
+                    tt = told_wording(text, cfg["add8"]["told_prefix"])
+                    ids, pf = cond_ids(C, it, c, tt, None, R_)
+                    if pool:            # TF only on the pool
+                        lq = torch.log_softmax(tf_last(C, ids, pf), -1)
+                        lpy, lpn, ans = lq[C.yes].item(), lq[C.no].item(), None
+                    else:
+                        o = gen_batch(C, ids, [(True, None)], prefix=pf, max_new=g["yn_cap"], first_ids=[C.yes, C.no])[0]
+                        (lpy, lpn), ans = o["first"], C.tok.decode(o["ids"], skip_special_tokens=True).strip()
+                    rows.append({"sec": "yn_told", "item": it["id"], "cond": c, "kind": kind, "value": v, "consistent": cons,
+                                 "fkind": fk, "prompt": tt, "lp_yes": lpy, "lp_no": lpn, "tf_yes": lpy > lpn, "answer": ans,
+                                 "yn": None if ans is None else xr_parse_yn(ans)})
+                for (t_tok, f_tok), text, kind, v, order in choices:
+                    lq = torch.log_softmax(tf_last(C, *cond_ids(C, it, c, text, None, R_)), -1)
+                    rows.append({"sec": "choice", "item": it["id"], "cond": c, "kind": kind, "value": v, "order": order,
+                                 "fkind": fk, "prompt": text, "lp_true": lq[t_tok].item(), "lp_foil": lq[f_tok].item(),
+                                 "correct": bool(lq[t_tok] > lq[f_tok])})
             for text, cons, kind, v in probes:
                 ids, pf = cond_ids(C, it, c, text, None, R_)
                 o = gen_batch(C, ids, [(True, None)], prefix=pf, max_new=g["yn_cap"], first_ids=[C.yes, C.no])[0]
                 lpy, lpn = o["first"]
                 ans = C.tok.decode(o["ids"], skip_special_tokens=True).strip()
                 rows.append({"sec": "yn", "item": it["id"], "cond": c, "kind": kind, "value": v, "consistent": cons,
-                             "prompt": text, "lp_yes": lpy, "lp_no": lpn, "tf_yes": lpy > lpn, "answer": ans,
+                             "fkind": fk, "prompt": text, "lp_yes": lpy, "lp_no": lpn, "tf_yes": lpy > lpn, "answer": ans,
                              "yn": xr_parse_yn(ans)})
         log(f"probe {it['id']}: {len(probes)} probes x {len(conds)} conditions; identity {d:.1e}; "
             f"{(time.time() - t0) / 60:.1f} min")
@@ -3189,6 +3375,8 @@ def stage_directions(C, items, out):
     """Addendum 7 (B1, B2): the known-entity and 'told' directions (difference of means per block, on data disjoint
     from the 7 test items), the told vector's (layer set, alpha) pick (teacher-forced on the 52 non-primary facts), and
     the projections of the primary items' prompts per condition (dir_conds). Saves <run>/<model>_dirs/dirs.pt."""
+    if getattr(C.A, "dir_set", None) == "add8":
+        return stage_directions8(C, items, out)
     cfg, g, tc = C.cfg, C.cfg["gen"], C.cfg["told"]
     gen_context(C, cfg)
     tiny = C.A.tiny
@@ -3270,20 +3458,24 @@ def stage_directions(C, items, out):
 def told_specs(C, conds, R_item, D, seed):
     """Addendum 7 (B3): {condition: (prefix or None, {layer: vector})} for X+told, X+told:rand (a random unit
     direction per block x |v(l)|, fixed seed), X+told:neg and nomem+told; v(l) = alpha * d_told(l) on the picked
-    layer set, added at the last prompt token."""
-    pick = D["pick"]
-    v = {l: pick["alpha"] * D["told"][l].to(C.dev) for l in pick["layers"]}
-    gr = torch.Generator().manual_seed(seed)
-    rv = {}
-    for l in pick["layers"]:
-        u = torch.randn(C.d, generator=gr)
-        rv[l] = (u / u.norm()).to(C.dev) * v[l].norm()
-    var = {"": v, ":rand": rv, ":neg": {l: -x for l, x in v.items()}}
+    layer set, added at the last prompt token. Addendum 8 (part 3): the same for X+comply / X+comply:rand with d_comply
+    and its own pick (D['comply'], D['pick_comply'])."""
     out = {}
-    for c in conds:
-        if "+told" in c:
-            base, kind = c.split("+told")
-            out[c] = (None if base == "nomem" else R_item[base], var[kind])
+    for tag, dkey, pkey in (("+told", "told", "pick"), ("+comply", "comply", "pick_comply")):
+        if not any(tag in c for c in conds):
+            continue
+        pick = D[pkey]
+        v = {l: pick["alpha"] * D[dkey][l].to(C.dev) for l in pick["layers"]}
+        gr = torch.Generator().manual_seed(seed)
+        rv = {}
+        for l in pick["layers"]:
+            u = torch.randn(C.d, generator=gr)
+            rv[l] = (u / u.norm()).to(C.dev) * v[l].norm()
+        var = {"": v, ":rand": rv, ":neg": {l: -x for l, x in v.items()}}
+        for c in conds:
+            if tag in c:
+                base, kind = c.split(tag)
+                out[c] = (None if base == "nomem" else R_item[base], var[kind])
     return out
 
 
@@ -3364,6 +3556,178 @@ def s0_pool_items(cfg, tok, tiny=False):
     if tiny:
         out = [x for x in out if x["tier"] == "primary"][:2] + [x for x in out if x["tier"] == "secondary"][:1]
     return out, info
+
+
+# =============================================================== addendum 8: pool probe, split, comply, wordings
+
+
+COMPLY_REFUSAL_RE = re.compile(
+    r"\b(don't|do not|can't|cannot|couldn't|could not|won't|will not|not able to|unable to)\s+(know|recall|remember|have|"
+    r"access|tell|see|determine|provide|retrieve|say|find|answer|look up)\b|\bI'm sorry\b|\bI apologi[sz]e\b|\bas an AI\b|"
+    r"\bno way (for me )?(of knowing|to know)\b|\bI don't have (any )?(personal|information|access|details|knowledge|real-time)\b|"
+    r"\bonly you\b|\b(could|can|would) you (please )?(tell|share|remind|let me know|provide)\b", re.I)
+
+
+def load_split(cfg, facts=None):
+    """Addendum 8 (2b): the two halves of data/bench_v1/pool_split.yaml, asserted == bind.pool_split of the 52 non-primary
+    facts (seed in the file), disjoint and covering them. Returns (A ids, B ids)."""
+    F = facts if facts is not None else pool_gen_items(cfg)
+    S = yaml.safe_load(open(REPO / cfg["add8"]["pool_split"]))
+    A, B = bind.pool_split([(f["id"], f["kind"]) for f in F], S["seed"])
+    assert A == S["A"] and B == S["B"], "pool split != the file"
+    assert not set(A) & set(B) and set(A) | set(B) == {f["id"] for f in F}, "pool split not disjoint / not covering"
+    return A, B
+
+
+def pool_half_items(cfg, half):
+    """Addendum 8 (2b): the pool_gen_items facts of one half ('A' / 'B'), in order; each fact's swap partner (for the 2B's
+    R-min-kv-own+state-swap) = the next fact of the same kind in the half, cyclically."""
+    F = pool_gen_items(cfg)
+    A, B = load_split(cfg, F)
+    ids = set(A if half == "A" else B)
+    out = [f for f in F if f["id"] in ids]
+    for kind in dict.fromkeys(f["kind"] for f in out):
+        ks = [f for f in out if f["kind"] == kind]
+        for i, f in enumerate(ks):
+            f["swap"] = ks[(i + 1) % len(ks)]["id"]
+    return out
+
+
+def verify_templates(cfg, it):
+    """An item's 2 verify templates ({v}): facts.yaml's for the hand-written items, the pool kind / slot's otherwise."""
+    raw = _facts_raw(cfg)
+    if it["id"] in raw:
+        return list(raw[it["id"]]["verify"])
+    from seahorse.bench.data import _slug
+    pool = yaml.safe_load(open(REPO / cfg["bench"] / "fact_pool.yaml"))
+    sl = next(x for x in pool["slots"] if f"pool_{_slug(x['slot'])}" == it["id"])
+    tpl = {**pool["kinds"].get(sl.get("kind"), {}), **sl}
+    return [t.replace("{slot}", sl["slot"]) for t in tpl["verify"]]
+
+
+def pool_probes(cfg, it, tok, L):
+    """Addendum 8 (2a): a pool fact's probes [(text, consistent, kind, value)]: 'yes' and 'unrelated' (the bench's 4), then
+    the form and binding lures of pool_lures.yaml x the 2 verify templates (answer No). Asserts: the file's target is the
+    fact's; every lure is one token and is not the target, the counter or a foil."""
+    assert L["target"] == it["target"].strip(), (it["id"], L["target"])
+    foils = {f.strip() for f in it["foils"]}
+    out = [(rp["text"], rp["a"], "yes" if rp["a"] == "Yes" else "unrelated", None) for rp in it["relation_probes"]]
+    tpls = verify_templates(cfg, it)
+    for kind in ("form", "binding"):
+        for v in L[kind]:
+            assert len(text_ids(tok, f" {v}")) == 1, f"{it['id']}: lure {v!r} is not one token"
+            assert v != L["target"] and v != L["counter"] and v not in foils, (it["id"], v)
+            for tpl in tpls:
+                out.append((f"{tpl.replace('{v}', v)} {ANSWER}", "No", kind, v))
+    return out
+
+
+def told_wording(text, prefix):
+    """Part 6 wording (i): '{question} Answer yes or no.' -> '{prefix}{question with a lower-case first letter} Answer yes
+    or no.'"""
+    assert text.endswith(" " + ANSWER), text
+    q = text[:-len(ANSWER) - 1]
+    return f"{prefix}{q[0].lower()}{q[1:]} {ANSWER}"
+
+
+def choice_probes(cfg, it, tok, lures, fkind):
+    """Part 6 wording (ii): [((true first token, foil first token) or None, text, kind, foil, order)] for every foil value
+    (the 2 unrelated foils; the lures: form, assoc and binding where they exist) x the 2 verify templates x both orders.
+    The tokens are the values' first tokens without a leading space (the answer's first word); a pair whose first tokens
+    coincide is returned with None (skipped and listed)."""
+    suffix = cfg["add8"]["choice_suffix"]["attribute" if fkind == "attribute" else "name"]
+    true = it["target"].strip()
+    vals = [("unrelated", f.strip()) for f in it["foils"][:2]]
+    vals += [(k, v.strip()) for k in LURE_KINDS for v in lures.get(k, [])]
+    out = []
+    first = lambda v: int(text_ids(tok, v)[0])
+    for kind, v in vals:
+        toks = (first(true), first(v))
+        for tpl in verify_templates(cfg, it):
+            for order, (x, y) in (("true_first", (true, v)), ("foil_first", (v, true))):
+                out.append((toks if toks[0] != toks[1] else None, f"{tpl.replace('{v}', f'{x} or {y}')} {suffix}", kind, v, order))
+    return out
+
+
+def pick_grid(C, facts, X, dirs, sets, alphas):
+    """Addendum 7's (layer set, alpha) scores for several directions at once (teacher-forced, slice X per fact): per
+    direction name -> [{set, alpha, layers, score, dlp}] (score = mean change of the measure prefix's log-prob vs X alone;
+    dlp = mean change of log P(target))."""
+    g = C.cfg["gen"]
+    acc = {n: defaultdict(lambda: {"score": [], "dlp": []}) for n in dirs}
+    for f in facts:
+        Rf, _ = harvest_R(C, f, g["orphan_exchange"])
+        qt, pre = qt_ids(C, f["question"]), text_ids(C.tok, f["prefix"])
+        ids, t, Lq = torch.cat([qt, pre]), int(text_ids(C.tok, f["target"])[0]), len(qt)
+
+        def sc(lp):
+            return sum(lp[Lq - 1 + j, int(pre[j])].item() for j in range(len(pre))), lp[-1, t].item()
+        b_pre, b_t = sc(tf_all(C, ids, Rf[X]))
+        for n, D in dirs.items():
+            for sname, ls in sets.items():
+                for a in alphas:
+                    with bind.adding(C.blocks, {l: [(0, [Lq - 1], a * D[l])] for l in ls}):
+                        s_pre, s_t = sc(tf_all(C, ids, Rf[X]))
+                    acc[n][(sname, a)]["score"].append(s_pre - b_pre)
+                    acc[n][(sname, a)]["dlp"].append(s_t - b_t)
+        del Rf
+    return {n: [{"set": k[0], "alpha": k[1], "layers": sets[k[0]], "score": sum(v["score"]) / len(v["score"]),
+                 "dlp": sum(v["dlp"]) / len(v["dlp"])} for k, v in a_.items()] for n, a_ in acc.items()}
+
+
+def stage_directions8(C, items, out):
+    """Addendum 8 (2b, 3): on pool half A only, d_told = mean(ctx - nomem) at the direct question's last prompt token;
+    d_comply = mean(general) - mean(personal) at the last prompt token over the comply pairs that behave under nomem
+    (greedy; personal refused, general answered, COMPLY_REFUSAL_RE); both (layer set, alpha) picks by addendum 7's rule
+    with the slice X on half A; the per-block cosine. Saves <run>/<model>_dirs8/dirs.pt."""
+    cfg, tc, a8 = C.cfg, C.cfg["told"], C.cfg["add8"]
+    gen_context(C, cfg)
+    tiny = C.A.tiny
+    t0 = time.time()
+    ddir = mdir(C, out, "dirs8")
+    ddir.mkdir(parents=True, exist_ok=True)
+    F = pool_gen_items(cfg)
+    A_ids, B_ids = load_split(cfg, F)
+    facts = [f for f in F if f["id"] in set(A_ids)][:4 if tiny else None]
+    assert facts and all(f["id"] in A_ids and f["id"] not in B_ids for f in facts)
+    last = lambda ids: torch.stack([v[-1] for _, v in sorted(source_run(C, ids)[0].items())]).float()
+    Tc = torch.stack([last(chat_ids(C.tok, f"{f['experience']} {f['question']}")) for f in facts])
+    Tn = torch.stack([last(chat_ids(C.tok, f["question"])) for f in facts])
+    d_told, sep_told = diff_means(Tc, Tn)
+    P = yaml.safe_load(open(REPO / a8["comply_pairs"]))["pairs"][:4 if tiny else None]
+    rows, keep = [], []
+    for p in P:
+        ans = {}
+        for side in ("personal", "general"):
+            o = gen_batch(C, chat_ids(C.tok, p[side]), [(True, None)], max_new=a8["comply_cap"])[0]
+            ans[side] = C.tok.decode(o["ids"], skip_special_tokens=True).strip()
+        refused, answered = bool(COMPLY_REFUSAL_RE.search(ans["personal"])), not COMPLY_REFUSAL_RE.search(ans["general"])
+        rows.append({"sec": "comply", "pair": p["id"], "personal": p["personal"], "general": p["general"],
+                     "answer_personal": ans["personal"], "answer_general": ans["general"], "refused": refused,
+                     "answered": answered, "behaves": refused and answered})
+        if refused and answered:
+            keep.append(p)
+    fallback = len(keep) < 2                 # never fails the job; recorded (all pairs are used)
+    use = P if fallback else keep
+    Cg = torch.stack([last(chat_ids(C.tok, p["general"])) for p in use])
+    Cp = torch.stack([last(chat_ids(C.tok, p["personal"])) for p in use])
+    d_comply, sep_comply = diff_means(Cg, Cp)
+    cos = torch.nn.functional.cosine_similarity(d_told, d_comply, dim=-1).tolist()
+    log(f"directions8: told on {len(facts)} half-A facts; comply {len(keep)}/{len(P)} pairs behave"
+        f"{' (fallback: all used)' if fallback else ''}; {(time.time() - t0) / 60:.1f} min")
+    sets, alphas = thirds(C.n), [1.0] if tiny else list(tc["alphas"])
+    X = C.mc["told_slice"]
+    cells = pick_grid(C, facts, X, {"told": d_told, "comply": d_comply}, sets, alphas)
+    pick, pick_c = told_pick(cells["told"], tc["min_dlp"]), told_pick(cells["comply"], tc["min_dlp"])
+    log(f"directions8: told pick {pick['set']} alpha {pick['alpha']}; comply pick {pick_c['set']} alpha {pick_c['alpha']}; "
+        f"{(time.time() - t0) / 60:.1f} min")
+    D = {"told": d_told.cpu(), "comply": d_comply.cpu(), "sep_told": sep_told, "sep_comply": sep_comply, "cos": cos,
+         "pick": pick, "cells": cells["told"], "pick_comply": pick_c, "cells_comply": cells["comply"], "slice": X,
+         "facts": [f["id"] for f in facts], "n_facts": len(facts), "split": {"A": A_ids, "B": B_ids},
+         "comply_kept": [p["id"] for p in keep], "comply_dropped": [p["id"] for p in P if p not in keep],
+         "comply_fallback": fallback}
+    torch.save(D, ddir / "dirs.pt")
+    return rows, {k: v for k, v in D.items() if k not in ("told", "comply")} | {"minutes": (time.time() - t0) / 60}, {}
 
 
 # --------------------------------------------------------------------------- judge (original) + analyze
@@ -3692,12 +4056,15 @@ def analyze_hybrid(cfg, run_dir, model_key, L, T, PD, unrel_same, leak, cm, ci, 
               + ("; only the conv buffer carries it: a short verbatim-buffer effect, not familiarity" if conv_only else ""), ""]
     add7_lines, add7 = add7_sections(cfg, run_dir, gc, X) if X else ([], {})
     L += add7_lines
+    add8_lines, add8 = add8_sections(cfg, run_dir, gc, X) if X else ([], {})
+    L += add8_lines
+    add7 = {**add7, **{f"add8/{k}": v for k, v in add8.items()}}
     is2b = model_key.startswith("qwen35")
     V = {"labels": ["reported (no subj arm on the 2B: pre-registered skip; B1-B4 not applicable)" if is2b else
                     "reported (no subj arm in this run; B1-B4 not applicable)"],
          "B": {"B6": B6}, "reported": rep_, "B5_vs_qwen25": b5, "decomp": decomp, "add7": add7}
-    add4 = gc.get("gen_set") in ("state", "text", "decomp", "refusal", "pool")
-    L[4:4] = [f"## Verdicts (PREREG addendum {({'state': '4', 'text': '5 (1) / 7 (E)', 'decomp': '6b (C)', 'refusal': '7 (B3)', 'pool': '7 (C)'}).get(gc.get('gen_set'), '3')}"
+    add4 = gc.get("gen_set") in ("state", "text", "decomp", "refusal", "pool", "refusal8", "comply")
+    L[4:4] = [f"## Verdicts (PREREG addendum {({'state': '4', 'text': '5 (1) / 7 (E)', 'decomp': '6b (C)', 'refusal': '7 (B3)', 'pool': '7 (C)', 'refusal8': '8 (2b, 3)', 'comply': '8 (3)'}).get(gc.get('gen_set'), '3')}"
               f"{', exploratory: all reported, not decisive' if add4 else ''})", "",
               ("**No subj arm on Qwen3.5-2B** (pre-registered skip: stage 0 pointer-suspected AND the analytic pre-pass "
                "said NO GAIN), so B1-B4 do not apply. B5 on the 2B is reported, not decisive." if is2b else
@@ -3871,7 +4238,8 @@ def analyze_probe(cfg, pdir, model_key):
         L.append("")
     rules = {}
     T = tabs["tf"]
-    for c in [c for c in ("R-state-only", "R-state-only-rec") if c in conds]:
+    pool = pdir.name.endswith("_probepool")
+    for c in [c for c in ("R-state-only", "R-state-only-rec") if c in conds and not pool]:
         dd = {k: st({i: m[k] - m["unrelated"] for i, m in T[c].items()}) for k in ("form", "assoc")}
         bl = st({i: m["bal_lures"] for i, m in T[c].items()})
         gist = any(d["lo"] > 0 for d in dd.values())
@@ -3891,7 +4259,8 @@ def analyze_probe(cfg, pdir, model_key):
         L += ["", f"**The 2B split replicates** (R-min-kv6 Δlog P ≥ 0.8 × ctx, its yes/no CI includes 0.5, R-state-only "
               f"yes/no CI > 0.5): {'holds' if ok else 'does not hold'}; R-min-kv6 Δlog P {fmt(kv)} vs ctx {fmt(cx)}; R-min-kv6 "
               f"bal {fmt(kb)}; R-state-only bal {fmt(sb)}"]
-    L[4:4] = ["## Rules (PREREG addendum 7)", ""] + [f"- {k}: {v.get('label') or ('holds' if v.get('holds') else 'does not hold')}"
+    L += probe_add8_sections(cfg, rows, conds, model_key, pool, rules)
+    L[4:4] = ["## Rules (PREREG addenda 7 and 8)", ""] + [f"- {k}: {v.get('label') or _lab(v.get('holds'))}"
                                                        for k, v in rules.items()] + [""]
     ck = json.load(open(pdir / "checks.json"))
     L += ["", "## Checks", "", f"- identity (R-full(-state) TF vs T-full): max {max(x['max_abs_logit_diff'] for x in ck['identity']):.2e}",
@@ -3902,6 +4271,177 @@ def analyze_probe(cfg, pdir, model_key):
     json.dump({"rules": rules}, open(out / "verdict.json", "w"), indent=2, default=str)
     log(f"probe analyze -> {out / 'report.md'}")
     return rules
+
+
+def probe_add8_sections(cfg, rows, conds, model_key, pool, rules):
+    """Addendum 8 (2a on the pool; part 6 on both): the pool lure rule on the 38 person / pet facts (2B R-state-only decides),
+    the two wordings' tables and the "verification usable" rule (decisive on Llama's primary items). Fills `rules`."""
+    nb, seed = cfg["n_boot"], cfg["seeds"]["bootstrap"]
+    st = lambda d: bind.ci(d, nb, seed)
+    fk = {r["item"]: r.get("fkind", "person") for r in rows}
+    yn = [r for r in rows if r["sec"] == "yn"]
+    L = []
+    if pool:
+        for title, keep in (("person / pet facts (decisive)", lambda i: fk[i] in ("person", "pet")),
+                            ("attribute facts (reported)", lambda i: fk[i] == "attribute")):
+            sub = [r for r in yn if keep(r["item"])]
+            T = _yn_tables(sub, conds, nb, seed, "tf")
+            L += ["", f"## Addendum 8 (2a): pool lures, TF — {title} ({len({r['item'] for r in sub})} facts)", "",
+                  "| condition | acc Yes | FY unrelated | FY form | FY binding | bal vs unrelated | bal vs form | bal vs binding |",
+                  "|---|---|---|---|---|---|---|---|"]
+            for c in conds:
+                g_ = lambda k: fmt(st({i: m.get(k, float("nan")) for i, m in T[c].items()}))
+                L.append(f"| {c} | {g_('yes')} | {g_('unrelated')} | {g_('form')} | {g_('binding')} | {g_('bal_unrelated')} | "
+                         f"{g_('bal_form')} | {g_('bal_binding')} |")
+            if title.startswith("person"):
+                for c in [c for c in ("R-state-only", "R-state-only-rec") if c in conds]:
+                    dd = st({i: m["form"] - m["unrelated"] for i, m in T[c].items() if "form" in m and "unrelated" in m})
+                    bl = st({i: m["bal_form"] for i, m in T[c].items() if "form" in m})
+                    lab = bind.recognition_rule(dd, bl)
+                    rules[f"add8/2a/{c}"] = {"label": lab, "FY form - FY unrelated": dd, "bal vs form": bl,
+                                             "decisive": c == "R-state-only"}
+                    L += ["", f"**{c}** (TF, person / pet facts{', decisive' if c == 'R-state-only' else ', reported'}): **{lab}**; "
+                          f"FY form − unrelated {fmt(dd)}, bal vs form {fmt(bl)}"]
+            L.append("")
+    tfull = "T-full" if "T-full" in conds else ("R-full-state" if "R-full-state" in conds else None)
+    told = [r for r in rows if r["sec"] == "yn_told"]
+    ch = [r for r in rows if r["sec"] == "choice"]
+    if not told and not ch:
+        return L
+    Tb, Tt = _yn_tables(yn, conds, nb, seed, "tf"), _yn_tables(told, conds, nb, seed, "tf")
+    L += ["", f"## Addendum 8 (part 6): yes/no wordings ({'pool, reported' if pool else 'primary items'}; T-full stand-in: {tfull})", "",
+          "Wording (i) = \"Based on what I told you earlier, ...\" (TF); base = addendum 7's wording (TF). Two-choice = \"... X or Y? "
+          "Answer with the name only.\", correct = the true name's first token above the foil's (TF), both orders.", "",
+          "| condition | base: bal vs unrelated | (i): acc Yes | (i): FY unrelated | (i): bal vs unrelated | (i): bal vs lures | "
+          "(ii): acc vs unrelated | (ii): vs form | (ii): vs assoc | (ii): vs binding |", "|---|---|---|---|---|---|---|---|---|---|"]
+    acc = {}
+    for c in conds:
+        per = defaultdict(lambda: defaultdict(list))
+        for r in ch:
+            if r["cond"] == c:
+                per[r["kind"]][r["item"]].append(float(r["correct"]))
+        acc[c] = {k: st({i: sum(v) / len(v) for i, v in d.items()}) for k, d in per.items()}
+        g_ = lambda T, k: fmt(st({i: m.get(k, float("nan")) for i, m in T[c].items()})) if c in T else "–"
+        a_ = lambda k: fmt(acc[c].get(k))
+        L.append(f"| {c} | {g_(Tb, 'bal_unrelated')} | {g_(Tt, 'yes')} | {g_(Tt, 'unrelated')} | {g_(Tt, 'bal_unrelated')} | "
+                 f"{g_(Tt, 'bal_lures')} | {a_('unrelated')} | {a_('form')} | {a_('assoc')} | {a_('binding')} |")
+    if tfull and "ctx" in conds:
+        bal = lambda T, c: st({i: m["bal_unrelated"] for i, m in T[c].items()})
+        dec = (not pool) and model_key.startswith("llama")
+        for w, (cx, tf_) in (("base", (bal(Tb, "ctx"), bal(Tb, tfull))), ("told (i)", (bal(Tt, "ctx"), bal(Tt, tfull))),
+                             ("two-choice (ii)", (acc["ctx"].get("unrelated"), acc[tfull].get("unrelated")))):
+            ok = bind.verification_rule(cx, tf_)
+            key = f"add8/6/{'pool/' if pool else ''}{w}"
+            rules[key] = {"holds": ok, "ctx": cx, tfull: tf_, "decisive": dec and w != "base"}
+            L += ["", f"**Verification usable, wording {w}** (ctx and {tfull} ≥ 0.9{'; decisive' if dec and w != 'base' else '; reported'}): "
+                  f"{_lab(ok)}; ctx {fmt(cx)}, {tfull} {fmt(tf_)}"
+                  + ("; the slice conditions under this wording are interpreted" if ok and dec else "")]
+    L.append("")
+    return L
+
+
+def analyze_dirs8(cfg, ddir, model_key):
+    """Addendum 8 (2b, 3): the told and comply directions (pool half A), their picks, the per-block cosine, the comply pairs."""
+    D = torch.load(ddir / "dirs.pt")
+    rows = read_jsonl_gz(ddir / "results.jsonl.gz")
+    n = len(D["sep_told"])
+    pk = lambda p: f"**{p['set']}** {p['layers']}, α = **{p['alpha']}** ({p['rule']}; prefix gain {p['score']:.2f}, Δlog P(target) {p['dlp']:.2f})"
+    L = [f"# dream_bind addendum 8 (2b, 3): told and comply directions on pool half A ({model_key})", "",
+         f"told = ctx − nomem at the direct question's last prompt token over {D['n_facts']} half-A facts; comply = general − personal "
+         f"at the last prompt token over {len(D['comply_kept'])} behaving pairs of {len(D['comply_kept']) + len(D['comply_dropped'])}"
+         f"{' (fallback: fewer than 2 behaved, all used)' if D['comply_fallback'] else ''}. Picks by addendum 7's rule with slice {D['slice']}.", "",
+         f"- told pick: {pk(D['pick'])}", f"- comply pick: {pk(D['pick_comply'])}", "",
+         "| layer set | α | told: prefix gain | told: Δlog P | comply: prefix gain | comply: Δlog P |", "|---|---|---|---|---|---|"]
+    cc = {(c["set"], c["alpha"]): c for c in D["cells_comply"]}
+    for c in D["cells"]:
+        o = cc.get((c["set"], c["alpha"]), {})
+        L.append(f"| {c['set']} | {c['alpha']} | {c['score']:.3f} | {c['dlp']:.3f} | {o.get('score', float('nan')):.3f} | "
+                 f"{o.get('dlp', float('nan')):.3f} |")
+    L += ["", "| block | separation told | separation comply | cos(told, comply) |", "|---|---|---|---|"]
+    L += [f"| {l} | {D['sep_told'][l]:.2f} | {D['sep_comply'][l]:.2f} | {D['cos'][l]:.3f} |" for l in range(n)]
+    L += ["", "## Comply pairs: behaviour under nomem (greedy)", "", "| pair | behaves | personal answer | general answer |", "|---|---|---|---|"]
+    for r in rows:
+        if r.get("sec") == "comply":
+            cut = lambda x: (x or "")[:100].replace("|", "/").replace("\n", " ")
+            L.append(f"| {r['pair']} | {r['behaves']} | {cut(r['answer_personal'])} | {cut(r['answer_general'])} |")
+    out = ddir / "analysis"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.md").write_text("\n".join(L))
+    log(f"dirs8 analyze -> {out / 'report.md'}")
+
+
+def add8_sections(cfg, run_dir, gc, X):
+    """Addendum 8 rules for gen sets refusal8 (2b + 3, pool half B) and comply (3, the primary items): addendum 7's
+    "missing told signal" and state rules, and "told vs comply". Returns (report lines, rules)."""
+    gs = gc.get("gen_set")
+    if gs not in ("refusal8", "comply") or not gc.get("told"):
+        return [], {}
+    G, nested, sel, ci, M, paired_diff = (X[k] for k in ("G", "nested", "sel", "ci", "measures", "paired_diff"))
+    tier = "pool" if gs == "refusal8" else "primary"
+    conds = list(dict.fromkeys(r["cond"] for r in G))
+    clean = M["clean (majority)"]
+    items = json.load(open(run_dir / "prep" / "items.json"))
+    Xs = gc["told"]
+    Xt, Xc = f"{Xs}+told", f"{Xs}+comply"
+    dq = lambda c, keep=None: nested([r for r in sel(c, tier, ("related",)) if keep is None or keep(r["item"])], clean)
+    us = lambda c: nested(sel(c, tier, ("use",)), clean)
+    ref_ = lambda c: nested(sel(c, tier, ("related",)), lambda r: bool(REFUSAL_RE.search(r["answer"] or "")))
+    wv = lambda c: nested(sel(c, tier, ("related",)), lambda r: r["maj"]["wrong_value"])
+    L = ["", f"## Addendum 8 ({'2b + 3: refusal arms on pool half B' if tier == 'pool' else '3: told vs comply on the primary items'})", "",
+         "| condition | direct question: clean | refusal (regex) | wrong value (judges) | use prompts: clean |", "|---|---|---|---|---|"]
+    for c in conds:
+        L.append(f"| {c} | {fmt(ci(dq(c)))} | {fmt(ci(ref_(c)))} | {fmt(ci(wv(c)))} | {fmt(ci(us(c)))} |")
+    rules = {}
+    if Xt in conds and Xs in conds:
+        a = ci(paired_diff(dq(Xt), dq(Xs)))
+        b = ci(paired_diff(dq(Xt), dq(Xt + ":rand"))) if Xt + ":rand" in conds else None
+        n = ci(paired_diff(dq(Xt), dq(Xt + ":neg"))) if Xt + ":neg" in conds else None
+        u = ci(paired_diff(us(Xt), us(Xs)))
+        ok = None if any(_na(x) for x in (a, b, n, u)) else bool(
+            a["lo"] > 0 and b["lo"] > 0 and n["lo"] > 0 and u["mean"] >= -0.1 and u["hi"] >= 0)
+        if b is not None:
+            rules["missing told signal"] = {"holds": ok, "told - slice (direct)": a, "told - rand (direct)": b,
+                                            "told - neg (direct)": n, "told - slice (use)": u}
+            L += ["", f"**Missing told signal** ({Xt} − {Xs} direct CI > 0, above :rand and :neg, use prompts not lowered): {_lab(ok)}",
+                  f"- {Xt} − {Xs} (direct): {fmt(a)}", f"- {Xt} − :rand (direct): {fmt(b)}", f"- {Xt} − :neg (direct): {fmt(n)}",
+                  f"- {Xt} − {Xs} (use): {fmt(u)}"]
+        else:
+            L += ["", f"- {Xt} − {Xs} (direct): {fmt(a)}; (use): {fmt(u)}"]
+        if "nomem+told" in conds:
+            L.append(f"- nomem+told − nomem (direct, clean): {fmt(ci(paired_diff(dq('nomem+told'), dq('nomem'))))}; wrong value "
+                     f"{fmt(ci(wv('nomem+told')))}")
+    sw, pl = "R-min-kv-own+state-swap", "R-min-kv-own+state-plac"
+    if sw in conds and pl in conds and "R-min-state" in conds:
+        r0, s_, p_ = ci(dq("R-min-state")), ci(dq(sw)), ci(dq(pl))
+        ds, dp = ci(paired_diff(dq(sw), dq("R-min-state"))), ci(paired_diff(dq(pl), dq("R-min-state")))
+        if any(_na(x) for x in (r0, s_, p_, ds, dp)):
+            lab = "n/a"
+        elif s_["mean"] >= r0["mean"] - 0.1 or p_["mean"] >= r0["mean"] - 0.1:
+            lab = "generic response mode"
+        elif ds["hi"] < 0 and dp["hi"] < 0:
+            lab = "item-specific state"
+        else:
+            lab = "in between"
+        rules["state"] = {"label": lab, "R-min-state": r0, sw: s_, pl: p_, f"{sw} - R-min-state": ds, f"{pl} - R-min-state": dp}
+        L += ["", f"**Own entries + another state** (direct question, clean; reported): **{lab}**",
+              f"- R-min-state {fmt(r0)}; {sw} {fmt(s_)} (− R-min-state {fmt(ds)}); {pl} {fmt(p_)} (− R-min-state {fmt(dp)})"]
+    if Xc in conds and Xt in conds:
+        d, t_, c_ = ci(paired_diff(dq(Xt), dq(Xc))), ci(dq(Xt)), ci(dq(Xc))
+        lab = bind.comply_rule(d, t_, c_)
+        rules["told vs comply"] = {"label": lab, f"{Xt} - {Xc} (direct)": d, Xt: t_, Xc: c_,
+                                   "decisive": tier == "pool"}
+        L += ["", f"**Told vs comply** (part 3; {'decisive on this model' if tier == 'pool' else 'reported'}): **{lab}**",
+              f"- {Xt} − {Xc} (direct): {fmt(d)}; {Xt} {fmt(t_)}, {Xc} {fmt(c_)}",
+              f"- {Xc} − {Xs} (direct): {fmt(ci(paired_diff(dq(Xc), dq(Xs))))}; (use): {fmt(ci(paired_diff(us(Xc), us(Xs))))}"]
+        if Xc + ":rand" in conds:
+            L.append(f"- {Xc} − :rand (direct): {fmt(ci(paired_diff(dq(Xc), dq(Xc + ':rand'))))}")
+    if tier == "pool":
+        L += ["", "**Direct question by kind** (clean)", "", "| condition | person | pet | attribute |", "|---|---|---|---|"]
+        for c in conds:
+            cell = lambda k: fmt(ci(dq(c, lambda i: items.get(i, {}).get("kind") == k)))
+            L.append(f"| {c} | {cell('person')} | {cell('pet')} | {cell('attribute')} |")
+    L.append("")
+    return L, rules
 
 
 def analyze_dirs(cfg, ddir, model_key):
@@ -3972,6 +4512,11 @@ def main(argv=None):
             analyze_probe(cfg, out.parent / f"{A.model}_probe", A.model)
         if (out.parent / f"{A.model}_dirs" / "dirs.pt").exists() and out.name == A.model:
             analyze_dirs(cfg, out.parent / f"{A.model}_dirs", A.model)
+        for tag in ("probepool",):          # addendum 8 (2a, part 6)
+            if (out.parent / f"{A.model}_{tag}" / "results.jsonl.gz").exists() and out.name == A.model:
+                analyze_probe(cfg, out.parent / f"{A.model}_{tag}", A.model)
+        if (out.parent / f"{A.model}_dirs8" / "dirs.pt").exists() and out.name == A.model:
+            analyze_dirs8(cfg, out.parent / f"{A.model}_dirs8", A.model)
     stages = [s for s in stages if s not in ("judge", "analyze")]
     if not stages and ("judge" in A.stage or "analyze" in A.stage):
         return
@@ -3993,8 +4538,10 @@ def main(argv=None):
             model, tok, info = load(A, cfg, mc)
             C = context(A, cfg, mc, model, tok)
             s0info = None
-            if A.items == "pool":           # addendum 7 (D): the pool facts as stage-0 items
-                assert set(stages) <= {"patch", "knockout"}, "--items pool is for stage 0 (patch / knockout)"
+            if A.items == "pool" and set(stages) == {"probe"}:   # addendum 8 (2a): stage_probe loads the pool facts
+                pass
+            elif A.items == "pool":           # addendum 7 (D): the pool facts as stage-0 items
+                assert set(stages) <= {"patch", "knockout"}, "--items pool is for stage 0 (patch / knockout) or the probe alone"
                 items, s0info = s0_pool_items(cfg, tok, A.tiny)
                 log(f"stage 0 on pool facts: {len(items)} items; counter swaps {s0info['swaps']}; excluded {s0info['excluded']}")
             coh = None
@@ -4007,8 +4554,9 @@ def main(argv=None):
                 rows, checks, layouts = fns[st](C, items, out / st)
                 checks["coherence"] = coh
                 d = {"collide": collide_dir(out) / "gen", "idrepair": sibling(out, "idrepair") / "gen",
-                     "gkey": sibling(out, "gkey") / "gen", "probe": out.parent / f"{A.model}_probe",
-                     "directions": out.parent / f"{A.model}_dirs"}.get(st, out / st)
+                     "gkey": sibling(out, "gkey") / "gen",
+                     "probe": out.parent / f"{A.model}_probe{'pool' if A.items == 'pool' else ''}",
+                     "directions": out.parent / f"{A.model}_dirs{'8' if A.dir_set == 'add8' else ''}"}.get(st, out / st)
                 d.mkdir(parents=True, exist_ok=True)
                 write_jsonl_gz(d / "results.jsonl.gz", rows)
                 json.dump(checks, open(d / "checks.json", "w"), indent=2)
