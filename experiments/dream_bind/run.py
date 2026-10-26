@@ -1801,7 +1801,10 @@ def stage_gen(C, items, out, all_items):
         checks["told_pick"] = D["pick"]
         if "pick_comply" in D:          # addendum 8: picked on pool half A; the arms run on half B / the primary items
             checks["comply_pick"] = D["pick_comply"]
-            assert not set(D["facts"]) & {it["id"] for it in items}, "the directions were picked on facts of this gen set"
+            # only the items this gen set generates for (a secondary item loaded with no secondary conditions is not
+            # generated, and the secondary items are part of the pool split; job 1088560 etc., 2026-10-25)
+            gen_ids = {it["id"] for it in items if it["tier"] != "secondary" or C.gc.secondary}
+            assert not set(D["facts"]) & gen_ids, "the directions were picked on facts of this gen set"
         for iid in sel:
             Ms[iid].told = told_specs(C, C.gc.primary, R[iid], D, cfg["told"]["rand_seed"])
         log(f"gen: told vector {D['pick']['set']} alpha {D['pick']['alpha']} from {mdir(C, out, C.gc.dirs)}")
