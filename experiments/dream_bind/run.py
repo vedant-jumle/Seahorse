@@ -4235,7 +4235,8 @@ def analyze_probe(cfg, pdir, model_key):
         L += [f"## Yes/no ({title})", "", "| condition | Δlog P(target) | Δspec | acc Yes | FY unrelated | FY form | FY assoc | "
               "FY binding | bal vs unrelated | bal vs lures |", "|---|---|---|---|---|---|---|---|---|---|"]
         for c in conds:
-            g_ = lambda k: fmt(st({i: m[k] for i, m in T[c].items()}))
+            # m.get: some pool attribute facts have no form / assoc lures (PREREG addendum 8); nan is dropped by bind.ci
+            g_ = lambda k: fmt(st({i: m.get(k, float("nan")) for i, m in T[c].items()}))
             L.append(f"| {c} | {fmt(st(dlp[c]))} | {fmt(st(dspec[c]))} | {g_('yes')} | {g_('unrelated')} | {g_('form')} | "
                      f"{g_('assoc')} | {g_('binding')} | {g_('bal_unrelated')} | {g_('bal_lures')} |")
         L.append("")
