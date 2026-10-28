@@ -1738,7 +1738,7 @@ def stage_gen(C, items, out, all_items):
     V, Vplac, R, Rinfo = {}, {}, {}, {}
     for iid in [i for i in by_id if i in need]:
         it = by_id[iid]
-        if any(c in RESID for c in C.gc.primary):
+        if any(c in RESID for c in C.gc.primary + C.gc.secondary):
             V[iid], _ = harvest(C, it, [])
             Vplac[iid], _ = harvest(C, {**it, "experience": g["placebo"]}, [])
             for d in (V[iid], Vplac[iid]):
@@ -1783,7 +1783,9 @@ def stage_gen(C, items, out, all_items):
                 assert [x for x in ri["layers"][v] if x[0] == "lin"] == [x for x in ri["head_layers"] if x[0] == "lin"]
     log(f"gen: harvest + splice checks done in {(time.time() - t0) / 60:.1f} min; max splice diff "
         f"{max(c['max_abs_logit_diff'] for c in checks['splice']):.2e}")
-    if any(c.startswith("R-min-kv-own+state") for c in C.gc.primary):   # addendum 7 (B3): own entries + another state
+    # primary + secondary: addendum 8's refusal8 lists its arms under `secondary` (the pool items' tier); with the primary
+    # list only, the told / comply / state-swap arms were silently not generated (run 2026-10-25, fixed 2026-10-28)
+    if any(c.startswith("R-min-kv-own+state") for c in C.gc.primary + C.gc.secondary):   # addendum 7 (B3): own entries + another state
         PP = turn_pieces(C.tok, g["placebo"])
         plac = run_cache(C, PP.H + PP.Seg)
         for iid in sel:
@@ -1806,7 +1808,7 @@ def stage_gen(C, items, out, all_items):
             gen_ids = {it["id"] for it in items if it["tier"] != "secondary" or C.gc.secondary}
             assert not set(D["facts"]) & gen_ids, "the directions were picked on facts of this gen set"
         for iid in sel:
-            Ms[iid].told = told_specs(C, C.gc.primary, R[iid], D, cfg["told"]["rand_seed"])
+            Ms[iid].told = told_specs(C, C.gc.primary + C.gc.secondary, R[iid], D, cfg["told"]["rand_seed"])
         log(f"gen: told vector {D['pick']['set']} alpha {D['pick']['alpha']} from {mdir(C, out, C.gc.dirs)}")
     (out / "items").mkdir(parents=True, exist_ok=True)
     (out / "unrel").mkdir(parents=True, exist_ok=True)
@@ -1834,6 +1836,8 @@ def stage_gen(C, items, out, all_items):
         for pi, (kind, text) in enumerate(prompts):
             streams = {1: (cv1.seed_of(TAG, text, seeds["base"]), S + 1), 2: (cv1.seed_of(TAG, text, seeds["second"]), S + 1)}
             res, gi = run_prompt(C, cfg, it, M, conds, text, S=S, cap=cap, streams=streams)
+            missing = [c for c in conds if c not in res]
+            assert not missing, f"{it['id']}: conditions requested but not generated: {missing}"
             nm = {(s, j): o for s, j, o in res["nomem"]}
             for c, lst in res.items():
                 for s, j, o in lst:
