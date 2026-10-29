@@ -1,7 +1,7 @@
 """Paper figures for the core_v1 write-up, built only from saved analysis outputs (no GPU).
 
 Usage:
-    python experiments/core_v1/figures.py --run results/core_v1_20261007_1820 --out writeup/figures
+    python experiments/core_v1/figures.py --run results/core_v1_20261007_1820 --out "writeup/paper 1/figures"
 
 Every figure is saved as PDF (vector, for the paper) and PNG (300 dpi, for previews).
 Palette: the dataviz reference categorical order (blue, orange, aqua, yellow), validated for CVD

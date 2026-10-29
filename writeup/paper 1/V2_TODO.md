@@ -1,6 +1,6 @@
 # Paper 1, arXiv v2: what to change
 
-*Written 2026-10-16 for a fresh session that will make the edits. Paper: "What Survives When Activation Steering Is Used as Memory", source `writeup/main.tex` (+ `refs.bib`). It is **public on arXiv**, so this is a v2. The submitted v1 source is `writeup/arxiv/arxiv_source.zip`.*
+*Written 2026-10-16 for a fresh session that will make the edits. Paper: "What Survives When Activation Steering Is Used as Memory", source `writeup/paper 1/main.tex` (+ `refs.bib`). It is **public on arXiv**, so this is a v2. The submitted v1 source is `writeup/paper 1/arxiv/arxiv_source.zip`.*
 
 Read first: `HANDOVER.md` (§1, §5 Exp 1), `docs/dreaming/01-binding.md` (Results section), `docs/dreaming/literature-exp1.md`, `docs/reference/literature.md` (groups E and F).
 
@@ -63,7 +63,7 @@ Reviewers will ask "why not store the KV cache?". Add, briefly:
 `HANDOVER.md` flagged, for the workshop cut, an **empty Appendix D header and float placement**. The appendices are A Items, B Judges, C Preliminary, D Additional figures, E Pre-registration, so D is likely "Additional figures" with floats drifting away from its header. Check in v1's PDF and fix if present (e.g. `[h!]`/`\FloatBarrier` from `placeins`, or move the floats under the header).
 
 ## Status (2026-10-16)
-- Sections 1–5 applied in commit (see git log). Both builds clean. v2 zip at `writeup/arxiv/arxiv_source_v2.zip` (git-ignored). Awaiting the user's PDF review before upload.
+- Sections 1–5 applied in commit (see git log). Both builds clean. v2 zip at `writeup/paper 1/arxiv/arxiv_source_v2.zip` (git-ignored). Awaiting the user's PDF review before upload.
 
 ## Done when
 - §1 is applied everywhere the generalisation appears.
