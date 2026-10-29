@@ -83,6 +83,9 @@ models:
                                 R2-min-sep-bothtagged-jstate, R2-min-sep-placebo-jstate, R2-minsubj-joint-jstate,
                                 R2-minsubj-sep-shift-jstate]
     collide_conds_add8pool: *c8_2b
+    # PREREG addendum 9: N = 3 / 5 stored facts in storage order (--collide-set add9; the joint DeltaNet state everywhere)
+    collide_conds_add9: [ctxN, RN-joint-state, RN-sep-shift-jstate, RN-sep-ordered-jstate, RN-sep-ordered-rev-jstate,
+                         RN-sep-placebo-jstate]
     # parts 2b + 3: the arms on pool half B (needs <run>/qwen35_2b_dirs8/dirs.pt); --gen-set refusal8
     gen_conds_refusal8:
       items: poolB
@@ -150,6 +153,8 @@ models:
                              R2-sep-placebo, R2-min-sep-tagged, R2-min-sep-bothtagged, R2-min-sep-placebo, R2-minsubj-joint,
                              R2-minsubj-sep-shift]
     collide_conds_add8pool: *c8
+    # PREREG addendum 9: N = 3 / 5 stored facts in storage order (--collide-set add9)
+    collide_conds_add9: &c9 [ctxN, RN-joint, RN-sep-shift, RN-sep-ordered, RN-sep-ordered-rev, RN-sep-placebo]
     gen_conds_refusal8: &r8
       items: poolB
       dirs: dirs8
@@ -202,6 +207,7 @@ models:
     told_slice: R-min
     collide_conds_add8: *c8
     collide_conds_add8pool: *c8
+    collide_conds_add9: *c9
     gen_conds_refusal8: *r8
     gen_conds_comply: *cp8
   # PREREG addendum 7 (F): teacher-forced probe only; fp32 on a full A100 (never fp16 on a V100)
@@ -362,6 +368,15 @@ add8:
   comply_cap: 60                               # greedy tokens for the comply behaviour check
   told_prefix: "Based on what I told you earlier, "   # part 6 wording (i)
   choice_suffix: {name: "Answer with the name only.", attribute: "Answer with one word only."}   # part 6 wording (ii)
+
+# PREREG addendum 9: N = 3 / 5 facts stored separately, in storage order (--collide-set add9). groups9.yaml is written
+# by experiments/dream_bind/add9_data.py. Member k is harvested after dummies 1 .. k-1 (add8.dummies, file order) or
+# after placebos 1 .. k-1 (below), in the same user turn; the prefix tokens are dropped at reinstatement.
+add9:
+  groups: data/bench_v1/groups9.yaml
+  placebos: ["By the way, I had a coffee this morning.", "The weather was quite windy today.",
+             "I went for a long walk after lunch.", "I still need to do the laundry tonight."]
+  eps: 1.0e-9              # rule bounds with |bound| < eps count as 0 (addendum 8's 4e-18 "lower bound > 0")
 
 # PREREG addendum 6 (Qwen2.5): (A) binding-ID repair, (B) G-key retrieval + capacity
 idrepair:

@@ -1,0 +1,1157 @@
+# dream_bind PREREG addendum 9: groups of N = 3 / N = 5 facts stored together (does storage order fix the slice
+# collision for more than two facts?). Confusable: 'eldest / middle / youngest {slot}' (7 person slots) and
+# 'first / second / third {pet}' (5 pet slots) at N = 3; 'first .. fifth {pet}' (8 pet slots) at N = 5. Different-
+# subject: distinct slots from a seeded shuffle (random.Random(10)) of the fact_pool person (no husband) and pet
+# slots, 6 groups of 3 then 4 of 5. Values drawn with random.Random(9) from add9_data.py's own lists (FEMALE9 /
+# MALE9 / PET9, by the slot's fact_pool name list), distinct across the file, in no earlier dream_bind list (no
+# fact_pool name, target, foil, counter, lure, collide / pool-pair value or dummy name), one token (leading space)
+# on the Qwen2.5, Qwen3.5 and Llama-3.2 tokenizers. Member k (1-based, the list order) is stored as the k-th fact
+# in RN-sep-ordered. Templates: the pool's person / pet kinds, ONE use prompt.
+# Written by experiments/dream_bind/add9_data.py.
+groups:
+- id: g3c_sister
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_sister_1_eldest
+    subject: eldest sister
+    slot_kind: person
+    experience: My eldest sister's name is Natalie.
+    value: ' Natalie'
+    question: What's my eldest sister's name?
+    prefix: Your eldest sister's name is
+    use:
+    - Write a short birthday message to my eldest sister.
+  - id: g3c_sister_2_middle
+    subject: middle sister
+    slot_kind: person
+    experience: My middle sister's name is Sally.
+    value: ' Sally'
+    question: What's my middle sister's name?
+    prefix: Your middle sister's name is
+    use:
+    - Write a short birthday message to my middle sister.
+  - id: g3c_sister_3_youngest
+    subject: youngest sister
+    slot_kind: person
+    experience: My youngest sister's name is Julie.
+    value: ' Julie'
+    question: What's my youngest sister's name?
+    prefix: Your youngest sister's name is
+    use:
+    - Write a short birthday message to my youngest sister.
+- id: g3c_brother
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_brother_1_eldest
+    subject: eldest brother
+    slot_kind: person
+    experience: My eldest brother's name is Harry.
+    value: ' Harry'
+    question: What's my eldest brother's name?
+    prefix: Your eldest brother's name is
+    use:
+    - Write a short birthday message to my eldest brother.
+  - id: g3c_brother_2_middle
+    subject: middle brother
+    slot_kind: person
+    experience: My middle brother's name is Josh.
+    value: ' Josh'
+    question: What's my middle brother's name?
+    prefix: Your middle brother's name is
+    use:
+    - Write a short birthday message to my middle brother.
+  - id: g3c_brother_3_youngest
+    subject: youngest brother
+    slot_kind: person
+    experience: My youngest brother's name is Tony.
+    value: ' Tony'
+    question: What's my youngest brother's name?
+    prefix: Your youngest brother's name is
+    use:
+    - Write a short birthday message to my youngest brother.
+- id: g3c_cousin
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_cousin_1_eldest
+    subject: eldest cousin
+    slot_kind: person
+    experience: My eldest cousin's name is Sam.
+    value: ' Sam'
+    question: What's my eldest cousin's name?
+    prefix: Your eldest cousin's name is
+    use:
+    - Write a short birthday message to my eldest cousin.
+  - id: g3c_cousin_2_middle
+    subject: middle cousin
+    slot_kind: person
+    experience: My middle cousin's name is Bryan.
+    value: ' Bryan'
+    question: What's my middle cousin's name?
+    prefix: Your middle cousin's name is
+    use:
+    - Write a short birthday message to my middle cousin.
+  - id: g3c_cousin_3_youngest
+    subject: youngest cousin
+    slot_kind: person
+    experience: My youngest cousin's name is Wesley.
+    value: ' Wesley'
+    question: What's my youngest cousin's name?
+    prefix: Your youngest cousin's name is
+    use:
+    - Write a short birthday message to my youngest cousin.
+- id: g3c_niece
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_niece_1_eldest
+    subject: eldest niece
+    slot_kind: person
+    experience: My eldest niece's name is Elsa.
+    value: ' Elsa'
+    question: What's my eldest niece's name?
+    prefix: Your eldest niece's name is
+    use:
+    - Write a short birthday message to my eldest niece.
+  - id: g3c_niece_2_middle
+    subject: middle niece
+    slot_kind: person
+    experience: My middle niece's name is Peggy.
+    value: ' Peggy'
+    question: What's my middle niece's name?
+    prefix: Your middle niece's name is
+    use:
+    - Write a short birthday message to my middle niece.
+  - id: g3c_niece_3_youngest
+    subject: youngest niece
+    slot_kind: person
+    experience: My youngest niece's name is Betty.
+    value: ' Betty'
+    question: What's my youngest niece's name?
+    prefix: Your youngest niece's name is
+    use:
+    - Write a short birthday message to my youngest niece.
+- id: g3c_nephew
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_nephew_1_eldest
+    subject: eldest nephew
+    slot_kind: person
+    experience: My eldest nephew's name is Logan.
+    value: ' Logan'
+    question: What's my eldest nephew's name?
+    prefix: Your eldest nephew's name is
+    use:
+    - Write a short birthday message to my eldest nephew.
+  - id: g3c_nephew_2_middle
+    subject: middle nephew
+    slot_kind: person
+    experience: My middle nephew's name is Ian.
+    value: ' Ian'
+    question: What's my middle nephew's name?
+    prefix: Your middle nephew's name is
+    use:
+    - Write a short birthday message to my middle nephew.
+  - id: g3c_nephew_3_youngest
+    subject: youngest nephew
+    slot_kind: person
+    experience: My youngest nephew's name is Miguel.
+    value: ' Miguel'
+    question: What's my youngest nephew's name?
+    prefix: Your youngest nephew's name is
+    use:
+    - Write a short birthday message to my youngest nephew.
+- id: g3c_son
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_son_1_eldest
+    subject: eldest son
+    slot_kind: person
+    experience: My eldest son's name is Brad.
+    value: ' Brad'
+    question: What's my eldest son's name?
+    prefix: Your eldest son's name is
+    use:
+    - Write a short birthday message to my eldest son.
+  - id: g3c_son_2_middle
+    subject: middle son
+    slot_kind: person
+    experience: My middle son's name is Pablo.
+    value: ' Pablo'
+    question: What's my middle son's name?
+    prefix: Your middle son's name is
+    use:
+    - Write a short birthday message to my middle son.
+  - id: g3c_son_3_youngest
+    subject: youngest son
+    slot_kind: person
+    experience: My youngest son's name is Stanley.
+    value: ' Stanley'
+    question: What's my youngest son's name?
+    prefix: Your youngest son's name is
+    use:
+    - Write a short birthday message to my youngest son.
+- id: g3c_daughter
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_daughter_1_eldest
+    subject: eldest daughter
+    slot_kind: person
+    experience: My eldest daughter's name is Lara.
+    value: ' Lara'
+    question: What's my eldest daughter's name?
+    prefix: Your eldest daughter's name is
+    use:
+    - Write a short birthday message to my eldest daughter.
+  - id: g3c_daughter_2_middle
+    subject: middle daughter
+    slot_kind: person
+    experience: My middle daughter's name is Heidi.
+    value: ' Heidi'
+    question: What's my middle daughter's name?
+    prefix: Your middle daughter's name is
+    use:
+    - Write a short birthday message to my middle daughter.
+  - id: g3c_daughter_3_youngest
+    subject: youngest daughter
+    slot_kind: person
+    experience: My youngest daughter's name is Jane.
+    value: ' Jane'
+    question: What's my youngest daughter's name?
+    prefix: Your youngest daughter's name is
+    use:
+    - Write a short birthday message to my youngest daughter.
+- id: g3c_dog
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_dog_1_first
+    subject: first dog
+    slot_kind: pet
+    experience: My first dog's name is Elvis.
+    value: ' Elvis'
+    question: What's my first dog's name?
+    prefix: Your first dog's name is
+    use:
+    - Write a short, funny poem about my first dog.
+  - id: g3c_dog_2_second
+    subject: second dog
+    slot_kind: pet
+    experience: My second dog's name is Pluto.
+    value: ' Pluto'
+    question: What's my second dog's name?
+    prefix: Your second dog's name is
+    use:
+    - Write a short, funny poem about my second dog.
+  - id: g3c_dog_3_third
+    subject: third dog
+    slot_kind: pet
+    experience: My third dog's name is Bruno.
+    value: ' Bruno'
+    question: What's my third dog's name?
+    prefix: Your third dog's name is
+    use:
+    - Write a short, funny poem about my third dog.
+- id: g3c_cat
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_cat_1_first
+    subject: first cat
+    slot_kind: pet
+    experience: My first cat's name is Bentley.
+    value: ' Bentley'
+    question: What's my first cat's name?
+    prefix: Your first cat's name is
+    use:
+    - Write a short, funny poem about my first cat.
+  - id: g3c_cat_2_second
+    subject: second cat
+    slot_kind: pet
+    experience: My second cat's name is Lola.
+    value: ' Lola'
+    question: What's my second cat's name?
+    prefix: Your second cat's name is
+    use:
+    - Write a short, funny poem about my second cat.
+  - id: g3c_cat_3_third
+    subject: third cat
+    slot_kind: pet
+    experience: My third cat's name is Kobe.
+    value: ' Kobe'
+    question: What's my third cat's name?
+    prefix: Your third cat's name is
+    use:
+    - Write a short, funny poem about my third cat.
+- id: g3c_rabbit
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_rabbit_1_first
+    subject: first rabbit
+    slot_kind: pet
+    experience: My first rabbit's name is Baxter.
+    value: ' Baxter'
+    question: What's my first rabbit's name?
+    prefix: Your first rabbit's name is
+    use:
+    - Write a short, funny poem about my first rabbit.
+  - id: g3c_rabbit_2_second
+    subject: second rabbit
+    slot_kind: pet
+    experience: My second rabbit's name is Archie.
+    value: ' Archie'
+    question: What's my second rabbit's name?
+    prefix: Your second rabbit's name is
+    use:
+    - Write a short, funny poem about my second rabbit.
+  - id: g3c_rabbit_3_third
+    subject: third rabbit
+    slot_kind: pet
+    experience: My third rabbit's name is Tucker.
+    value: ' Tucker'
+    question: What's my third rabbit's name?
+    prefix: Your third rabbit's name is
+    use:
+    - Write a short, funny poem about my third rabbit.
+- id: g3c_parrot
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_parrot_1_first
+    subject: first parrot
+    slot_kind: pet
+    experience: My first parrot's name is Holmes.
+    value: ' Holmes'
+    question: What's my first parrot's name?
+    prefix: Your first parrot's name is
+    use:
+    - Write a short, funny poem about my first parrot.
+  - id: g3c_parrot_2_second
+    subject: second parrot
+    slot_kind: pet
+    experience: My second parrot's name is Benny.
+    value: ' Benny'
+    question: What's my second parrot's name?
+    prefix: Your second parrot's name is
+    use:
+    - Write a short, funny poem about my second parrot.
+  - id: g3c_parrot_3_third
+    subject: third parrot
+    slot_kind: pet
+    experience: My third parrot's name is Sasha.
+    value: ' Sasha'
+    question: What's my third parrot's name?
+    prefix: Your third parrot's name is
+    use:
+    - Write a short, funny poem about my third parrot.
+- id: g3c_horse
+  n: 3
+  kind: confusable
+  members:
+  - id: g3c_horse_1_first
+    subject: first horse
+    slot_kind: pet
+    experience: My first horse's name is Basil.
+    value: ' Basil'
+    question: What's my first horse's name?
+    prefix: Your first horse's name is
+    use:
+    - Write a short, funny poem about my first horse.
+  - id: g3c_horse_2_second
+    subject: second horse
+    slot_kind: pet
+    experience: My second horse's name is Bowie.
+    value: ' Bowie'
+    question: What's my second horse's name?
+    prefix: Your second horse's name is
+    use:
+    - Write a short, funny poem about my second horse.
+  - id: g3c_horse_3_third
+    subject: third horse
+    slot_kind: pet
+    experience: My third horse's name is Hermes.
+    value: ' Hermes'
+    question: What's my third horse's name?
+    prefix: Your third horse's name is
+    use:
+    - Write a short, funny poem about my third horse.
+- id: g3d_1
+  n: 3
+  kind: different
+  members:
+  - id: g3d_1_1_coworker
+    subject: coworker
+    slot_kind: person
+    experience: My coworker's name is Amanda.
+    value: ' Amanda'
+    question: What's my coworker's name?
+    prefix: Your coworker's name is
+    use:
+    - Write a short birthday message to my coworker.
+  - id: g3d_1_2_dog
+    subject: dog
+    slot_kind: pet
+    experience: My dog's name is Mickey.
+    value: ' Mickey'
+    question: What's my dog's name?
+    prefix: Your dog's name is
+    use:
+    - Write a short, funny poem about my dog.
+  - id: g3d_1_3_accountant
+    subject: accountant
+    slot_kind: person
+    experience: My accountant's name is Andrea.
+    value: ' Andrea'
+    question: What's my accountant's name?
+    prefix: Your accountant's name is
+    use:
+    - Write a short birthday message to my accountant.
+- id: g3d_2
+  n: 3
+  kind: different
+  members:
+  - id: g3d_2_1_dentist
+    subject: dentist
+    slot_kind: person
+    experience: My dentist's name is Jeff.
+    value: ' Jeff'
+    question: What's my dentist's name?
+    prefix: Your dentist's name is
+    use:
+    - Write a short birthday message to my dentist.
+  - id: g3d_2_2_mother_in_law
+    subject: mother-in-law
+    slot_kind: person
+    experience: My mother-in-law's name is Sophie.
+    value: ' Sophie'
+    question: What's my mother-in-law's name?
+    prefix: Your mother-in-law's name is
+    use:
+    - Write a short birthday message to my mother-in-law.
+  - id: g3d_2_3_boss
+    subject: boss
+    slot_kind: person
+    experience: My boss's name is Susan.
+    value: ' Susan'
+    question: What's my boss's name?
+    prefix: Your boss's name is
+    use:
+    - Write a short birthday message to my boss.
+- id: g3d_3
+  n: 3
+  kind: different
+  members:
+  - id: g3d_3_1_godmother
+    subject: godmother
+    slot_kind: person
+    experience: My godmother's name is Nancy.
+    value: ' Nancy'
+    question: What's my godmother's name?
+    prefix: Your godmother's name is
+    use:
+    - Write a short birthday message to my godmother.
+  - id: g3d_3_2_horse
+    subject: horse
+    slot_kind: pet
+    experience: My horse's name is Plato.
+    value: ' Plato'
+    question: What's my horse's name?
+    prefix: Your horse's name is
+    use:
+    - Write a short, funny poem about my horse.
+  - id: g3d_3_3_aunt
+    subject: aunt
+    slot_kind: person
+    experience: My aunt's name is Jessica.
+    value: ' Jessica'
+    question: What's my aunt's name?
+    prefix: Your aunt's name is
+    use:
+    - Write a short birthday message to my aunt.
+- id: g3d_4
+  n: 3
+  kind: different
+  members:
+  - id: g3d_4_1_piano_teacher
+    subject: piano teacher
+    slot_kind: person
+    experience: My piano teacher's name is Stuart.
+    value: ' Stuart'
+    question: What's my piano teacher's name?
+    prefix: Your piano teacher's name is
+    use:
+    - Write a short birthday message to my piano teacher.
+  - id: g3d_4_2_brother
+    subject: brother
+    slot_kind: person
+    experience: My brother's name is Andy.
+    value: ' Andy'
+    question: What's my brother's name?
+    prefix: Your brother's name is
+    use:
+    - Write a short birthday message to my brother.
+  - id: g3d_4_3_rabbit
+    subject: rabbit
+    slot_kind: pet
+    experience: My rabbit's name is Juliet.
+    value: ' Juliet'
+    question: What's my rabbit's name?
+    prefix: Your rabbit's name is
+    use:
+    - Write a short, funny poem about my rabbit.
+- id: g3d_5
+  n: 3
+  kind: different
+  members:
+  - id: g3d_5_1_goldfish
+    subject: goldfish
+    slot_kind: pet
+    experience: My goldfish's name is Luigi.
+    value: ' Luigi'
+    question: What's my goldfish's name?
+    prefix: Your goldfish's name is
+    use:
+    - Write a short, funny poem about my goldfish.
+  - id: g3d_5_2_neighbour
+    subject: neighbour
+    slot_kind: person
+    experience: My neighbour's name is Joe.
+    value: ' Joe'
+    question: What's my neighbour's name?
+    prefix: Your neighbour's name is
+    use:
+    - Write a short birthday message to my neighbour.
+  - id: g3d_5_3_vet
+    subject: vet
+    slot_kind: person
+    experience: My vet's name is Mike.
+    value: ' Mike'
+    question: What's my vet's name?
+    prefix: Your vet's name is
+    use:
+    - Write a short birthday message to my vet.
+- id: g3d_6
+  n: 3
+  kind: different
+  members:
+  - id: g3d_6_1_therapist
+    subject: therapist
+    slot_kind: person
+    experience: My therapist's name is Dana.
+    value: ' Dana'
+    question: What's my therapist's name?
+    prefix: Your therapist's name is
+    use:
+    - Write a short birthday message to my therapist.
+  - id: g3d_6_2_grandfather
+    subject: grandfather
+    slot_kind: person
+    experience: My grandfather's name is Jake.
+    value: ' Jake'
+    question: What's my grandfather's name?
+    prefix: Your grandfather's name is
+    use:
+    - Write a short birthday message to my grandfather.
+  - id: g3d_6_3_best_friend
+    subject: best friend
+    slot_kind: person
+    experience: My best friend's name is Nick.
+    value: ' Nick'
+    question: What's my best friend's name?
+    prefix: Your best friend's name is
+    use:
+    - Write a short birthday message to my best friend.
+- id: g5c_dog
+  n: 5
+  kind: confusable
+  members:
+  - id: g5c_dog_1_first
+    subject: first dog
+    slot_kind: pet
+    experience: My first dog's name is Romeo.
+    value: ' Romeo'
+    question: What's my first dog's name?
+    prefix: Your first dog's name is
+    use:
+    - Write a short, funny poem about my first dog.
+  - id: g5c_dog_2_second
+    subject: second dog
+    slot_kind: pet
+    experience: My second dog's name is Darwin.
+    value: ' Darwin'
+    question: What's my second dog's name?
+    prefix: Your second dog's name is
+    use:
+    - Write a short, funny poem about my second dog.
+  - id: g5c_dog_3_third
+    subject: third dog
+    slot_kind: pet
+    experience: My third dog's name is Buster.
+    value: ' Buster'
+    question: What's my third dog's name?
+    prefix: Your third dog's name is
+    use:
+    - Write a short, funny poem about my third dog.
+  - id: g5c_dog_4_fourth
+    subject: fourth dog
+    slot_kind: pet
+    experience: My fourth dog's name is Lennon.
+    value: ' Lennon'
+    question: What's my fourth dog's name?
+    prefix: Your fourth dog's name is
+    use:
+    - Write a short, funny poem about my fourth dog.
+  - id: g5c_dog_5_fifth
+    subject: fifth dog
+    slot_kind: pet
+    experience: My fifth dog's name is Fritz.
+    value: ' Fritz'
+    question: What's my fifth dog's name?
+    prefix: Your fifth dog's name is
+    use:
+    - Write a short, funny poem about my fifth dog.
+- id: g5c_cat
+  n: 5
+  kind: confusable
+  members:
+  - id: g5c_cat_1_first
+    subject: first cat
+    slot_kind: pet
+    experience: My first cat's name is Dexter.
+    value: ' Dexter'
+    question: What's my first cat's name?
+    prefix: Your first cat's name is
+    use:
+    - Write a short, funny poem about my first cat.
+  - id: g5c_cat_2_second
+    subject: second cat
+    slot_kind: pet
+    experience: My second cat's name is Tesla.
+    value: ' Tesla'
+    question: What's my second cat's name?
+    prefix: Your second cat's name is
+    use:
+    - Write a short, funny poem about my second cat.
+  - id: g5c_cat_3_third
+    subject: third cat
+    slot_kind: pet
+    experience: My third cat's name is Hank.
+    value: ' Hank'
+    question: What's my third cat's name?
+    prefix: Your third cat's name is
+    use:
+    - Write a short, funny poem about my third cat.
+  - id: g5c_cat_4_fourth
+    subject: fourth cat
+    slot_kind: pet
+    experience: My fourth cat's name is Tango.
+    value: ' Tango'
+    question: What's my fourth cat's name?
+    prefix: Your fourth cat's name is
+    use:
+    - Write a short, funny poem about my fourth cat.
+  - id: g5c_cat_5_fifth
+    subject: fifth cat
+    slot_kind: pet
+    experience: My fifth cat's name is Atlas.
+    value: ' Atlas'
+    question: What's my fifth cat's name?
+    prefix: Your fifth cat's name is
+    use:
+    - Write a short, funny poem about my fifth cat.
+- id: g5c_rabbit
+  n: 5
+  kind: confusable
+  members:
+  - id: g5c_rabbit_1_first
+    subject: first rabbit
+    slot_kind: pet
+    experience: My first rabbit's name is Teddy.
+    value: ' Teddy'
+    question: What's my first rabbit's name?
+    prefix: Your first rabbit's name is
+    use:
+    - Write a short, funny poem about my first rabbit.
+  - id: g5c_rabbit_2_second
+    subject: second rabbit
+    slot_kind: pet
+    experience: My second rabbit's name is Oprah.
+    value: ' Oprah'
+    question: What's my second rabbit's name?
+    prefix: Your second rabbit's name is
+    use:
+    - Write a short, funny poem about my second rabbit.
+  - id: g5c_rabbit_3_third
+    subject: third rabbit
+    slot_kind: pet
+    experience: My third rabbit's name is Clover.
+    value: ' Clover'
+    question: What's my third rabbit's name?
+    prefix: Your third rabbit's name is
+    use:
+    - Write a short, funny poem about my third rabbit.
+  - id: g5c_rabbit_4_fourth
+    subject: fourth rabbit
+    slot_kind: pet
+    experience: My fourth rabbit's name is Jupiter.
+    value: ' Jupiter'
+    question: What's my fourth rabbit's name?
+    prefix: Your fourth rabbit's name is
+    use:
+    - Write a short, funny poem about my fourth rabbit.
+  - id: g5c_rabbit_5_fifth
+    subject: fifth rabbit
+    slot_kind: pet
+    experience: My fifth rabbit's name is Bingo.
+    value: ' Bingo'
+    question: What's my fifth rabbit's name?
+    prefix: Your fifth rabbit's name is
+    use:
+    - Write a short, funny poem about my fifth rabbit.
+- id: g5c_parrot
+  n: 5
+  kind: confusable
+  members:
+  - id: g5c_parrot_1_first
+    subject: first parrot
+    slot_kind: pet
+    experience: My first parrot's name is Orion.
+    value: ' Orion'
+    question: What's my first parrot's name?
+    prefix: Your first parrot's name is
+    use:
+    - Write a short, funny poem about my first parrot.
+  - id: g5c_parrot_2_second
+    subject: second parrot
+    slot_kind: pet
+    experience: My second parrot's name is Tyson.
+    value: ' Tyson'
+    question: What's my second parrot's name?
+    prefix: Your second parrot's name is
+    use:
+    - Write a short, funny poem about my second parrot.
+  - id: g5c_parrot_3_third
+    subject: third parrot
+    slot_kind: pet
+    experience: My third parrot's name is Harley.
+    value: ' Harley'
+    question: What's my third parrot's name?
+    prefix: Your third parrot's name is
+    use:
+    - Write a short, funny poem about my third parrot.
+  - id: g5c_parrot_4_fourth
+    subject: fourth parrot
+    slot_kind: pet
+    experience: My fourth parrot's name is Nova.
+    value: ' Nova'
+    question: What's my fourth parrot's name?
+    prefix: Your fourth parrot's name is
+    use:
+    - Write a short, funny poem about my fourth parrot.
+  - id: g5c_parrot_5_fifth
+    subject: fifth parrot
+    slot_kind: pet
+    experience: My fifth parrot's name is Merlin.
+    value: ' Merlin'
+    question: What's my fifth parrot's name?
+    prefix: Your fifth parrot's name is
+    use:
+    - Write a short, funny poem about my fifth parrot.
+- id: g5c_horse
+  n: 5
+  kind: confusable
+  members:
+  - id: g5c_horse_1_first
+    subject: first horse
+    slot_kind: pet
+    experience: My first horse's name is Zelda.
+    value: ' Zelda'
+    question: What's my first horse's name?
+    prefix: Your first horse's name is
+    use:
+    - Write a short, funny poem about my first horse.
+  - id: g5c_horse_2_second
+    subject: second horse
+    slot_kind: pet
+    experience: My second horse's name is Pip.
+    value: ' Pip'
+    question: What's my second horse's name?
+    prefix: Your second horse's name is
+    use:
+    - Write a short, funny poem about my second horse.
+  - id: g5c_horse_3_third
+    subject: third horse
+    slot_kind: pet
+    experience: My third horse's name is Willow.
+    value: ' Willow'
+    question: What's my third horse's name?
+    prefix: Your third horse's name is
+    use:
+    - Write a short, funny poem about my third horse.
+  - id: g5c_horse_4_fourth
+    subject: fourth horse
+    slot_kind: pet
+    experience: My fourth horse's name is Taco.
+    value: ' Taco'
+    question: What's my fourth horse's name?
+    prefix: Your fourth horse's name is
+    use:
+    - Write a short, funny poem about my fourth horse.
+  - id: g5c_horse_5_fifth
+    subject: fifth horse
+    slot_kind: pet
+    experience: My fifth horse's name is Phoenix.
+    value: ' Phoenix'
+    question: What's my fifth horse's name?
+    prefix: Your fifth horse's name is
+    use:
+    - Write a short, funny poem about my fifth horse.
+- id: g5c_hamster
+  n: 5
+  kind: confusable
+  members:
+  - id: g5c_hamster_1_first
+    subject: first hamster
+    slot_kind: pet
+    experience: My first hamster's name is Diesel.
+    value: ' Diesel'
+    question: What's my first hamster's name?
+    prefix: Your first hamster's name is
+    use:
+    - Write a short, funny poem about my first hamster.
+  - id: g5c_hamster_2_second
+    subject: second hamster
+    slot_kind: pet
+    experience: My second hamster's name is Watson.
+    value: ' Watson'
+    question: What's my second hamster's name?
+    prefix: Your second hamster's name is
+    use:
+    - Write a short, funny poem about my second hamster.
+  - id: g5c_hamster_3_third
+    subject: third hamster
+    slot_kind: pet
+    experience: My third hamster's name is Murphy.
+    value: ' Murphy'
+    question: What's my third hamster's name?
+    prefix: Your third hamster's name is
+    use:
+    - Write a short, funny poem about my third hamster.
+  - id: g5c_hamster_4_fourth
+    subject: fourth hamster
+    slot_kind: pet
+    experience: My fourth hamster's name is Riley.
+    value: ' Riley'
+    question: What's my fourth hamster's name?
+    prefix: Your fourth hamster's name is
+    use:
+    - Write a short, funny poem about my fourth hamster.
+  - id: g5c_hamster_5_fifth
+    subject: fifth hamster
+    slot_kind: pet
+    experience: My fifth hamster's name is Saturn.
+    value: ' Saturn'
+    question: What's my fifth hamster's name?
+    prefix: Your fifth hamster's name is
+    use:
+    - Write a short, funny poem about my fifth hamster.
+- id: g5c_goldfish
+  n: 5
+  kind: confusable
+  members:
+  - id: g5c_goldfish_1_first
+    subject: first goldfish
+    slot_kind: pet
+    experience: My first goldfish's name is Domino.
+    value: ' Domino'
+    question: What's my first goldfish's name?
+    prefix: Your first goldfish's name is
+    use:
+    - Write a short, funny poem about my first goldfish.
+  - id: g5c_goldfish_2_second
+    subject: second goldfish
+    slot_kind: pet
+    experience: My second goldfish's name is Bach.
+    value: ' Bach'
+    question: What's my second goldfish's name?
+    prefix: Your second goldfish's name is
+    use:
+    - Write a short, funny poem about my second goldfish.
+  - id: g5c_goldfish_3_third
+    subject: third goldfish
+    slot_kind: pet
+    experience: My third goldfish's name is Cooper.
+    value: ' Cooper'
+    question: What's my third goldfish's name?
+    prefix: Your third goldfish's name is
+    use:
+    - Write a short, funny poem about my third goldfish.
+  - id: g5c_goldfish_4_fourth
+    subject: fourth goldfish
+    slot_kind: pet
+    experience: My fourth goldfish's name is Polly.
+    value: ' Polly'
+    question: What's my fourth goldfish's name?
+    prefix: Your fourth goldfish's name is
+    use:
+    - Write a short, funny poem about my fourth goldfish.
+  - id: g5c_goldfish_5_fifth
+    subject: fifth goldfish
+    slot_kind: pet
+    experience: My fifth goldfish's name is Ember.
+    value: ' Ember'
+    question: What's my fifth goldfish's name?
+    prefix: Your fifth goldfish's name is
+    use:
+    - Write a short, funny poem about my fifth goldfish.
+- id: g5c_tortoise
+  n: 5
+  kind: confusable
+  members:
+  - id: g5c_tortoise_1_first
+    subject: first tortoise
+    slot_kind: pet
+    experience: My first tortoise's name is Kirby.
+    value: ' Kirby'
+    question: What's my first tortoise's name?
+    prefix: Your first tortoise's name is
+    use:
+    - Write a short, funny poem about my first tortoise.
+  - id: g5c_tortoise_2_second
+    subject: second tortoise
+    slot_kind: pet
+    experience: My second tortoise's name is Newton.
+    value: ' Newton'
+    question: What's my second tortoise's name?
+    prefix: Your second tortoise's name is
+    use:
+    - Write a short, funny poem about my second tortoise.
+  - id: g5c_tortoise_3_third
+    subject: third tortoise
+    slot_kind: pet
+    experience: My third tortoise's name is Bert.
+    value: ' Bert'
+    question: What's my third tortoise's name?
+    prefix: Your third tortoise's name is
+    use:
+    - Write a short, funny poem about my third tortoise.
+  - id: g5c_tortoise_4_fourth
+    subject: fourth tortoise
+    slot_kind: pet
+    experience: My fourth tortoise's name is Gus.
+    value: ' Gus'
+    question: What's my fourth tortoise's name?
+    prefix: Your fourth tortoise's name is
+    use:
+    - Write a short, funny poem about my fourth tortoise.
+  - id: g5c_tortoise_5_fifth
+    subject: fifth tortoise
+    slot_kind: pet
+    experience: My fifth tortoise's name is Raven.
+    value: ' Raven'
+    question: What's my fifth tortoise's name?
+    prefix: Your fifth tortoise's name is
+    use:
+    - Write a short, funny poem about my fifth tortoise.
+- id: g5d_1
+  n: 5
+  kind: different
+  members:
+  - id: g5d_1_1_cousin
+    subject: cousin
+    slot_kind: person
+    experience: My cousin's name is Igor.
+    value: ' Igor'
+    question: What's my cousin's name?
+    prefix: Your cousin's name is
+    use:
+    - Write a short birthday message to my cousin.
+  - id: g5d_1_2_niece
+    subject: niece
+    slot_kind: person
+    experience: My niece's name is Karen.
+    value: ' Karen'
+    question: What's my niece's name?
+    prefix: Your niece's name is
+    use:
+    - Write a short birthday message to my niece.
+  - id: g5d_1_3_stepfather
+    subject: stepfather
+    slot_kind: person
+    experience: My stepfather's name is Lloyd.
+    value: ' Lloyd'
+    question: What's my stepfather's name?
+    prefix: Your stepfather's name is
+    use:
+    - Write a short birthday message to my stepfather.
+  - id: g5d_1_4_daughter
+    subject: daughter
+    slot_kind: person
+    experience: My daughter's name is Holly.
+    value: ' Holly'
+    question: What's my daughter's name?
+    prefix: Your daughter's name is
+    use:
+    - Write a short birthday message to my daughter.
+  - id: g5d_1_5_tortoise
+    subject: tortoise
+    slot_kind: pet
+    experience: My tortoise's name is Cher.
+    value: ' Cher'
+    question: What's my tortoise's name?
+    prefix: Your tortoise's name is
+    use:
+    - Write a short, funny poem about my tortoise.
+- id: g5d_2
+  n: 5
+  kind: different
+  members:
+  - id: g5d_2_1_doctor
+    subject: doctor
+    slot_kind: person
+    experience: My doctor's name is Monica.
+    value: ' Monica'
+    question: What's my doctor's name?
+    prefix: Your doctor's name is
+    use:
+    - Write a short birthday message to my doctor.
+  - id: g5d_2_2_grandmother
+    subject: grandmother
+    slot_kind: person
+    experience: My grandmother's name is Isabel.
+    value: ' Isabel'
+    question: What's my grandmother's name?
+    prefix: Your grandmother's name is
+    use:
+    - Write a short birthday message to my grandmother.
+  - id: g5d_2_3_parrot
+    subject: parrot
+    slot_kind: pet
+    experience: My parrot's name is Yoshi.
+    value: ' Yoshi'
+    question: What's my parrot's name?
+    prefix: Your parrot's name is
+    use:
+    - Write a short, funny poem about my parrot.
+  - id: g5d_2_4_father
+    subject: father
+    slot_kind: person
+    experience: My father's name is Leonard.
+    value: ' Leonard'
+    question: What's my father's name?
+    prefix: Your father's name is
+    use:
+    - Write a short birthday message to my father.
+  - id: g5d_2_5_son
+    subject: son
+    slot_kind: person
+    experience: My son's name is Nigel.
+    value: ' Nigel'
+    question: What's my son's name?
+    prefix: Your son's name is
+    use:
+    - Write a short birthday message to my son.
+- id: g5d_3
+  n: 5
+  kind: different
+  members:
+  - id: g5d_3_1_childhood_friend
+    subject: childhood friend
+    slot_kind: person
+    experience: My childhood friend's name is Sandra.
+    value: ' Sandra'
+    question: What's my childhood friend's name?
+    prefix: Your childhood friend's name is
+    use:
+    - Write a short birthday message to my childhood friend.
+  - id: g5d_3_2_uncle
+    subject: uncle
+    slot_kind: person
+    experience: My uncle's name is Larry.
+    value: ' Larry'
+    question: What's my uncle's name?
+    prefix: Your uncle's name is
+    use:
+    - Write a short birthday message to my uncle.
+  - id: g5d_3_3_babysitter
+    subject: babysitter
+    slot_kind: person
+    experience: My babysitter's name is Carol.
+    value: ' Carol'
+    question: What's my babysitter's name?
+    prefix: Your babysitter's name is
+    use:
+    - Write a short birthday message to my babysitter.
+  - id: g5d_3_4_landlord
+    subject: landlord
+    slot_kind: person
+    experience: My landlord's name is Boris.
+    value: ' Boris'
+    question: What's my landlord's name?
+    prefix: Your landlord's name is
+    use:
+    - Write a short birthday message to my landlord.
+  - id: g5d_3_5_hamster
+    subject: hamster
+    slot_kind: pet
+    experience: My hamster's name is Nero.
+    value: ' Nero'
+    question: What's my hamster's name?
+    prefix: Your hamster's name is
+    use:
+    - Write a short, funny poem about my hamster.
+- id: g5d_4
+  n: 5
+  kind: different
+  members:
+  - id: g5d_4_1_guinea_pig
+    subject: guinea pig
+    slot_kind: pet
+    experience: My guinea pig's name is Mario.
+    value: ' Mario'
+    question: What's my guinea pig's name?
+    prefix: Your guinea pig's name is
+    use:
+    - Write a short, funny poem about my guinea pig.
+  - id: g5d_4_2_nephew
+    subject: nephew
+    slot_kind: person
+    experience: My nephew's name is Luke.
+    value: ' Luke'
+    question: What's my nephew's name?
+    prefix: Your nephew's name is
+    use:
+    - Write a short birthday message to my nephew.
+  - id: g5d_4_3_roommate
+    subject: roommate
+    slot_kind: person
+    experience: My roommate's name is Claire.
+    value: ' Claire'
+    question: What's my roommate's name?
+    prefix: Your roommate's name is
+    use:
+    - Write a short birthday message to my roommate.
+  - id: g5d_4_4_hairdresser
+    subject: hairdresser
+    slot_kind: person
+    experience: My hairdresser's name is Sean.
+    value: ' Sean'
+    question: What's my hairdresser's name?
+    prefix: Your hairdresser's name is
+    use:
+    - Write a short birthday message to my hairdresser.
+  - id: g5d_4_5_personal_trainer
+    subject: personal trainer
+    slot_kind: person
+    experience: My personal trainer's name is Craig.
+    value: ' Craig'
+    question: What's my personal trainer's name?
+    prefix: Your personal trainer's name is
+    use:
+    - Write a short birthday message to my personal trainer.
