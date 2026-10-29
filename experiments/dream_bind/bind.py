@@ -1000,3 +1000,86 @@ def verification_rule(ctx, tfull, thr=0.9):
     if _nan(ctx, tfull):
         return None
     return bool(ctx["mean"] >= thr and tfull["mean"] >= thr)
+
+
+# =============================================================== addendum 9: N stored facts in storage order
+
+
+def dummy_sentence(d):
+    """A dummy fact sentence "My {slot}'s name is {name}." (dummy_pairs.yaml entry)."""
+    return f"My {d['slot']}'s name is {d['name']}."
+
+
+def group_prefixes(n, dummies, placebos):
+    """Addendum 9: the prefix sentence(s) of members 1..n (0-based index k): dummies 1..k (file order) / placebos 1..k,
+    joined by single spaces; member 1's prefix is '' (stored alone). Returns (ordered prefixes, placebo prefixes)."""
+    assert n - 1 <= len(dummies) and n - 1 <= len(placebos), (n, len(dummies), len(placebos))
+    return ([" ".join(dummy_sentence(dummies[j]) for j in range(k)) for k in range(n)],
+            [" ".join(placebos[:k]) for k in range(n)])
+
+
+def group_layout(nh, h, ns, srcs, ds, order=None, head="S0"):
+    """Addendum 9: the shift layout of N members' turns. ns[k] = member k's standalone turn length; srcs[k] / ds[k] = the
+    harvest member k's entries are read from and the prefix tokens dropped there (see `place`); order = the layout order of
+    the member indices (default 0..N-1; reversed for RN-sep-ordered-rev): the first member in `order` sits at nh .., the
+    next right after it, ... The head's entries come from `head`. Returns (parts, question start nh + sum(ns))."""
+    order = list(range(len(ns))) if order is None else list(order)
+    assert sorted(order) == list(range(len(ns))) and len(srcs) == len(ds) == len(ns)
+    parts, base = [(head, list(range(nh)), 0)], nh
+    for k in order:
+        parts += place(srcs[k], nh, range(ns[k]), h, ds[k], base)
+        base += ns[k]
+    return merge_parts(parts), base
+
+
+def group_plans(nh, h, ns, d_ord, d_plac):
+    """Addendum 9 plans for one group of N members. Sources: 'J' = [head][turn 1]..[turn N] (one session); 'S{k}' = member
+    k's standalone harvest [head][turn k]; 'O{k}' (k >= 1) = member k's turn after dummies 1..k (0-based: d_ord[k] dropped
+    tokens); 'P{k}' = after placebos 1..k (d_plac[k]); 'Z{k}' = member k harvested with an EMPTY prefix through the tagged
+    code path (the zero-dummy check: RN-sep-ordered@0 == RN-sep-shift). Member 1 (k = 0) has no prefix: its ordered /
+    placebo entries are its standalone harvest 'S0'."""
+    N = len(ns)
+    assert d_ord[0] == 0 and d_plac[0] == 0 and len(d_ord) == len(d_plac) == N
+    S = [f"S{k}" for k in range(N)]
+    O = ["S0"] + [f"O{k}" for k in range(1, N)]
+    P = ["S0"] + [f"P{k}" for k in range(1, N)]
+    Z = [f"Z{k}" for k in range(N)]
+    sh = nh + sum(ns)
+    return {"RN-joint": ([("J", list(range(sh)), 0)], sh),
+            "RN-sep-shift": group_layout(nh, h, ns, S, [0] * N),
+            "RN-sep-ordered": group_layout(nh, h, ns, O, d_ord),
+            "RN-sep-ordered-rev": group_layout(nh, h, ns, O, d_ord, order=range(N - 1, -1, -1)),
+            "RN-sep-placebo": group_layout(nh, h, ns, P, d_plac),
+            "RN-sep-ordered@0": group_layout(nh, h, ns, Z, [0] * N)}
+
+
+def hybrid_group_names(base):
+    """2B names (addendum 9): every RN condition with the JOINT DeltaNet state of all N turns ('-jstate'; RN-joint ->
+    RN-joint-state). Returns {name: (base plan key, lin source)}."""
+    return {("RN-joint-state" if b == "RN-joint" else f"{b}-jstate"): (b, "J") for b in base}
+
+
+def has_word(text, w):
+    """w as a whole word in text (case-insensitive; '-' counts as a word character), as run._has_word."""
+    return bool(re.search(rf"(?<![\w-]){re.escape(w.strip())}(?![\w-])", text or "", re.I))
+
+
+def group_confusion(answer, own, others):
+    """Addendum 9 partner confusion, generalised to N members: some other member's value is in the answer and the member's
+    own value is not (for N = 2 it is addendum 5's measure)."""
+    return any(has_word(answer, o) for o in others) and not has_word(answer, own)
+
+
+def snap(x, eps=1e-9):
+    """A CI bound with |x| < eps counts as 0 (addendum 9's statistics note: addendum 8 printed a 4e-18 bound as '> 0')."""
+    return 0.0 if abs(x) < eps else x
+
+
+def order_rule(d_ord_sep, c_ord, c_joint, eps=1e-9):
+    """Addendum 9 "storage order scales": (RN-sep-ordered - RN-sep-shift) partner confusion paired CI hi < 0 AND
+    RN-sep-ordered's confusion CI overlaps RN-joint's; every bound snapped to 0 within eps. None if any input is missing."""
+    if _nan(d_ord_sep, c_ord, c_joint):
+        return None
+    z = lambda x: snap(x, eps)
+    ov = z(c_ord["lo"]) <= z(c_joint["hi"]) and z(c_joint["lo"]) <= z(c_ord["hi"])
+    return bool(z(d_ord_sep["hi"]) < 0 and ov)

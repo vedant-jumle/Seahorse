@@ -1345,3 +1345,215 @@ def test_probe_add8_and_directions8(tiny_real_tok, tmp_path):
     finally:
         C.A.items, C.A.probe_set, C.A.dir_set = "main", None, None
         C.mc = {**CFG["models"]["qwen25_15b"]}
+
+
+# ================================================= addendum 9: N = 3 / 5 stored facts in storage order
+
+
+ADD9 = _load("test_dream_bind_add9_data", EXP / "add9_data.py")
+
+
+def _ren(parts, m):
+    return [(m.get(s, s), i, sh) for s, i, sh in bind.flat_parts(parts)]
+
+
+def _blocks(parts, nh):
+    """The flattened entries after the head, split into consecutive runs of one source: [(source, [(index, shift)])]."""
+    out = []
+    for s, i, sh in bind.flat_parts(parts)[nh:]:
+        if out and out[-1][0] == s:
+            out[-1][1].append((i, sh))
+        else:
+            out.append((s, [(i, sh)]))
+    return out
+
+
+def test_group_plans_identities():
+    """Zero dropped tokens: ordered / placebo / @0 flatten to RN-sep-shift; dropped tokens: the kept entries land
+    contiguously member by member; rev = the same entries in reversed member order; N = 2 == addendum 8's plans."""
+    nh, h, ns = 3, 2, [9, 10, 8]
+    Z = bind.group_plans(nh, h, ns, [0, 0, 0], [0, 0, 0])
+    sh = bind.flat_parts(Z["RN-sep-shift"][0])
+    assert _ren(Z["RN-sep-ordered"][0], {"O1": "S1", "O2": "S2"}) == sh
+    assert _ren(Z["RN-sep-placebo"][0], {"P1": "S1", "P2": "S2"}) == sh
+    assert _ren(Z["RN-sep-ordered@0"][0], {"Z0": "S0", "Z1": "S1", "Z2": "S2"}) == sh
+    assert Z["RN-sep-shift"][0] == [("S0", list(range(nh + 9)), 0), ("S1", list(range(nh, nh + 10)), 9),
+                                    ("S2", list(range(nh, nh + 8)), 19)]
+    assert Z["RN-joint"] == ([("J", list(range(nh + 27)), 0)], nh + 27) and all(Z[k][1] == nh + 27 for k in Z)
+    D = bind.group_plans(nh, h, ns, [0, 7, 14], [0, 5, 11])
+    for c in ("RN-sep-ordered", "RN-sep-ordered-rev", "RN-sep-placebo"):
+        assert sorted(i + s for _, i, s in bind.flat_parts(D[c][0])) == list(range(nh + 27)), c
+    assert [i + s for _, i, s in bind.flat_parts(D["RN-sep-ordered"][0])] == list(range(nh + 27))
+    f2 = [i for s, i, _ in bind.flat_parts(D["RN-sep-ordered"][0]) if s == "O2"]
+    assert f2 == list(range(nh, nh + h)) + list(range(nh + h + 14, nh + 8 + 14))      # the 14 dummy tokens skipped
+    # rev: the same (source, index) entries; member blocks in reversed order; each block contiguous at its new base
+    bo, br = _blocks(D["RN-sep-ordered"][0], nh), _blocks(D["RN-sep-ordered-rev"][0], nh)
+    assert [s for s, _ in bo] == ["S0", "O1", "O2"] and [s for s, _ in br] == ["O2", "O1", "S0"]
+    assert all([i for i, _ in dict(bo)[s]] == [i for i, _ in dict(br)[s]] for s in ("S0", "O1", "O2"))
+    assert bind.flat_parts(D["RN-sep-ordered-rev"][0])[:nh] == [("S0", i, 0) for i in range(nh)]
+    base = nh
+    for s, ent in br:
+        assert [i + x for i, x in ent] == list(range(base, base + len(ent)))
+        base += len(ent)
+    assert D["RN-sep-ordered-rev"][1] == D["RN-sep-ordered"][1] == nh + 27
+    # N = 2: the ordered / placebo / shift / joint plans are addendum 8's / addendum 5's (sources renamed)
+    nA, nB, aA, aB = 9, 9, 6, 6
+    P2 = bind.group_plans(nh, h, [nA, nB], [0, 7], [0, 4])
+    A8 = bind.add8_plan(nh, nA, nB, aA, aB, [3, 4], [3, 4], h, 5, 7, 4)
+    PP = bind.pair_plan(nh, nA, nB, aA, aB)
+    m = {"S0": "A", "S1": "B", "O1": "Bt", "P1": "Bp"}
+    assert _ren(P2["RN-sep-ordered"][0], m) == bind.flat_parts(A8["R2-sep-tagged"][0])
+    assert _ren(P2["RN-sep-placebo"][0], m) == bind.flat_parts(A8["R2-sep-placebo"][0])
+    assert _ren(P2["RN-sep-shift"][0], m) == bind.flat_parts(PP["R2-sep-shift"][0])
+    assert _ren(P2["RN-joint"][0], m) == bind.flat_parts(PP["R2-joint"][0])
+    assert P2["RN-sep-ordered"][1] == A8["R2-sep-tagged"][1] == PP["R2-sep-shift"][1]
+    with pytest.raises(AssertionError):
+        bind.group_plans(nh, h, ns, [1, 7, 14], [0, 5, 11])                       # member 1 has no prefix
+    nm = bind.hybrid_group_names(Z)
+    assert nm["RN-joint-state"] == ("RN-joint", "J") and nm["RN-sep-ordered-rev-jstate"] == ("RN-sep-ordered-rev", "J")
+    assert set(CFG["models"]["qwen35_2b"]["collide_conds_add9"]) - {"ctxN"} <= set(nm)
+    assert set(CFG["models"]["qwen25_15b"]["collide_conds_add9"]) - {"ctxN"} <= set(Z)
+    assert CFG["models"]["llama32_3b"]["collide_conds_add9"] == CFG["models"]["qwen25_15b"]["collide_conds_add9"]
+
+
+def test_group_prefixes_confusion_and_order_rule():
+    D = _y("dummy_pairs.yaml")["dummies"]
+    pl = CFG["add9"]["placebos"]
+    po, pp = bind.group_prefixes(5, D, pl)
+    assert po[0] == pp[0] == "" and po[1] == "My gardener's name is Brian."
+    assert po[4] == "My gardener's name is Brian. My mechanic's name is Keith. My postman's name is Derek. My locksmith's name is Trevor."
+    assert pp[2] == "By the way, I had a coffee this morning. The weather was quite windy today." and len(pl) == 4
+    assert pl[0] == CFG["gen"]["placebo"]
+    with pytest.raises(AssertionError):
+        bind.group_prefixes(6, D[:4], pl)
+    gc = bind.group_confusion
+    assert gc("Your third dog is called Bruno!", " Elvis", [" Pluto", " Bruno"])
+    assert not gc("Elvis and Bruno", " Elvis", [" Bruno"]) and not gc("Happy birthday!", " Elvis", [" Bruno"])
+    assert not gc("Brunos are great", " Elvis", [" Bruno"]) and gc("bruno", " Elvis", [" Bruno"])
+    assert not gc("Mary-Bruno", " Elvis", [" Bruno"])
+    for ans in ("Your sister is Maria.", "Petra and Maria", "Petra", "nothing", "MARIA!"):
+        assert gc(ans, " Petra", [" Maria"]) == (run._has_word(ans, " Maria") and not run._has_word(ans, " Petra"))
+    c = lambda m, lo, hi: {"mean": m, "lo": lo, "hi": hi, "n": 10}
+    nan = c(float("nan"), float("nan"), float("nan"))
+    j = c(0.02, 0.0, 0.05)
+    assert bind.order_rule(c(-0.2, -0.3, -0.1), c(0.05, 0.0, 0.1), j)
+    assert not bind.order_rule(c(-0.2, -0.3, 1e-3), c(0.05, 0.0, 0.1), j)
+    assert not bind.order_rule(c(-0.2, -0.3, -4e-18), c(0.05, 0.0, 0.1), j)    # a floating-point zero is not < 0
+    assert not bind.order_rule(c(-0.2, -0.3, -0.1), c(0.3, 0.2, 0.4), j)       # no overlap with the joint
+    assert bind.order_rule(c(-0.2, -0.3, -0.1), c(0.1, 4e-18, 0.2), c(0.0, -1e-12, -3e-18))   # touching at 0 overlaps
+    assert bind.order_rule(nan, j, j) is None
+    assert bind.snap(4e-18) == 0.0 and bind.snap(-0.01) == -0.01 and CFG["add9"]["eps"] == 1e-9
+
+
+def test_groups9_file():
+    """The groups file: pre-registered counts, distinct values in no earlier list, the subject phrases, one token on all
+    three tokenizers (those in the local cache), and the deterministic rebuild (add9_data.py --check)."""
+    G = run.group_items(CFG)
+    ms = [m for *_, M in G for m in M]
+    vals = [m["value"] for m in ms]
+    assert len(G) == 30 and len(ms) == 114 and len({v.lower() for v in vals}) == 114
+    used = ADD9.used_names(CFG)
+    assert not {v.strip().lower() for v in vals} & used
+    assert not {v.strip().lower() for v in vals} & ADD8.test_names(CFG)
+    D = _y("dummy_pairs.yaml")["dummies"]
+    assert not {v.strip().lower() for v in vals} & {d["name"].lower() for d in D}
+    for gid, n, kind, M in G:
+        assert len(M) == n and [m["k"] for m in M] == list(range(1, n + 1))
+        for m in M:
+            a, b = bind.subject_phrase(m["experience"])
+            assert m["experience"][a:b] == m["subject"] and m["value"].startswith(" ") and len(m["use"]) == 1
+            assert m["experience"] == f"My {m['subject']}'s name is {m['value'].strip()}."
+            assert m["question"] == f"What's my {m['subject']}'s name?" and m["prefix"] == f"Your {m['subject']}'s name is"
+            assert sorted(m["others"]) == sorted(x["value"] for x in M if x is not m) and m["value"] not in m["others"]
+            assert m["subject"] in m["use"][0] and not run._has_word(m["use"][0], m["value"])
+        if kind == "confusable":
+            words = [m["subject"].split()[0] for m in M]
+            assert words == (["eldest", "middle", "youngest"] if M[0]["slot_kind"] == "person" else ADD9.PET_ORD[:n])
+    assert [g[0] for g in run.group_items(CFG, tiny=True)] == ["g3c_sister", "g3d_1", "g5c_dog", "g5d_1"]
+    toks = [t for t in (_qwen25_tok(), _tok("Qwen/Qwen3.5-2B"), _tok("meta-llama/Llama-3.2-3B-Instruct", llama=True)) if t]
+    for t in toks:
+        for v in vals + [f" {d['name']}" for d in D]:
+            assert len(t(v, add_special_tokens=False).input_ids) == 1, v
+    if len(toks) < 3:
+        pytest.skip("the three tokenizers are not all in the local cache (rebuild not checked)")
+    assert ADD9.build_text(CFG) == (ROOT / "data" / "bench_v1" / "groups9.yaml").read_text()
+
+
+def test_collide9_harvest(tiny_real_tok):
+    C = tiny_real_tok
+    C.mc = {**CFG["models"]["qwen25_15b"]}
+    _, _, _, ms = next(g for g in run.group_items(CFG) if g[0] == "g3c_sister")
+    D = _y("dummy_pairs.yaml")["dummies"]
+    with torch.no_grad():
+        R, info = run.harvest_group(C, ms, D, CFG["add9"]["placebos"])
+        nh, ns = info["n_head"], info["n_turn"]
+        L = nh + sum(ns)
+        for c in set(CFG["models"]["qwen25_15b"]["collide_conds_add9"]) - {"ctxN"}:
+            assert R[c][1] == L and R[c][0][0][0].shape[2] == L, c
+        do = info["dropped_ordered"]
+        assert do[0] == 0 and 0 < do[1] < do[2] and info["dropped_placebo"][0] == 0
+        assert info["dropped_text"]["O2"] == "My gardener's name is Brian. My mechanic's name is Keith."
+        assert all(v <= 1 for v in info["kept_tokens_differing"].values())
+        qt = run.qt_ids(C, ms[2]["question"])
+        assert torch.allclose(run.tf_last(C, qt, R["RN-sep-ordered@0"]), run.tf_last(C, qt, R["RN-sep-shift"]), atol=1e-5)
+        assert not torch.allclose(run.tf_last(C, qt, R["RN-sep-ordered"]), run.tf_last(C, qt, R["RN-sep-shift"]), atol=1e-4)
+        _, tn = run.render_ids(C.tok, [{"role": "user", "content": m["experience"]} for m in ms] +
+                               [{"role": "user", "content": ms[2]["question"]}])
+        assert torch.allclose(run.tf_last(C, qt, R["RN-joint"]), run.tf_last(C, torch.tensor(tn)), atol=1e-4)
+        # member 1's entries: its standalone harvest in sep-shift and ordered alike; member 3's differ (stored third)
+        Ko, Ks = R["RN-sep-ordered"][0][1][0], R["RN-sep-shift"][0][1][0]
+        assert torch.allclose(Ko[:, :, :nh + ns[0]], Ks[:, :, :nh + ns[0]], atol=1e-6)
+        # member 3's ordered entries == its after-two-dummies harvest, re-rotated onto its final positions
+        t3 = run.tagged_turn(C, ms[2]["experience"], info["prefixes_ordered"][2])
+        kv = bind.kv_list(run.run_cache(C, run.turn_pieces(C.tok, ms[2]["experience"]).H + t3.Seg))
+        idx = list(range(nh + t3.h + t3.d, nh + len(t3.Seg)))
+        want = run.rope_shift(C, kv[1][0][:, :, idx], ns[0] + ns[1] - t3.d)
+        assert torch.allclose(Ko[:, :, nh + ns[0] + ns[1] + t3.h:], want, atol=1e-5)
+        # rev: the same entries, member 3's block first (values unrotated: equal; keys: moved back by ns[0] + ns[1])
+        Kr, Vr, Vo = R["RN-sep-ordered-rev"][0][1][0], R["RN-sep-ordered-rev"][0][1][1], R["RN-sep-ordered"][0][1][1]
+        assert torch.allclose(Vr[:, :, nh:nh + ns[2]], Vo[:, :, nh + ns[0] + ns[1]:], atol=1e-6)
+        assert torch.allclose(Vr[:, :, nh + ns[2] + ns[1]:], Vo[:, :, nh:nh + ns[0]], atol=1e-6)
+        assert torch.allclose(Kr[:, :, nh:nh + ns[2]], run.rope_shift(C, Ko[:, :, nh + ns[0] + ns[1]:], -(ns[0] + ns[1])), atol=1e-5)
+
+
+def test_collide9_hybrid(tiny_hybrid):
+    C = tiny_hybrid
+    _, _, _, ms = next(g for g in run.group_items(CFG) if g[0] == "g3d_1")
+    with torch.no_grad():
+        R, info = run.harvest_group(C, ms, _y("dummy_pairs.yaml")["dummies"], CFG["add9"]["placebos"])
+        assert set(CFG["models"]["qwen35_2b"]["collide_conds_add9"]) - {"ctxN"} <= set(R) and "RN-sep-ordered@0-jstate" in R
+        J = R["RN-joint-state"][0]
+        for c in R:
+            assert bind.linear_states_equal(R[c][0], J), c                         # the joint DeltaNet state everywhere
+        L = info["n_head"] + sum(info["n_turn"])
+        for c in R:
+            assert all(n == L for k, n in bind.cache_summary(R[c][0]) if k == "attn"), c
+        qt = run.qt_ids(C, ms[0]["question"])
+        assert torch.allclose(run.tf_last(C, qt, R["RN-sep-ordered@0-jstate"]), run.tf_last(C, qt, R["RN-sep-shift-jstate"]), atol=1e-5)
+        _, tn = run.render_ids(C.tok, [{"role": "user", "content": m["experience"]} for m in ms] +
+                               [{"role": "user", "content": ms[0]["question"]}])
+        assert torch.allclose(run.tf_last(C, qt, R["RN-joint-state"]), run.tf_last(C, torch.tensor(tn)), atol=1e-4)
+
+
+@pytest.mark.slow
+def test_stage_collide9_and_analyze(tiny_real_tok, tmp_path):
+    """The add9 collide stage on the tiny model (the smoke's 4 groups, short answers) and its analysis report."""
+    import copy
+    C0 = tiny_real_tok
+    cfg = copy.deepcopy(CFG)
+    cfg["gen"]["answer_cap"] = 6
+    C = SimpleNamespace(**vars(C0))
+    C.cfg, C.mc = cfg, {**cfg["models"]["qwen25_15b"]}
+    C.A = SimpleNamespace(tiny=True, random_model="qwen2", collide_set="add9")
+    with torch.no_grad():
+        rows, checks, _ = run.stage_collide(C, [], tmp_path / "qwen25_15b_g9" / "collide")
+    cd = tmp_path / "qwen25_15b_g9_collide"
+    assert len(checks["ordered_zero_equals_sep_shift"]) == len(checks["tn_equals_joint"]) == 16
+    items = __import__("json").load(open(cd / "prep" / "items.json"))
+    assert len(items) == 16 and {v["n"] for v in items.values()} == {3, 5}
+    G = [r for f in (cd / "gen" / "items").glob("*.jsonl.gz") for r in run.read_jsonl_gz(f)]
+    assert sum(r["sec"] == "gen" for r in G) == 16 * 2 * 5 * 6 and sum(r["sec"] == "tf" for r in G) == 16 * 6
+    rules = run.analyze_collide(cfg, cd, "qwen25_15b")
+    assert set(rules) == {f"add9/order/n{n}/{k}" for n in (3, 5) for k in ("confusable", "different")}
+    rep = (cd / "analysis" / "report.md").read_text()
+    assert "storage order scales — N = 3, confusable groups (decisive)" in rep and "k = 5" in rep

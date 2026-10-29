@@ -1585,7 +1585,8 @@ members, prompts and random streams; the TF table bootstraps over members.
 | Llama | gpu-v100 (fp32) | the same |
 
 - **Smoke** (`--tiny --max-reserved-gb`, the real model, one Python process via `multi.py`): pytest (not slow) + collide
-  add9 on one group per (N, kind): g3c_sister, g3d_1, g5c_dog, g5d_1 (16 members, all 6 conditions, every check above).
+  add9 on one group per (N, kind): g3c_sister, g3d_1, g5c_dog, g5d_1 (16 members, all 6 conditions, every check above),
+  then the add9 analysis on the smoke's output (no judge labels yet: exercises the report code only).
 - **Wall times** from addendum 8's measured durations (`sacct`, run `dream_bind_add8_20261025_1812`): the add8pool
   collide jobs (8,840 answers + 3,536 yes/no) spent 36 (Qwen2.5), 57 (2B) and 55 (Llama) minutes generating, plus 22–30
   minutes of imports, pytest and loading. Scaled to 6,840 answers: 28 / 44 / 43 min; + 30%: 36 / 57 / 56 min; + a

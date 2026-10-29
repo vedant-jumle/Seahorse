@@ -88,7 +88,8 @@ def parse_args(argv=None):
                    help="stage 0 (patch / knockout): the hand-written items or the pool facts (PREREG addendum 7 (D)); "
                         "probe: the 52 non-primary facts with the pool lures (addendum 8, part 2a)")
     p.add_argument("--collide-set", default=None, help="collide: use the model's collide_conds_<SET> (e.g. add7, add8; add8pool "
-                                                       "also uses the pool pairs, addendum 8 part 2c)")
+                                                       "also uses the pool pairs, addendum 8 part 2c; add9 = the N = 3 / 5 "
+                                                       "groups of addendum 9, stage_collide9)")
     p.add_argument("--probe-set", default=None, choices=["add8"],
                    help="probe: add8 adds the 'told' and two-choice wordings (PREREG addendum 8, part 6)")
     p.add_argument("--dir-set", default=None, choices=["add8"],
@@ -2195,6 +2196,281 @@ def pool_pairs(cfg):
     return out
 
 
+# =============================================================== addendum 9: N = 3 / 5 stored facts in storage order
+
+
+def group_items(cfg, tiny=False):
+    """Addendum 9: data/bench_v1/groups9.yaml -> [(group id, N, kind, [members])]; a member = the file's entry + group, n,
+    kind, k (1-based position), others (the other members' values, with the leading space), other_ids. Checks the
+    pre-registered counts. tiny: the first group of each (N, kind) block (the smoke)."""
+    import copy
+    G = yaml.safe_load(open(REPO / cfg["add9"]["groups"]))["groups"]
+    out = []
+    for g in G:
+        ms = copy.deepcopy(g["members"])
+        assert len(ms) == g["n"], g["id"]
+        for k, m in enumerate(ms):
+            m.update(group=g["id"], n=g["n"], kind=g["kind"], k=k + 1,
+                     others=[x["value"] for j, x in enumerate(g["members"]) if j != k],
+                     other_ids=[x["id"] for j, x in enumerate(g["members"]) if j != k])
+        out.append((g["id"], g["n"], g["kind"], ms))
+    vals = [m["value"].strip().lower() for _, _, _, ms in out for m in ms]
+    ids = [m["id"] for _, _, _, ms in out for m in ms]
+    cnt = lambda n, k: sum(g[1] == n and g[2] == k for g in out)
+    assert len(out) == 30 and len(vals) == 114 and len(set(vals)) == 114 and len(set(ids)) == 114, "groups9.yaml counts"
+    assert (cnt(3, "confusable"), cnt(3, "different"), cnt(5, "confusable"), cnt(5, "different")) == (12, 6, 8, 4)
+    if tiny:
+        seen, keep = set(), []
+        for g in out:
+            if (g[1], g[2]) not in seen:
+                seen.add((g[1], g[2]))
+                keep.append(g)
+        out = keep
+    return out
+
+
+def harvest_group(C, ms, dummies, placebos):
+    """Addendum 9: the reinstatement prefixes of one group {condition: (prefix, question start)} + info. Harvests: 'J' (all
+    N turns in one session), 'S{k}' (member k alone), 'O{k}' / 'P{k}' (member k after dummies / placebos 1..k-1 in the same
+    user turn; tagged_turn asserts the kept-token layout), 'Z{k}' (an empty prefix through the same code path, for the
+    zero-dummy check). Plans: bind.group_plans; the 2B: bind.hybrid_group_names (the joint DeltaNet state everywhere)."""
+    tok = C.tok
+    N = len(ms)
+    P = [turn_pieces(tok, m["experience"]) for m in ms]
+    assert all(p.H == P[0].H for p in P)
+    H = P[0].H
+    nh, ns = len(H), [len(p.Seg) for p in P]
+    vt, att = [], []
+    for p, m in zip(P, ms):
+        t = text_ids(tok, m["value"]).tolist()
+        assert len(t) == 1, f"{m['id']}: value {m['value']!r} is not a single token"
+        hits = [i for i, x in enumerate(p.Seg) if x == t[0]]
+        assert len(hits) == 1, f"{m['id']}: value found {len(hits)} times in the experience turn"
+        vt.append(t[0])
+        att.append(hits[0])
+    pre_o, pre_p = bind.group_prefixes(N, dummies, placebos)
+    srcs = {f"S{k}": run_cache(C, H + P[k].Seg) for k in range(N)}
+    srcs["J"] = run_cache(C, H + [x for p in P for x in p.Seg])
+    T = {}
+    for k in range(N):
+        T[f"Z{k}"] = tagged_turn(C, ms[k]["experience"], "")
+        if k:
+            T[f"O{k}"] = tagged_turn(C, ms[k]["experience"], pre_o[k])
+            T[f"P{k}"] = tagged_turn(C, ms[k]["experience"], pre_p[k])
+    h = T["Z0"].h
+    for name, t in T.items():
+        k = int(name[1:])
+        assert t.h == h, (name, t.h, h)
+        assert t.Seg[att[k] + t.d] == vt[k], f"{ms[k]['id']}: value not at its shifted index in {name}"
+        if name[0] == "Z":
+            assert t.d == 0 and t.Seg == P[k].Seg and t.n_diff == 0, name
+        else:
+            assert t.d > 0 and t.n_diff <= 1, name
+        srcs[name] = run_cache(C, H + t.Seg)
+    d_ord = [0] + [T[f"O{k}"].d for k in range(1, N)]
+    d_pl = [0] + [T[f"P{k}"].d for k in range(1, N)]
+    plan = bind.group_plans(nh, h, ns, d_ord, d_pl)
+    hyb = is_hybrid(C)
+    names = bind.hybrid_group_names(plan) if hyb else {k: (k, None) for k in plan}
+    lin = {"J": srcs["J"]} if hyb else None
+    out = {}
+    for name, (base, ls) in names.items():
+        parts, start = plan[base]
+        out[name] = (compose_prefix(C, parts, srcs, lin[ls]) if hyb else compose_prefix(C, parts, srcs), start)
+    info = {"n_head": nh, "n_turn": ns, "attr": att, "header_tokens": h, "dropped_ordered": d_ord, "dropped_placebo": d_pl,
+            "prefixes_ordered": pre_o, "prefixes_placebo": pre_p,
+            "dropped_text": {k: t.dropped for k, t in T.items()}, "kept_tokens_differing": {k: t.n_diff for k, t in T.items()},
+            "starts": {k: s_ for k, (_, s_) in out.items()},
+            "layout": {k: [(src, idx[0], idx[-1], sh) for src, idx, sh in plan[b][0]] for k, (b, _) in names.items()}}
+    return out, info
+
+
+def stage_collide9(C, items, out):
+    """Addendum 9: groups of N = 3 / 5 facts, forced gates (oracle retrieval). Per member: the direct question and the use
+    prompt (1 greedy + 4 samples, seed set 1) and the teacher-forced readout at the measure prefix (log P(own), logit(own) -
+    max over the other members' values). Checks: RN-sep-ordered with zero dummies == RN-sep-shift, RN-joint == T-N."""
+    cfg = C.cfg
+    gen_context(C, cfg)
+    t0 = time.time()
+    cd = collide_dir(out.parent if out.name == "collide" else out)
+    gdir = cd / "gen"
+    (gdir / "items").mkdir(parents=True, exist_ok=True)
+    conds = list(C.mc["collide_conds_add9"])
+    groups = group_items(cfg, C.A.tiny)
+    dummies = yaml.safe_load(open(REPO / cfg["add8"]["dummies"]))["dummies"]
+    placebos = list(cfg["add9"]["placebos"])
+    for d_ in dummies:
+        assert len(text_ids(C.tok, f" {d_['name']}")) == 1, f"dummy name {d_['name']!r} is not one token"
+    hyb = is_hybrid(C)
+    sfx = "-jstate" if hyb else ""
+    joint_name = "RN-joint-state" if hyb else "RN-joint"
+    assert all(c == "ctxN" or c in ({f"{b}{sfx}" for b in ("RN-sep-shift", "RN-sep-ordered", "RN-sep-ordered-rev",
+                                                              "RN-sep-placebo")} | {joint_name}) for c in conds), conds
+    S = cfg["collide"]["samples"]
+    g = cfg["gen"]
+    cap, seeds, tol = g["answer_cap"], g["seeds"], g["splice_tol"]
+    checks = {"tn_equals_joint": [], "ordered_zero_equals_sep_shift": [], "groups": {}}
+    items_json = {}
+    for gid, n, kind, ms in groups:
+        t1 = time.time()
+        for m in ms:
+            assert len(text_ids(C.tok, m["value"])) == 1, f"{m['id']}: value {m['value']!r} is not one token"
+        R, info = harvest_group(C, ms, dummies, placebos)
+        checks["groups"][gid] = info
+        for m in ms:                  # zero-dummy identity and RN-joint == T-N, on every member's direct question
+            qt = qt_ids(C, m["question"])
+            sp = tf_last(C, qt, R[f"RN-sep-shift{sfx}"])
+            d0 = maxdiff(tf_last(C, qt, R[f"RN-sep-ordered@0{sfx}"]), sp)
+            checks["ordered_zero_equals_sep_shift"].append({"member": m["id"], "max_abs_logit_diff": d0})
+            assert d0 <= tol, f"{m['id']}: RN-sep-ordered with zero dummies != RN-sep-shift ({d0})"
+            _, tn = render_ids(C.tok, [{"role": "user", "content": x["experience"]} for x in ms] +
+                               [{"role": "user", "content": m["question"]}])
+            dj = maxdiff(tf_last(C, qt, R[joint_name]), tf_last(C, torch.tensor(tn)))
+            checks["tn_equals_joint"].append({"member": m["id"], "max_abs_logit_diff": dj})
+            assert dj <= tol, f"{m['id']}: {joint_name} != T-N text ({dj})"
+        ctx = " ".join(x["experience"] for x in ms)
+        for m in ms:
+            f = gdir / "items" / f"{m['id']}.jsonl.gz"
+            items_json[m["id"]] = {"id": m["id"], "experience": m["experience"], "group": "facts",
+                                   "measure": {"target": m["value"], "prefix": m["prefix"]}, "pair": gid, "kind": kind,
+                                   "n": n, "k": m["k"], "role": str(m["k"]), "others": m["others"], "other_ids": m["other_ids"],
+                                   "question": m["question"], "use": m["use"]}
+            if f.exists():
+                continue
+            rows = []
+            own = int(text_ids(C.tok, m["value"])[0])
+            oth = [int(text_ids(C.tok, v)[0]) for v in m["others"]]
+            prompts = [("related", m["question"])] + [("use", u) for u in m["use"]]
+            for pi, (pk, text) in enumerate(prompts):
+                streams = {1: (cv1.seed_of(TAG + "/collide", text, seeds["base"]), S + 1)}
+                rws = [(j == 0, None if j == 0 else (1, j)) for j in range(S + 1)]
+                for c in conds:
+                    if c == "ctxN":
+                        outs = gen_batch(C, chat_ids(C.tok, f"{ctx} {text}"), rws, max_new=cap, streams=streams)
+                    else:
+                        outs = gen_batch(C, qt_ids(C, text), rws, prefix=R[c], max_new=cap, streams=streams)
+                    for j, o in enumerate(outs):
+                        rep = cv1.rep_rate(o["ids"], g["loop"]["n"])
+                        rows.append({"sec": "gen", "key": f"{m['id']}|{pk}|{pi}|{c}|1|{j}", "item": m["id"], "group": "facts",
+                                     "tier": kind, "pair": gid, "n": n, "k": m["k"], "role": str(m["k"]), "kind": pk, "pi": pi,
+                                     "prompt": text, "cond": c, "seedset": 1, "j": j, "ids": o["ids"],
+                                     "answer": C.tok.decode(o["ids"], skip_special_tokens=True).strip(), "n_tok": o["n_tok"],
+                                     "capped": o["capped"], "rep": round(rep, 4), "loop": rep >= g["loop"]["thr"],
+                                     "gate": True, "shortcut": False, "no_site": False})
+            pre = text_ids(C.tok, m["prefix"])
+            for c in conds:
+                if c == "ctxN":
+                    lg = tf_last(C, torch.cat([chat_ids(C.tok, f"{ctx} {m['question']}"), pre]))
+                else:
+                    lg = tf_last(C, torch.cat([qt_ids(C, m["question"]), pre]), R[c])
+                lp = torch.log_softmax(lg, -1)
+                rows.append({"sec": "tf", "item": m["id"], "tier": kind, "pair": gid, "n": n, "k": m["k"], "cond": c,
+                             "lp_own": lp[own].item(), "lp_others": [lp[o].item() for o in oth],
+                             "margin": (lg[own] - lg[oth].max()).item()})
+            write_jsonl_gz(f, rows)
+        del R
+        log(f"collide9: {gid} (N={n}, {kind}) done in {(time.time() - t1) / 60:.1f} min; elapsed {(time.time() - t0) / 60:.1f} min")
+    (cd / "prep").mkdir(parents=True, exist_ok=True)
+    json.dump(items_json, open(cd / "prep" / "items.json", "w"), indent=1)
+    json.dump({"conds": conds, "is_hybrid": hyb, "set": "add9"}, open(gdir / "collide_conds.json", "w"))
+    checks["coherence_unique"] = coherence_nll(C, gdir)
+    checks["minutes"] = (time.time() - t0) / 60
+    return [], checks, {}
+
+
+def analyze_collide9(cfg, cd, model_key):
+    """Addendum 9 tables and the rule "storage order scales" (per N, confusable groups decisive; different-subject groups
+    reported), from the saved files: correct clean use (judges' majority), generalised partner confusion, the judges'
+    wrong_value, loops, the TF margin (own - max other), and confusion by member position k."""
+    from seahorse.stats import boot_ci, paired_diff
+    nb, seed, eps = cfg["n_boot"], cfg["seeds"]["bootstrap"], cfg["add9"]["eps"]
+    items = json.load(open(cd / "prep" / "items.json"))
+    G, _, _, _, target, n_panel = load_labeled(cfg, cd, f"{model_key}_collide")
+    TF = []
+    for f in sorted((cd / "gen" / "items").glob("*.jsonl.gz")):
+        TF += [r for r in read_jsonl_gz(f) if r["sec"] == "tf"]
+    meta = json.load(open(cd / "gen" / "collide_conds.json"))
+    hyb, conds = meta["is_hybrid"], list(meta["conds"])
+    for r in G:
+        r["confusion"] = bind.group_confusion(r["answer"], target[r["item"]], items[r["item"]]["others"])
+
+    def nested(n, kind, cond, fn, k=None):
+        acc = defaultdict(list)
+        for r in G:
+            it = items[r["item"]]
+            if it["n"] == n and it["kind"] == kind and r["cond"] == cond and (k is None or it["k"] == k):
+                v = fn(r)
+                if v is not None:
+                    acc[(r["item"], r["pi"])].append(float(v))
+        d = defaultdict(dict)
+        for (i, p), vs in acc.items():
+            d[i][p] = sum(vs) / len(vs)
+        return dict(d)
+
+    def ci(x):
+        p, lo, hi, k = boot_ci(x, nb, seed)
+        return {"mean": p, "lo": lo, "hi": hi, "n": k}
+
+    def tfm(n, kind, cond):
+        return {r["item"]: {0: r["margin"]} for r in TF if r["n"] == n and r["tier"] == kind and r["cond"] == cond}
+
+    M = {"correct (majority)": lambda r: r["clean_maj"], "correct (orig judge)": lambda r: r["clean_orig"],
+         "partner confusion": lambda r: r["confusion"], "wrong value (judges)": lambda r: r["maj"]["wrong_value"],
+         "loop": lambda r: r["loop"]}
+    sfx = "-jstate" if hyb else ""
+    joint = "RN-joint-state" if hyb else "RN-joint"
+    sep, ordd, rev, plac = (f"{b}{sfx}" for b in ("RN-sep-shift", "RN-sep-ordered", "RN-sep-ordered-rev", "RN-sep-placebo"))
+    L = [f"# dream_bind: storage order with N = 3 / 5 stored facts ({model_key}; PREREG addendum 9, exploratory)", "",
+         f"Forced gates (oracle retrieval). Members x (direct question + 1 use prompt) x (1 greedy + 4 samples), seed set 1; "
+         f"clean use = majority of the original judge + gpt-oss + Gemma-4 (panel labels for {n_panel}/{len(G)} answers). "
+         f"Partner confusion = another group member's value in the answer and the member's own value not. Bootstrap over "
+         f"members then prompts ({nb}, seed {seed}); CI bounds with |bound| < {eps:g} count as 0 in the rule.", ""]
+    T, rules, lines = {}, {}, []
+    blocks = [(n, kind) for n in (3, 5) for kind in ("confusable", "different")]
+    tables = []
+    for n, kind in blocks:
+        tables += [f"## N = {n}, {kind} groups", "",
+                   "| condition | " + " | ".join(M) + " | TF margin own − max other |", "|---|" + "---|" * (len(M) + 1)]
+        for c in conds:
+            v = {m: ci(nested(n, kind, c, fn)) for m, fn in M.items()}
+            v["tf"] = ci(tfm(n, kind, c))
+            T[(n, kind, c)] = v
+            tables.append(f"| {c} | " + " | ".join(fmt(v[m]) for m in M) + f" | {fmt(v['tf'])} |")
+        tables += ["", f"Partner confusion by member position k (N = {n}, {kind}):", "",
+                   "| condition | " + " | ".join(f"k = {k}" for k in range(1, n + 1)) + " |", "|---|" + "---|" * n]
+        for c in conds:
+            tables.append(f"| {c} | " + " | ".join(fmt(ci(nested(n, kind, c, M["partner confusion"], k)))
+                                                 for k in range(1, n + 1)) + " |")
+        tables.append("")
+        if not all(c in conds for c in (joint, sep, ordd, rev, plac)):
+            continue
+        conf = lambda c: nested(n, kind, c, M["partner confusion"])
+        cor = lambda c: nested(n, kind, c, M["correct (majority)"])
+        d1, co, cj = ci(paired_diff(conf(ordd), conf(sep))), ci(conf(ordd)), ci(conf(joint))
+        dp, dr = ci(paired_diff(conf(plac), conf(sep))), ci(paired_diff(conf(rev), conf(ordd)))
+        dc = ci(paired_diff(cor(ordd), cor(sep)))
+        ok = bind.order_rule(d1, co, cj, eps)
+        dec = kind == "confusable"
+        rules[f"add9/order/n{n}/{kind}"] = {"storage order scales": (d1, ok), f"confusion {ordd}": (co, None),
+                                            f"confusion {joint}": (cj, None), f"{plac} - {sep}": (dp, None),
+                                            f"{rev} - {ordd}": (dr, None), f"correct {ordd} - {sep}": (dc, None),
+                                            "decisive": ({"mean": float(dec)}, None)}
+        lines += [f"**Addendum 9: storage order scales — N = {n}, {kind} groups ({'decisive' if dec else 'reported'})**: "
+                  f"{_lab(ok)}",
+                  f"- {ordd} − {sep} confusion: {fmt(d1)} (needs hi < 0; hi = {d1['hi']:.3g}); confusion {ordd} {fmt(co)} vs "
+                  f"{joint} {fmt(cj)} (need overlap)",
+                  f"- reported: {plac} − {sep} {fmt(dp)}; {rev} − {ordd} {fmt(dr)}; correct {ordd} − {sep} {fmt(dc)}", ""]
+    L += ["## Rule (addendum 9)", "", *lines, *tables]
+    out = cd / "analysis"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.md").write_text("\n".join(L))
+    json.dump({"rules": {k: {kk: {"ci": v, "holds": ok} for kk, (v, ok) in r.items()} for k, r in rules.items()},
+               "tables": {f"n{n}/{k}/{c}": v for (n, k, c), v in T.items()}, "n_panel_labels": n_panel, "n_answers": len(G)},
+              open(out / "verdict.json", "w"), indent=2, default=str)
+    log(f"collide9 analyze -> {out / 'report.md'}")
+    return rules
+
+
 def _attn_list(src):
     """[(K, V) or (None, None)] per layer of a cache object or K,V list (linear-attention layers -> None)."""
     if isinstance(src, list):
@@ -2273,6 +2549,8 @@ def stage_collide(C, items, out):
     """The two-fact collision test (addendum 5 (2)): forced gates (oracle retrieval). Per member: the direct question
     and 2 use prompts (1 greedy + 4 samples, seed set 1), the balanced yes/no probes (Yes = own value, No = the
     partner's), and the teacher-forced readout at the measure prefix (log P(own), logit(own) - logit(partner))."""
+    if getattr(C.A, "collide_set", None) == "add9":          # addendum 9: groups of N = 3 / 5 facts
+        return stage_collide9(C, items, out)
     cfg = C.cfg
     gen_context(C, cfg)
     t0 = time.time()
@@ -2403,6 +2681,8 @@ def analyze_collide(cfg, cd, model_key):
     """Addendum 5 (2) tables and rules from the saved files: per pair kind (confusable / different) and condition,
     correct-target clean use (judges' majority), partner confusion (the partner's value in the answer, the member's
     own value not), the judges' wrong_value, balanced yes/no with the partner as foil, the teacher-forced margin."""
+    if json.load(open(cd / "gen" / "collide_conds.json")).get("set") == "add9":
+        return analyze_collide9(cfg, cd, model_key)
     from seahorse.stats import boot_ci, paired_diff
     nb, seed = cfg["n_boot"], cfg["seeds"]["bootstrap"]
     items = json.load(open(cd / "prep" / "items.json"))
