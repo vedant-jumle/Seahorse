@@ -316,6 +316,33 @@ Folder: `results/dream_bind_add8_20261025_1812/` (per model `<model>_{collide,pp
 - The hybrid split is sharper: familiarity in the state, selection in the attention entries (a double dissociation, not only "recognition without recall").
 - Open: more than two stored facts in storage order; the use-prompt cost of told on held-out facts; the 9B in generation.
 
+*(2026-10-30: a panel bug left some answers without gpt-oss / Gemma-4 labels, so their majority fell back to the original judge alone (2B refusal8 2939/3120 labelled, Qwen2.5 1957/2340, Llama 1880/2340). The panel output is shared by all models in a run root and skips prompts already judged, so an answer identical to another model's kept only the other model's keys. Fixed in a82244b (alias records, `panel.py --relink-only`); every addendum-8 report was re-analysed with full coverage. **No verdict changed**; clean-use numbers moved by at most 0.02. The numbers above are the re-analysed ones where they differ.)*
+
+### Addendum 9 (run 2026-10-30; PREREG addendum 9, rules fixed before any job)
+
+Folder: `results/dream_bind_add9_20261030_0107/` (`<model>_g9_collide/analysis/report.md`). Question: does storage order fix the collision for more than two stored facts? 30 groups, 114 members (`data/bench_v1/groups9.yaml`, new name lists): N = 3 confusable (12 groups: "eldest / middle / youngest {sister, brother, …}", "first / second / third {pet}"), N = 3 different-subject (6), N = 5 confusable (8 pet groups, "first … fifth"), N = 5 different-subject (4). Conditions: ctxN, RN-joint, RN-sep-shift (each stored alone: all "first"), **RN-sep-ordered** (member k harvested after dummy facts 1..k−1, dummies dropped: stored as the k-th fact), RN-sep-ordered-rev (the same slices placed in reverse order), RN-sep-placebo (k−1 neutral sentences instead of dummy facts). Gates forced open; the 2B with the joint DeltaNet state. Judged by the three-judge majority (full panel coverage after the relink fix; the rule uses regex partner confusion, which the fix does not touch).
+
+**The short version.**
+1. **Storage order removes most swaps at N = 3 and about half at N = 5.** Partner confusion, confusable groups, stored alone → stored as the k-th fact (joint):
+
+   | | N = 3 | N = 5 |
+   |---|---|---|
+   | Qwen2.5 | 0.47 → 0.09 (0.01) **holds** | 0.54 → 0.22 (0.03) does not hold |
+   | 2B | 0.38 → 0.04 (0.01) **holds** | 0.55 → 0.23 (0.03) does not hold |
+   | Llama | 0.41 → 0.09 (0.00) does not hold | 0.51 → 0.30 (0.00) does not hold |
+
+   Every drop has a CI well below 0; the failures are all on the second clause (the ordered CI does not reach joint's; Llama at N = 3 by 0.04 vs 0.01). Correct use rises by 0.27 to 0.49.
+2. **Different-subject groups: storage order is enough at both sizes**, on all three models (ordered 0.00–0.03, joint 0.01; rule holds in all 6 cells).
+3. **The stored order is what counts, not the placement.** Placing the ordered slices in reverse changes confusion by −0.02 to +0.03 everywhere. The tag a slice carries was set when it was stored.
+4. **Not just "not at the start".** k−1 neutral sentences instead of facts help less (confusable, N = 3: 0.27 / 0.20 / 0.34 vs ordered 0.09 / 0.04 / 0.09), as predicted.
+5. **The residual at N = 5 is between neighbours.** It sits at positions 3–5 (Qwen2.5 k = 4: 0.70; Llama k = 3, 4: 0.59, 0.66; positions 1–2 near 0), and the wrong name is an adjacent member's (the fourth pet answered with the fifth's or third's name). Close order tags blur, as Feng & Steinhardt's "close IDs → confusion" predicts.
+
+**Answers read.** Ordered and reversed answers name the member's own value ("Your youngest brother's name is Tony."); errors give a neighbour's name ("Your fourth cat's name is Atlas.", the fifth cat). Placebo errors look the same as stored-alone errors.
+
+**What changes:**
+- A consolidation without re-encoding exists for small sets: store the k-th memory of a set as the k-th fact (it costs one pass over the new memory and a few dummy tokens). It reaches joint encoding for different subjects at N ≤ 5 and for confusable ones at N = 3 on two of three models; for five same-kind memories, joint encoding is still needed.
+- The collision mechanism now has its scaling law in miniature: tags are distinct for the first two or three positions and blur after.
+
 ---
 
 ## 2. Stage 0: does the fact live at the subject, or at its own position? (run first)

@@ -1,6 +1,6 @@
 # Paper 2: outline and claims (draft for approval)
 
-*Written 2026-10-30 from `docs/dreaming/01-binding.md` (Results, addenda 1–8), `docs/dreaming/literature-exp1.md` and the report files in `results/dream_bind_*`. Nothing here is drafted prose yet: this is the claims → evidence map and the section plan, to agree before writing. Addendum 9 (storage order with 3 and 5 facts) is running; its slot is marked.*
+*Written 2026-10-30 from `docs/dreaming/01-binding.md` (Results, addenda 1–9), `docs/dreaming/literature-exp1.md` and the report files in `results/dream_bind_*`. Nothing here is drafted prose yet: this is the claims → evidence map and the section plan, to agree before writing. Addendum 9 (storage order with 3 and 5 facts) is in (C9).*
 
 ---
 
@@ -11,7 +11,7 @@
 
 ## The paper in three sentences
 
-A fact told to a model in one session can be carried into the next by keeping a tiny slice of the model's own key/value cache (the value's position and the full stop after it), which works where pushing a vector does not and beats the same tokens as text, on three model families. On a hybrid model the two kinds of memory split the work: the recurrent state recognises a name it is shown, the attention entries select the right one, and a mostly generic "answer personal questions" gate explains why attention entries alone refuse direct questions. Slices stored in separate sessions swap partners when used together because each was encoded as "the first fact"; storing a new memory as a later fact removes most swaps, and joint encoding writes the binding at the subject's positions.
+A fact told to a model in one session can be carried into the next by keeping a tiny slice of the model's own key/value cache (the value's position and the full stop after it), which works where pushing a vector does not and beats the same tokens as text, on three model families. On a hybrid model the two kinds of memory split the work: the recurrent state recognises a name it is shown, the attention entries select the right one, and a mostly generic "answer personal questions" gate explains why attention entries alone refuse direct questions. Slices stored in separate sessions swap partners when used together because each was encoded as "the first fact"; storing a new memory as a later fact removes most swaps for up to three memories, and joint encoding writes the binding at the subject's positions.
 
 ## Claims → evidence
 
@@ -27,7 +27,7 @@ Status: **P** = pre-registered rule, decisive; **E** = exploratory addendum with
 | C6 | **Separately stored slices swap partners when used together**; shifting positions does not help; joint encoding fixes it. | Partner confusion sep vs joint: Q 0.37 vs 0.05, H 0.33 vs 0.05, L 0.41 vs 0.01 (8 pairs); 34 pool pairs 0.16–0.22 vs 0.00. Different-subject pairs too (0.20–0.26). | E (rule holds on all, both pair sets) | Q, H, L | add5, add7 E, add8 2c |
 | C7 | **The cause is storage order: every separately stored slice is "the first pair".** Storing the new memory after a dummy fact (dummy dropped) removes most swaps; an unrelated sentence helps less, so it is not just "not at the start". | Confusion sep → stored second: Q 0.37 → 0.09, H 0.33 → 0.15, L 0.41 → 0.09; pool 0.16–0.22 → 0.01. Placebo sentence instead: 0.26 / 0.19 / 0.31 (pool 0.07 / 0.05 / 0.13). Caveat: both stored second recreates swaps only on Q (pool 0.20 vs 0.22; L 0.03). | E (rule: holds Q, half H, fails L on the bothtagged clause) | Q, H, L | add8 1a |
 | C8 | **Joint encoding writes the binding at the subject's positions.** | 2 positions + subject span from a joint harvest = joint (Q 0.03, L 0.01 vs 0.20, 0.17 for 2 positions; pool 0.00); the same positions from separate harvests don't help (0.34, 0.29). | E (holds on both pure transformers, both pair sets) | Q, L (H reported) | add8 1b |
-| C9 | *(slot)* **Storage order scales to 3 and 5 memories** (store the k-th memory as the k-th fact), a consolidation with no re-encoding. | Addendum 9, running. | E | Q, H, L | add9 |
+| C9 | **Storage order is a consolidation without re-encoding, up to a limit.** Storing the k-th memory as the k-th fact reaches joint encoding for different subjects (N = 3 and 5) and removes most swaps among 3 same-kind memories; at 5 same-kind memories it halves them, and the rest are neighbours swapping. The stored tag counts, not the placement order. | Confusable N = 3: Q 0.47 → 0.09, H 0.38 → 0.04, L 0.41 → 0.09 (joint 0.00–0.01); N = 5: 0.54 / 0.55 / 0.51 → 0.22 / 0.23 / 0.30 (joint 0.00–0.03). Different subjects: ordered 0.00–0.03 everywhere. Reversed placement: −0.02 to +0.03. Neutral sentences instead: 0.27 / 0.20 / 0.34 (N = 3). | E (holds Q, H at N = 3; fails all at N = 5; holds all 6 different-subject cells) | Q, H, L | add9 |
 | N1 | Negative: adding the binding-ID direction to a stored slice does not repair swaps. | Direction real (flips 0.75 vs 0 random), repair −0.02 [−0.14, 0.11]. | E | Q | add6 A |
 | N2 | Retrieval by the subject's words scales to 59 facts; a wrong pick gives a confident wrong fact. | Right slice 0.85–0.92 at N = 10–59; wrong slice confab 0.86–0.90. | E | Q | add6 B |
 
@@ -36,6 +36,7 @@ Status: **P** = pre-registered rule, decisive; **E** = exploratory addendum with
 - **Not a new caching mechanism.** Reinstating a turn equals prompt caching exactly (asserted to 1e-4). Prompt Cache, CacheBlend, EPIC, InfLLM do parts of it. The contribution is *which part carries what, and why combining fails*.
 - **Not "recognition from the state" as such** (Afendulev et al., Sept 2026, show it within one session, as gist familiarity). Ours: across sessions, item-specific (lures rejected), and the double dissociation with attention.
 - **C5 is not "a missing told signal".** Addendum 8 weakened it: say "a mostly generic response gate" (link to refusal-direction work); the memory-specific part is small and model-dependent. Keep it as a secondary result.
+- **C9 has a limit:** five same-kind memories still swap (neighbouring order tags blur); say it.
 - **C7: storage order is most of the effect, not all.** The placebo control rules out "only not-at-the-start" (the EPIC / attention-sink reading), but "both stored second" brings the swaps back only on Qwen2.5. Say both.
 - **Gates are oracle in the collision runs** (forced open); retrieval is a separate result (N2).
 - Small models (1.5–3B in generation; 9B teacher-forced only); synthetic personal facts (names and attributes), single-sentence memories.
@@ -58,7 +59,7 @@ Status: **P** = pre-registered rule, decisive; **E** = exploratory addendum with
 2. Clean use, slice vs text vs in context, 3 models (bars with CIs).
 3. 2B dissociation: 2×2 (attention / state × yes/no / two-choice).
 4. Partner confusion across the collision conditions, 3 models, both pair sets.
-5. *(if C9 holds)* confusion vs N for shift / ordered / joint.
+5. Confusion vs N (2, 3, 5) for stored alone / stored as k-th / neutral sentences / joint, confusable and different subjects, 3 models; inset: confusion by position k at N = 5.
 
 ## Open decisions for the user
 
