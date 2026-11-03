@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Downloaded third-party data (untrusted; extracts with READMEs live under data/)
+data/external/
