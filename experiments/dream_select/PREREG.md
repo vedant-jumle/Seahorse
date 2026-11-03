@@ -149,3 +149,115 @@ dreamer's validity counts.
 - **Positions only.** The memory turn is given by the label. Which turn to store is not tested.
 - **The dreamer is weak** (a 1.5B model, greedy); its questions are sometimes about the help asked for, not the facts.
 - **Scope:** one model, teacher-forced only, 64 items.
+
+---
+
+## Addendum 1: DelftBlue replication + generation (2026-11-04)
+
+*Written and committed 2026-11-04, after the local run (`results/dream_select_20261104_0032`) and before any cluster
+job or cluster number exists.*
+
+**Why this run exists.** The local primary rule failed ("Dreamed questions select well": S-dream − S-attn 0.04
+[-1.13, 1.21]; S-dream's gap closed 0.25 < 0.5). "Any attention selector works" held. Before the local run, the user
+had set a threshold for going to the cluster: if S-dream clearly beats random (the paired CI of S-dream − random
+above 0), run a bigger model, a second family, and generation with judges. It did (1.18 [0.35, 2.08] nats), so this
+run was triggered by that pre-stated threshold, although the local primary rule failed.
+
+### Models
+- **Qwen2.5-1.5B-Instruct:** generation only. The teacher-forced numbers are the local run's (reused, not re-run).
+  Its generation uses the local run's selections and dreamed questions, copied to the cluster, so the generated
+  answers belong to exactly the selections that were scored. On the cluster the content positions and the head
+  are re-derived and asserted equal to the local run's. The 1.5B smoke re-runs the teacher-forced stage on its 3
+  items on the cluster and reports how many of the k = 4 picks match the local ones (information only).
+- **Qwen2.5-7B-Instruct** (the HF snapshot a09a354 in the cluster cache): teacher-forced + generation.
+- **Llama-3.2-3B-Instruct** (a second family): teacher-forced + generation.
+- **Precision:** fp32 everywhere, eager attention.
+  - The 7B runs on a full A100 (`gpu-a100`) and Llama on a V100 (`gpu-v100`).
+  - The 1.5B runs on the 10 GB A100 slice (`gpu-a100-small`), with a fit check of 9 GB peak reserved in the smoke.
+    If it does not fit, it moves to a V100; that move is infrastructure only.
+- **Each model dreams its own questions** with the frozen dreamer prompt (`run.DREAM_PROMPT`, the strict retry and
+  the two worked examples, unchanged). Each model's selectors use its own attention.
+- **Unchanged from the local run:** the 64 items, the selectors, the budgets (k = 2, 4, 8 and 10%), the anchors and
+  the teacher-forced measures.
+  - S-dream-split's layer bands (0–13, 20–27) are kept as they are. All three models have 28 blocks (asserted).
+- **Chat templates:**
+  - The head, the user turn and the content positions come from each tokenizer's own chat template
+    (`dream_bind.turn_pieces` / `user_turn_start`, as in dream_bind's Llama port).
+  - Llama's template writes today's date into the system block. It is pinned to dream_bind's string,
+    "26 Jul 2024", in every template call (`dream_bind.date_pinned`).
+  - The R-full == T-full identity (logits within 0.01 at every scored position) is asserted per item and per
+    model: in the teacher-forced stage, and again at the first generation step in the generation stage.
+
+### Generation
+- **Prompt:** the benchmark question as the user turn, as in the teacher-forced measures. Slices: the question turn
+  starts at n_head + n_seg.
+- **Conditions (per item):**
+  - `nomem`, `ctx` (the turn and the question in one user turn), `R-full` and `R-content`.
+  - `gold` (the answer's tokens + the next token), on verbatim items only.
+  - At k = 4 and at k = 8: S-dream, S-attn, S-recon, S-loo, random (seed 0 only, of the 3 teacher-forced seeds) and
+    gold@k (verbatim items only).
+  - That is 17 conditions on a verbatim item and 14 on a non-verbatim one.
+- **Answers per condition:** 1 greedy + 4 samples, at most 64 new tokens. 64 items give 5,320 answers per model.
+- **Sampler:** dream_bind's own (T = 1, top-p 0.95, top-k 20, plus its presence penalty of 1.5 on tokens already
+  generated). The random streams are the same in every condition of an item: one generator per item, seeded from
+  the question text (`core_v1.seed_of("dream_select", question, 0)`), with the j-th sample row using the j-th draw.
+
+### Judging
+- **The criterion is LongMemEval's own correctness check for single-session-user questions.**
+  - The template is reproduced verbatim from the LongMemEval repo (`src/evaluation/evaluate_qa.py`,
+    `get_anscheck_prompt`, the single-session-user branch; fetched 2026-11-04 from commit d6dc8b5, file sha256
+    ecce9c4c…). It is not a reconstruction.
+  - It is filled with the benchmark question, the gold answer and the model's response. An empty response is
+    given as "(empty reply)", as in dream_bind.
+- **Label:** LongMemEval's own parse rule: correct if "yes" occurs in the lower-cased judge reply.
+  - A reply with neither "yes" nor "no" as a word is unparsed. It is retried once with another seed (panel judges);
+    if it is still unparsed, it is a missing vote. The counts are reported.
+- **Judges:**
+  - The original judge: Qwen3.5-9B, bf16, thinking off, greedy, at most 10 new tokens (LongMemEval's max_tokens),
+    run through core_v1's model loading and batched generation.
+  - The panel, through Ollama, as dream_bind's panel does: gpt-oss (reasoning "low", up to 768 tokens with the
+    reasoning) and Gemma-4 12B (thinking off, at most 10 tokens). Temperature 0, and core_v1's panel client
+    (`panel_judge.chat`, `wait_ready`).
+  - Each model's answers go to their own panel files (`<model>/panel/<judge>.jsonl`). That avoids addendum 9's
+    shared-file problem; dream_bind's relink (a82244b) still runs on resume.
+- **Primary label:** the majority of the three judges. A tie, or a missing vote that leaves a tie, goes to the
+  original judge (`dream_bind.bind.majority`).
+- **Also reported:**
+  - Each judge alone, and the pairwise agreement.
+  - The refusal regex of dream_bind addendum 7 (B3) (`run.REFUSAL_RE`: "don't / do not / can't / cannot / couldn't
+    know / recall / remember / have / access / tell", "I'm sorry", "could you tell / share / remind").
+  - Loops (the repetition rate ≥ 0.3, as dream_bind).
+  - The share of answers that contain the gold answer string (verbatim items; a judge-free check).
+
+### Rules (per model; decided at k = 4)
+- **Teacher-forced (7B and Llama):** the same two rules as the local PREREG (`analyze.rules`), on each model's own
+  teacher-forced run. For the 1.5B, the local verdicts stand.
+- **Generation, primary: "S-dream beats random in judged correctness"** holds if the paired CI of (S-dream −
+  random) on judged correctness has a lower bound > 0.
+  - Per item, correctness is the mean over its 5 answers. There is one prompt per item, so the two-level bootstrap
+    (`seahorse.stats.boot_ci`, prompts within items) reduces to an item bootstrap.
+  - 2000 replicates, seed 7. A bound with |bound| < 1e-9 counts as 0 (as dream_bind addendum 9).
+- **Also reported:**
+  - S-dream − S-attn, every selector against random, at k = 4 and k = 8.
+  - S-loo and gold@k as references.
+  - The gap closed in judged correctness: (mean cond − mean nomem) / (mean R-full − mean nomem), with its CI from
+    the same item bootstrap (the ratio per replicate). It is n/a when R-full − nomem < 0.05.
+  - The refusal rates.
+- **Replication across models:** "replicates" if the generation rule holds on at least 2 of the 3 models. A final
+  cross-model step writes `summary.md` with each model's teacher-forced and generation verdicts and this verdict.
+
+### Infrastructure (no change in behaviour)
+- **The rename:** `select.py` is renamed `selectors_ds.py`, because the old name shadows Python's stdlib `select`
+  module. Its contents are unchanged. The tests prove it, and re-running `analyze.py` on the local run reproduces
+  its report.
+- **What the code adds:**
+  - `run.py` gains `--model` and `--stage` (tf, gen, judge, analyze-gen, summary).
+  - `panel.py` is this experiment's yes/no panel client.
+  - `jobs.py` runs pytest and several stages in one Python process (as `dream_bind/multi.py`).
+  - New slurm scripts `slurm/dream_select*.slurm` and `experiments/dream_select/submit.sh`.
+  - Nothing under `experiments/dream_bind/`, `experiments/dream_subj/`, `src/` or the existing slurm scripts is
+    changed.
+- **Smoke per model** (`--tiny`: 3 items, k = 4): the teacher-forced stage, generation and the generation analysis,
+  with the identity checks and a memory reading.
+  - One judge smoke (gpu-a100) runs the original judge, both panel judges (24 prompts each) and the analysis on the
+    7B smoke's answers before any full judge job starts.
