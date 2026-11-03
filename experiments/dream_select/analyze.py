@@ -3,7 +3,8 @@
 
   python -I experiments/dream_select/analyze.py results/dream_select_<stamp>
 
-If <out>/summary.md exists (the hand-written plain-language summary), it is put at the top of report.md.
+The plain-language summary at the top of report.md is filled from the numbers (`summary`); the post-hoc table of
+what the selectors keep (punctuation share) is labelled as not pre-registered.
 """
 
 import sys
@@ -17,6 +18,7 @@ import gzip  # noqa: E402
 import importlib.util  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
+import re  # noqa: E402
 from collections import defaultdict  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -30,6 +32,7 @@ MAIN_K = "k4"
 ANCHORS = ("nomem", "ctx", "T-full", "R-full", "R-content")
 SELS = ("S-dream", "S-dream-split", "S-attn", "S-recon", "S-loo", "last-k", "random", "gold@k")
 SHORT_MAX = 60
+PUNCT = re.compile(r"^\s*[^\w\s]+\s*$")
 CONTRASTS = (("S-dream", "random"), ("S-dream", "S-attn"), ("S-attn", "random"), ("S-dream-split", "random"),
              ("S-dream-split", "S-dream"), ("S-recon", "random"), ("S-loo", "random"), ("S-dream", "S-loo"),
              ("S-dream", "S-recon"), ("last-k", "random"), ("gold@k", "S-dream"))
@@ -160,6 +163,86 @@ def mark(info, sel):
     return "".join(f"**[{t}]**" if p in s else t for p, t in zip(info["content"], info["content_tokens"]))
 
 
+def punct_share(rows, infos, c, b):
+    n = p = 0
+    for r in rows:
+        if r["cond"] == c and r["budget"] == b:
+            tm = dict(zip(infos[r["item"]]["content"], infos[r["item"]]["content_tokens"]))
+            for s in r["sel"]:
+                n += len(s)
+                p += sum(bool(PUNCT.match(tm[x])) for x in s)
+    return p / n if n else float("nan")
+
+
+def summary(V, items, verb, infos, rows, mk, R, d_rand, d_attn, d_ar):
+    """The plain-language summary at the top of report.md, filled from the numbers."""
+    m = lambda meas, c, b=mk, sub=items: boot([V[meas][key_of(c, b)][i] for i in sub if i in V[meas][key_of(c, b)]])
+    g = lambda c, b=mk: m("gap", c, b)["mean"]
+    h = lambda c, b=mk: m("hit", c, b, verb)["mean"]
+    rf = lambda c, b=mk: m("refusal", c, b)["mean"]
+    ids = max(infos[i]["identity_max_abs_diff"] for i in items)
+    ok1, ok2 = R["Dreamed questions select well"][0], R["Any attention selector works"][0]
+    nc = [infos[i]["n_content"] for i in items]
+    base = np.mean([bool(PUNCT.match(t)) for i in items for t in infos[i]["content_tokens"]])
+    return [
+        "## Summary", "",
+        f"**What was compared.** Each memory was one real user turn from LongMemEval's single-session-user items "
+        f"({len(items)} usable items, {min(nc)} to {max(nc)} content tokens). It was the turn that holds the answer, given "
+        "by the label, so only the choice of positions was tested. The turn's K,V was stored, and k of its positions "
+        "(plus the chat head) were put back before the benchmark question. The selectors never saw the question or "
+        "the answer:",
+        "- **S-dream:** attention from 3 questions the model dreamed up about the turn.",
+        "- **S-attn:** attention the position receives inside the turn, with no query.",
+        "- **S-recon:** attention while the model repeats the turn.",
+        "- **S-loo:** leave-one-out, using the model's own answers to the dreamed questions. Expensive; a reference.",
+        "- **Baselines:** random positions, the last k tokens, and gold@k (the answer's own tokens; uses the label).",
+        "",
+        "The main measure is log P(the gold answer as the first words of the reply). The gap closed puts it on a scale "
+        "from no memory (0) to the whole turn (1).", "",
+        "**What came out (k = 4).**",
+        f"- **The whole slice works, as before.** R-full equals the turn as text (max |Δlogit| {ids:.0e}). It scores "
+        f"{m('answer_score', 'R-full')['mean']:.1f} nats, against {m('answer_score', 'nomem')['mean']:.1f} with no "
+        f"memory and {m('answer_score', 'ctx')['mean']:.1f} with the turn in context.",
+        "- **The automatic selectors against random:**", "",
+        "  | k = 4 | gap closed | answer-score gain over random (nats) |", "  |---|---|---|",
+        f"  | S-dream | {g('S-dream'):.2f} | {f(d_rand)} |",
+        f"  | S-attn | {g('S-attn'):.2f} | {f(d_ar)} |",
+        f"  | S-recon | {g('S-recon'):.2f} | |",
+        f"  | random | {g('random'):.2f} | |", "",
+        f"- **Dreamed questions against plain attention:** S-dream − S-attn is {f(d_attn)}.",
+        f"- **Pre-registered verdicts:** \"Dreamed questions select well\" **{'holds' if ok1 else 'does not hold'}** "
+        f"(S-dream's gap {g('S-dream'):.2f}; the bar was 0.5). \"Any attention selector works\" "
+        f"**{'holds' if ok2 else 'does not hold'}**.",
+        "- **The answer's position is what matters.**",
+        f"  - gold@k (4 tokens around the answer) closes {g('gold@k'):.2f} of the gap. gold (the answer's tokens plus "
+        f"one) closes {g('gold', None):.2f}.",
+        f"  - The attention selectors include an answer token in {min(h(c) for c in ('S-dream', 'S-attn', 'S-recon')):.2f} "
+        f"to {max(h(c) for c in ('S-dream', 'S-attn', 'S-recon')):.2f} of verbatim items; random does in "
+        f"{h('random'):.2f}.",
+        f"  - S-loo finds it in {h('S-loo'):.2f} and closes {g('S-loo'):.2f} ({g('S-loo', 'k8'):.2f} at k = 8).",
+        f"- **What the attention selectors keep instead (post hoc).** Punctuation-only tokens (sentence ends) make up "
+        f"{punct_share(rows, infos, 'S-dream', mk):.2f} of S-dream's picks and {punct_share(rows, infos, 'S-recon', mk):.2f} "
+        f"of S-recon's. The base rate is {base:.2f}, and random keeps {punct_share(rows, infos, 'random', mk):.2f}.",
+        f"- **Refusal at the first word:** S-dream {rf('S-dream'):.2f}, S-attn {rf('S-attn'):.2f}, S-recon "
+        f"{rf('S-recon'):.2f}, S-loo {rf('S-loo'):.2f}, random {rf('random'):.2f}, gold@k {rf('gold@k'):.2f}, R-full "
+        f"{rf('R-full'):.2f}. The positions that raise the answer's probability most (gold@k) are not the ones that "
+        "lower refusal most.", "",
+        "**What it means.** On natural text, a slice of a few positions picked by attention, with or without dreamed "
+        "questions, recovers only a small part of what the whole turn gives. The attention selectors find sentence ends, "
+        "not the value. Testing positions by what they do (S-loo) does better, and the answer span itself does much "
+        "better. A useful automatic selector would have to target the value span, not raw attention mass. At these turn "
+        f"lengths (median {int(np.median(nc))} tokens) storing the whole turn is cheap.", "",
+        "**What it can't tell us.**",
+        "- **One answer form.** The score is log P of the bare gold string at the start of the reply. Answers phrased as "
+        "\"You graduated with …\" are not credited. Gap ratios are noisy, so the medians are reported beside the means.",
+        "- **Which turn to store was given.** Retrieval was not tested.",
+        "- **The dreamer is a weak 1.5B model.** Some of its questions are about the help asked for, or are addressed to "
+        "the assistant. S-loo, which uses the same dreams, does better, so the dreams are not the whole story.",
+        f"- **Scope.** Teacher-forced only, with no generation or judges, on one model and {len(items)} items. The "
+        f"non-verbatim split has {len(items) - len(verb)} items.",
+    ]
+
+
 def analyze(out):
     out = Path(out)
     rows, meta = load(out)
@@ -184,11 +267,9 @@ def analyze(out):
                "S-dream gap closed": g_dream, "n_items": len(items), "n_gap_dropped": len(dropped)}
     json.dump(verdict, open(out / "verdict.json", "w"), indent=1)
     # --- report
-    L = []
-    sm = out / "summary.md"
-    L += (sm.read_text().rstrip().splitlines() if sm.exists() else
-          ["# dream_select: automatic position selection (Qwen2.5-1.5B, teacher-forced, LongMemEval SSU)", "",
-           "*(summary.md not written yet)*"]) + [""]
+    L = ["# dream_select: can the slice's positions be chosen automatically? (Qwen2.5-1.5B, teacher-forced, "
+         "LongMemEval)", ""]
+    L += summary(V, items, verb, infos, rows, mk, R, d_rand, d_attn, d_ar) + [""]
     env = meta["env"]
     nd = sum(1 for i in items if infos[i]["dreams"]["fallback"])
     nr = sum(1 for i in items if infos[i]["dreams"]["retried"])
@@ -234,6 +315,23 @@ def analyze(out):
           f"has {max(infos[i]['n_content'] for i in items)}).",
           f"- Content tokens per turn: median {int(np.median([infos[i]['n_content'] for i in items]))}, max "
           f"{max(infos[i]['n_content'] for i in items)}; head {infos[items[0]]['n_head']} tokens.", ""]
+    # --- post hoc: what kind of token each selector keeps
+    punct = lambda t: bool(PUNCT.match(t))
+    base = np.mean([punct(t) for i in items for t in infos[i]["content_tokens"]])
+    L += ["## What the selectors keep (post hoc, not pre-registered)", "",
+          f"Share of the k = 4 picks that are punctuation-only tokens (base rate over all content tokens: {base:.2f}).",
+          "", "| selector | punctuation share of picks |", "|---|---|"]
+    for c in SELS:
+        n = p = 0
+        for r in rows:
+            if r["cond"] == c and r["budget"] == mk:
+                tm = dict(zip(infos[r["item"]]["content"], infos[r["item"]]["content_tokens"]))
+                for s in r["sel"]:
+                    n += len(s)
+                    p += sum(punct(tm[x]) for x in s)
+        if n:
+            L.append(f"| {c} | {p / n:.2f} |")
+    L.append("")
     # --- examples
     L += ["## Kept-token examples (k = 4; the first items in file order)", ""]
     by = {(r["item"], r["cond"], r["budget"]): r for r in rows}
