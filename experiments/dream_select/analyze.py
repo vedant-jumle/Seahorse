@@ -12,8 +12,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() != HERE]   # select.py shadows the stdlib module
-
 import gzip  # noqa: E402
 import importlib.util  # noqa: E402
 import json  # noqa: E402
@@ -23,7 +21,7 @@ from collections import defaultdict  # noqa: E402
 
 import numpy as np  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location("dream_select_select_an", HERE / "select.py")
+_spec = importlib.util.spec_from_file_location("dream_select_select_an", HERE / "selectors_ds.py")
 S = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(S)
 
@@ -32,6 +30,7 @@ MAIN_K = "k4"
 ANCHORS = ("nomem", "ctx", "T-full", "R-full", "R-content")
 SELS = ("S-dream", "S-dream-split", "S-attn", "S-recon", "S-loo", "last-k", "random", "gold@k")
 SHORT_MAX = 60
+LOCAL_LABEL = "Qwen2.5-1.5B"     # the local run's meta has no model_label
 PUNCT = re.compile(r"^\s*[^\w\s]+\s*$")
 CONTRASTS = (("S-dream", "random"), ("S-dream", "S-attn"), ("S-attn", "random"), ("S-dream-split", "random"),
              ("S-dream-split", "S-dream"), ("S-recon", "random"), ("S-loo", "random"), ("S-dream", "S-loo"),
@@ -174,8 +173,10 @@ def punct_share(rows, infos, c, b):
     return p / n if n else float("nan")
 
 
-def summary(V, items, verb, infos, rows, mk, R, d_rand, d_attn, d_ar):
-    """The plain-language summary at the top of report.md, filled from the numbers."""
+def summary(V, items, verb, infos, rows, mk, R, d_rand, d_attn, d_ar, label=LOCAL_LABEL):
+    """The plain-language summary at the top of report.md, filled from the numbers. The interpretive sentences were
+    written for the local Qwen2.5-1.5B run; for another model (PREREG addendum 1) they are left for review."""
+    local = label == LOCAL_LABEL
     m = lambda meas, c, b=mk, sub=items: boot([V[meas][key_of(c, b)][i] for i in sub if i in V[meas][key_of(c, b)]])
     g = lambda c, b=mk: m("gap", c, b)["mean"]
     h = lambda c, b=mk: m("hit", c, b, verb)["mean"]
@@ -225,19 +226,21 @@ def summary(V, items, verb, infos, rows, mk, R, d_rand, d_attn, d_ar):
         f"of S-recon's. The base rate is {base:.2f}, and random keeps {punct_share(rows, infos, 'random', mk):.2f}.",
         f"- **Refusal at the first word:** S-dream {rf('S-dream'):.2f}, S-attn {rf('S-attn'):.2f}, S-recon "
         f"{rf('S-recon'):.2f}, S-loo {rf('S-loo'):.2f}, random {rf('random'):.2f}, gold@k {rf('gold@k'):.2f}, R-full "
-        f"{rf('R-full'):.2f}. The positions that raise the answer's probability most (gold@k) are not the ones that "
-        "lower refusal most.", "",
-        "**What it means.** On natural text, a slice of a few positions picked by attention, with or without dreamed "
+        f"{rf('R-full'):.2f}." + (" The positions that raise the answer's probability most (gold@k) are not the ones that "
+                                "lower refusal most." if local else ""), "",
+        ("**What it means.** (Not generated: to be written after reviewing this model's numbers.)" if not local else
+         "**What it means.** On natural text, a slice of a few positions picked by attention, with or without dreamed "
         "questions, recovers only a small part of what the whole turn gives. The attention selectors find sentence ends, "
         "not the value. Testing positions by what they do (S-loo) does better, and the answer span itself does much "
         "better. A useful automatic selector would have to target the value span, not raw attention mass. At these turn "
-        f"lengths (median {int(np.median(nc))} tokens) storing the whole turn is cheap.", "",
+        f"lengths (median {int(np.median(nc))} tokens) storing the whole turn is cheap."), "",
         "**What it can't tell us.**",
         "- **One answer form.** The score is log P of the bare gold string at the start of the reply. Answers phrased as "
         "\"You graduated with …\" are not credited. Gap ratios are noisy, so the medians are reported beside the means.",
         "- **Which turn to store was given.** Retrieval was not tested.",
-        "- **The dreamer is a weak 1.5B model.** Some of its questions are about the help asked for, or are addressed to "
-        "the assistant. S-loo, which uses the same dreams, does better, so the dreams are not the whole story.",
+        ("- **The dreamer is a weak 1.5B model.** Some of its questions are about the help asked for, or are addressed to "
+         "the assistant. S-loo, which uses the same dreams, does better, so the dreams are not the whole story." if local else
+         f"- **The dreamer is the model itself** ({label}, greedy)."),
         f"- **Scope.** Teacher-forced only, with no generation or judges, on one model and {len(items)} items. The "
         f"non-verbatim split has {len(items) - len(verb)} items.",
     ]
@@ -267,9 +270,10 @@ def analyze(out):
                "S-dream gap closed": g_dream, "n_items": len(items), "n_gap_dropped": len(dropped)}
     json.dump(verdict, open(out / "verdict.json", "w"), indent=1)
     # --- report
-    L = ["# dream_select: can the slice's positions be chosen automatically? (Qwen2.5-1.5B, teacher-forced, "
+    label = meta.get("model_label", LOCAL_LABEL)
+    L = [f"# dream_select: can the slice's positions be chosen automatically? ({label}, teacher-forced, "
          "LongMemEval)", ""]
-    L += summary(V, items, verb, infos, rows, mk, R, d_rand, d_attn, d_ar) + [""]
+    L += summary(V, items, verb, infos, rows, mk, R, d_rand, d_attn, d_ar, label) + [""]
     env = meta["env"]
     nd = sum(1 for i in items if infos[i]["dreams"]["fallback"])
     nr = sum(1 for i in items if infos[i]["dreams"]["retried"])

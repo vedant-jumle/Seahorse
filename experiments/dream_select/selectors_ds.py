@@ -7,8 +7,9 @@ None of the selection helpers here takes the benchmark question or answer: they 
 attention statistics or the dreamed questions only. The gold helpers (gold_span, gold_at_k) are the labelled reference
 and are named as such.
 
-NOTE: this file is named select.py as the plan asks; it shadows the stdlib `select` module if its folder is on
-sys.path. run.py / analyze.py load it by path under another module name and drop their own folder from sys.path.
+NOTE: this file was select.py in the local run (commit 91ac19d); it was renamed selectors_ds.py (PREREG addendum 1,
+infrastructure only, contents unchanged) because that name shadows the stdlib `select` module. run.py / analyze.py
+load it by path under another module name.
 """
 
 import math

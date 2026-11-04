@@ -1,26 +1,42 @@
 #!/usr/bin/env python
 """dream_select (PREREG.md): can the positions of a stored K,V slice be chosen automatically, on natural text?
 
-Qwen2.5-1.5B-Instruct, fp32, eager attention, local (RTX 4060). Items: the 64 usable LongMemEval single-session-user
-items (data/longmemeval/ssu70.json, prep_data.py). The memory is the labelled evidence user turn; this tests positions
-only. Teacher-forced measures only (the dreamer and S-loo's own answers are greedy generations used for SELECTION, never
-scored). Reuses dream_bind's model loading, chat-turn pieces and splice code by import (nothing there is modified).
+Local run: Qwen2.5-1.5B-Instruct, fp32, eager attention (RTX 4060). PREREG addendum 1 (DelftBlue): Qwen2.5-7B-Instruct
+and Llama-3.2-3B-Instruct (teacher-forced + generation), and generation on Qwen2.5-1.5B; judged by LongMemEval's own
+correctness prompt (the original Qwen3.5-9B judge + the gpt-oss / Gemma-4 panel, panel.py). Items: the 64 usable
+LongMemEval single-session-user items (data/longmemeval/ssu70.json, prep_data.py). The memory is the labelled evidence
+user turn; this tests positions only. Reuses dream_bind's model loading, chat-turn pieces, splice and generation code by
+import (nothing there is modified).
 
-Per item:
-  harvest   one pass over [head][evidence user turn] (eager attention): K,V at every layer, the content positions
-            (the turn's text tokens, not the template / role tokens) and S-attn's attention statistics
-  selectors S-attn, S-dream (+ S-dream-split, exploratory), S-recon, S-loo, last-k, random (3 seeds); the gold
-            references (gold, gold@k) use the label. A selector sees the stored turn and its own dreamed questions
-            only: every selector function takes (C, store[, dreams]) and the store is built from the turn alone
-  measure   for each slice (head + the k picks at their stored positions; the question turn starts at n_head + n_seg)
-            and each anchor (nomem, ctx, T-full, R-full, R-content): log P(gold answer | benchmark question) with the
-            answer starting the assistant reply, and the first-token refusal mass P(I) + P(Sorry) + P(As)
+Stages (--stage; --model qwen25_15b | qwen25_7b | llama32_3b):
+  tf        (the local run's stage) per item:
+              harvest   one pass over [head][evidence user turn] (eager attention): K,V at every layer, the content
+                        positions (the turn's text tokens, not the template / role tokens) and S-attn's attention
+              selectors S-attn, S-dream (+ S-dream-split, exploratory), S-recon, S-loo, last-k, random (3 seeds); the
+                        gold references (gold, gold@k) use the label. A selector sees the stored turn and its own dreamed
+                        questions only: every selector function takes (C, store[, dreams]) and the store is built from
+                        the turn alone
+              measure   for each slice (head + the k picks at their stored positions; the question turn starts at
+                        n_head + n_seg) and each anchor (nomem, ctx, T-full, R-full, R-content): log P(gold answer |
+                        benchmark question) with the answer starting the assistant reply, and the first-token refusal
+                        mass P(I) + P(Sorry) + P(As)
+            then analyze.py -> <out>/report.md, verdict.json
+  gen       (addendum 1) generation from a tf run's selections (--sel-from, default <out>/tf): nomem, ctx, R-full,
+            R-content, gold, and S-dream / S-attn / S-recon / S-loo / random (seed 0) / gold@k at k4 and k8; 1 greedy +
+            4 samples, <= 64 new tokens -> <out>/gen/items/<qid>.jsonl.gz
+  judge     the original judge (Qwen3.5-9B bf16) with LongMemEval's prompt -> <out>/score/judge.jsonl.gz
+  analyze-gen  judged correctness tables + the generation rule -> <out>/report_gen.md, verdict_gen.json (CPU)
+  summary   the cross-model summary of a run root (--out = the root) -> summary.md (CPU)
+  compare-sel  information only: how many picks of the tf run in --out match the tf run in --sel-from
 
-  python -I experiments/dream_select/run.py --out results/dream_select_<stamp> [--tiny]
+  python -I experiments/dream_select/run.py --out results/dream_select_<stamp> [--tiny]          # the local run
   python -I experiments/dream_select/run.py --out <same dir> --analyze-only
+  python -I experiments/dream_select/run.py --model qwen25_7b --stage tf --out RUN/qwen25_7b/tf
+  python -I experiments/dream_select/run.py --model qwen25_7b --stage gen --out RUN/qwen25_7b
 
-Checks that fail the run: R-full TF == the turn as a prior user turn (T-full; logits within 0.01); every slice keeps the
-head + exactly k entries; every selected index is a content position; Paris.
+Checks that fail the run: R-full TF == the turn as a prior user turn (T-full; logits within 0.01; tf at every scored
+position, gen at the last prompt position); every slice keeps the head + exactly k entries; every selected index is a
+content position; Paris; gen: the re-derived head / content positions equal the tf run's; --max-reserved-gb (fit).
 """
 
 import sys
@@ -28,16 +44,16 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-# select.py would shadow the stdlib `select` module: never keep this folder on sys.path (python -I does not add it)
-sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() != HERE]
 sys.path.insert(0, str(REPO / "src"))
 
 import argparse  # noqa: E402
 import gzip  # noqa: E402
+import hashlib  # noqa: E402
 import importlib.util  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
 import time  # noqa: E402
+from collections import defaultdict  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -52,12 +68,22 @@ def _load(name, path):
     return mod
 
 
-S = _load("dream_select_select", HERE / "select.py")
+S = _load("dream_select_select", HERE / "selectors_ds.py")
+AG = _load("dream_select_analyze_gen", HERE / "analyze_gen.py")
 DB = _load("dream_select_db_run", REPO / "experiments" / "dream_bind" / "run.py")   # dream_bind's run.py (import only)
 bind = DB.bind
 DB_CFG = REPO / "experiments" / "dream_bind" / "config.yaml"
 DATA = REPO / "data" / "longmemeval" / "ssu70.json"
-MODEL_KEY = "qwen25_15b"
+MODEL_KEY = "qwen25_15b"            # the local run's model (the default of --model)
+# PREREG addendum 1: the models. "db" = the model block of dream_bind's config.yaml (loading, eager, Llama's pinned date
+# string); "mc" = this experiment's own block (Qwen2.5-7B is not in dream_bind's config, which is not edited).
+MODELS = {
+    "qwen25_15b": {"label": "Qwen2.5-1.5B", "db": "qwen25_15b"},
+    "llama32_3b": {"label": "Llama-3.2-3B", "db": "llama32_3b"},
+    "qwen25_7b": {"label": "Qwen2.5-7B", "mc": {"model": "Qwen/Qwen2.5-7B-Instruct", "n_blocks": 28,
+                                                "thinking_template": False, "text_only": False, "eager": True}},
+}
+N_BLOCKS = 28                       # S-dream-split's bands (0-13, 20-27) assume 28 blocks: all three models have 28
 TF_TOL = 0.01
 N_DREAM = 3
 DREAM_MAX_NEW = 96
@@ -200,17 +226,28 @@ def _dq_attention(C, store, q):
     return M, qc, len(ids) - 1
 
 
+def split_bands(C):
+    """S-dream-split's layer bands: 0-13 and 20-27 (asserted 28 blocks for real models; a random dry-run model with
+    fewer blocks gets the same relative bands)."""
+    if not getattr(C.A, "random_model", None):
+        assert C.n == N_BLOCKS, f"S-dream-split's bands assume {N_BLOCKS} blocks, the model has {C.n}"
+        return list(SPLIT_EARLY), list(SPLIT_LATE)
+    sc = lambda x: int(round(x * C.n / N_BLOCKS))
+    return list(range(sc(0), max(sc(14), 1))), list(range(sc(20), C.n))
+
+
 def sel_dream(C, store, dreams):
     """S-dream (primary): per dreamed question, the mean attention from its question tokens and the last prompt token
     to each stored content position (heads and layers averaged); summed over the questions. Also S-dream-split
     (exploratory): 0.5 x question tokens in layers 0-13 + 0.5 x the last prompt token in layers 20-27."""
     cols = [store.nh + c for c in store.content]
     prim, split = [], []
+    early, late = split_bands(C)
     for q in dreams["questions"]:
         M, qc, last = _dq_attention(C, store, q)
         prim.append(S.query_mean(M.mean(0), qc + [last], cols))
-        e = S.query_mean(M[list(SPLIT_EARLY)].mean(0), qc, cols)
-        l_ = S.query_mean(M[list(SPLIT_LATE)].mean(0), [last], cols)
+        e = S.query_mean(M[early].mean(0), qc, cols)
+        l_ = S.query_mean(M[late].mean(0), [last], cols)
         split.append([0.5 * a + 0.5 * b for a, b in zip(e, l_)])
     return S.dream_combine(prim), S.dream_combine(split)
 
@@ -388,7 +425,7 @@ def run_item(C, it, budgets, idx):
     return rows, info
 
 
-# ----------------------------------------------------------------------------------------------- main
+# ----------------------------------------------------------------------------------------------- setup
 
 
 def load_items(tiny=False):
@@ -397,25 +434,60 @@ def load_items(tiny=False):
     return (items[:3] if tiny else items), d["meta"]
 
 
-def run(A):
-    out = Path(A.out)
-    out.mkdir(parents=True, exist_ok=True)
+def model_config(key, cfg):
+    """(dream_bind-style model block, label) of a --model key (PREREG addendum 1)."""
+    m = MODELS[key]
+    mc = dict(cfg["models"][m["db"]]) if "db" in m else dict(m["mc"])
+    return mc, m["label"]
+
+
+def setup(A):
+    """The model (fp32, eager) through dream_bind's loader (Llama: the pinned date string), its generation settings
+    (eos ids, dream_bind's sampler, the template head) and the Paris check. Resets the peak-memory counters."""
     cfg = yaml.safe_load(open(DB_CFG))
-    mc = cfg["models"][MODEL_KEY]
-    dA = SimpleNamespace(random_model=None, dtype="fp32", device=A.device, tiny=A.tiny, gen_set=None, model=MODEL_KEY)
+    mc, label = model_config(A.model, cfg)
+    dA = SimpleNamespace(random_model=A.random_model, dtype="fp32", device=A.device, tiny=A.tiny, gen_set=None,
+                         model=A.model)
     model, tok, linfo = DB.load(dA, cfg, mc)
     C = DB.context(dA, cfg, mc, model, tok)
     DB.gen_context(C, cfg)
     C.ref_ids = {w: int(DB.text_ids(tok, w)[0]) for w in ("I", "Sorry", "As")}
     coh = DB.coherence_check(C)
-    assert coh["ok"], f"Paris check failed: {coh}"
-    log(f"Paris check: {coh['answer']!r}")
+    if not A.random_model:
+        assert coh["ok"], f"Paris check failed: {coh}"
+    log(f"{label}: Paris check: {coh['answer']!r}")
+    C.label = label
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    return C, cfg, linfo, coh
+
+
+def peak_gb():
+    if not torch.cuda.is_available():
+        return None, None
+    return torch.cuda.max_memory_allocated() / 2 ** 30, torch.cuda.max_memory_reserved() / 2 ** 30
+
+
+def fit_check(A, what):
+    """--max-reserved-gb: fail if the stage's peak reserved GPU memory exceeds the limit (the smokes' fit check)."""
+    al, rs = peak_gb()
+    log(f"{what}: peak GPU {'n/a' if rs is None else f'{rs:.2f}'} GB reserved "
+        f"({'n/a' if al is None else f'{al:.2f}'} GB allocated)")
+    if A.max_reserved_gb is not None and rs is not None:
+        assert rs <= A.max_reserved_gb, f"fit check: peak reserved {rs:.2f} GB > {A.max_reserved_gb} GB ({what})"
+
+
+# ----------------------------------------------------------------------------------------------- stage tf
+
+
+def run(A):
+    out = Path(A.out)
+    out.mkdir(parents=True, exist_ok=True)
+    C, cfg, linfo, coh = setup(A)
     items, dmeta = load_items(A.tiny)
     budgets = ["k4"] if A.tiny else list(S.BUDGETS)
     rows, infos = [], {}
     t0 = time.time()
-    if torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats()
     for i, it in enumerate(items):
         with torch.no_grad():
             rs, info = run_item(C, it, budgets, i)
@@ -429,27 +501,233 @@ def run(A):
     with gzip.open(out / "rows.jsonl.gz", "wt") as fh:
         for r in rows:
             fh.write(json.dumps(r) + "\n")
+    al, rs_ = peak_gb()
     meta = {"items": infos, "budgets": budgets, "tiny": A.tiny, "data_meta": dmeta, "minutes": (time.time() - t0) / 60,
             "load": linfo, "paris": coh, "env": DB.env_meta(), "n_examples": N_EXAMPLES,
             "prompts": {"dream": DREAM_PROMPT, "dream_strict": DREAM_PROMPT_STRICT, "examples": DREAM_EXAMPLES, "recon": RECON_PROMPT},
-            "peak_gpu_gb_allocated": torch.cuda.max_memory_allocated() / 2 ** 30 if torch.cuda.is_available() else None,
-            "peak_gpu_gb_reserved": torch.cuda.max_memory_reserved() / 2 ** 30 if torch.cuda.is_available() else None}
+            "peak_gpu_gb_allocated": al, "peak_gpu_gb_reserved": rs_,
+            "model": A.model, "model_label": C.label, "hf_model": C.mc["model"], "random_model": A.random_model}
     json.dump(meta, open(out / "meta.json", "w"), indent=1)
     log(f"done: {len(rows)} rows, {len(infos)} items in {meta['minutes']:.1f} min; peak GPU "
         f"{meta['peak_gpu_gb_reserved']}")
+    fit_check(A, "tf")
+
+
+# ----------------------------------------------------------------------------------------------- stage gen (addendum 1)
+
+GEN_TAG = "dream_select"
+GEN_SAMPLES = 4             # 1 greedy + 4 samples per condition
+GEN_MAX_NEW = 64
+
+
+def load_tf(d):
+    d = Path(d)
+    rows = [json.loads(l) for l in gzip.open(d / "rows.jsonl.gz", "rt")]
+    return rows, json.load(open(d / "meta.json"))
+
+
+def tf_selections(rows):
+    """{item: {(cond, budget): [selection per seed]}} of a tf run's rows (the anchors have no selection)."""
+    by = {}
+    for r in rows:
+        if "sel" in r:
+            by.setdefault(r["item"], {})[(r["cond"], r["budget"])] = r["sel"]
+    return by
+
+
+def gen_identity(C, store, question):
+    """R-full == T-full at the last prompt position (max |logit| difference; the gen-stage check)."""
+    qt = DB.qt_ids(C, question)
+    h, _ = fwd(C, qt, prefix_of(store))
+    _, tids = DB.render_ids(C.tok, [{"role": "user", "content": store.turn}, {"role": "user", "content": question}])
+    h2, _ = fwd(C, torch.tensor(tids, dtype=torch.long))
+    return DB.maxdiff(C.lm_head(h[-1:]).float(), C.lm_head(h2[-1:]).float())
+
+
+def gen_item(C, it, info, sels, budgets):
+    """Every generation condition of one item (the same random streams in each): [rows], info row."""
+    tok = C.tok
+    t0 = time.time()
+    q = it["question"]
+    store = harvest(C, it["stored_turn"])
+    assert store.nh == info["n_head"] and store.ns == info["n_seg"] and store.content == info["content"], \
+        f"{it['question_id']}: head / turn / content positions differ from the tf run's"
+    d_id = gen_identity(C, store, q)
+    assert d_id <= TF_TOL, f"{it['question_id']}: R-full != T-full at the last prompt position ({d_id})"
+    conds = AG.gen_conditions(sels, it["verbatim"], budgets)
+    streams = {1: (DB.cv1.seed_of(GEN_TAG, q, 0), GEN_SAMPLES + 1)}
+    lay = [(True, None)] + [(False, (1, j)) for j in range(1, GEN_SAMPLES + 1)]
+    qt = DB.qt_ids(C, q)
+    loop = C.cfg["gen"]["loop"]
+    rows = []
+    for name, c, b, sel in conds:
+        if c == "nomem":
+            ids, pf = DB.chat_ids(tok, q), None
+        elif c == "ctx":
+            ids, pf = DB.chat_ids(tok, f"{store.turn} {q}"), None
+        elif c == "R-full":
+            ids, pf = qt, prefix_of(store)
+        elif c == "R-content":
+            ids, pf = qt, prefix_of(store, sel=store.content)
+        else:
+            k = len(sel) if b == "own" else S.budget_k(b, len(store.content))
+            S.check_kept(S.keep_indices(store.nh, sel), store.nh, k, store.content)
+            ids, pf = qt, prefix_of(store, sel=sel)
+        outs = DB.gen_batch(C, ids, lay, prefix=pf, max_new=GEN_MAX_NEW, streams=streams)
+        for j, o in enumerate(outs):
+            rep = DB.cv1.rep_rate(o["ids"], loop["n"])
+            rows.append({"sec": "gen", "key": f"{it['question_id']}|{name}|{j}", "item": it["question_id"], "cname": name,
+                         "cond": c, "budget": b, "k": None if sel is None else len(sel), "j": j, "greedy": j == 0,
+                         "ids": o["ids"], "answer": tok.decode(o["ids"], skip_special_tokens=True).strip(),
+                         "n_tok": o["n_tok"], "capped": o["capped"], "rep": round(rep, 4), "loop": rep >= loop["thr"]})
+    inf = {"sec": "info", "item": it["question_id"], "identity_max_abs_diff": d_id, "n_conds": len(conds),
+           "conds": [x[0] for x in conds], "seconds": time.time() - t0}
+    del store
+    return rows, inf
+
+
+def stage_gen(A):
+    """PREREG addendum 1: generation from a tf run's selections (the 1.5B: the local run's, copied to the cluster)."""
+    out = Path(A.out)
+    gdir = out / "gen"
+    (gdir / "items").mkdir(parents=True, exist_ok=True)
+    sel_dir = Path(A.sel_from) if A.sel_from else out / "tf"
+    tf_rows, tf_meta = load_tf(sel_dir)
+    tf_model = tf_meta.get("model", MODEL_KEY)          # the local run's meta has no model field: Qwen2.5-1.5B
+    assert tf_model == A.model, f"the selections in {sel_dir} are {tf_model}'s, not {A.model}'s"
+    C, cfg, linfo, coh = setup(A)
+    items, _ = load_items(A.tiny)
+    infos = tf_meta["items"]
+    items = [it for it in items if it["question_id"] in infos]
+    assert items, "no item of the tf run to generate for"
+    budgets = [b for b in AG.GEN_BUDGETS if b in tf_meta["budgets"]]
+    sels = tf_selections(tf_rows)
+    t0 = time.time()
+    n_new = 0
+    for i, it in enumerate(items):
+        f = gdir / "items" / f"{it['question_id']}.jsonl.gz"
+        if f.exists():
+            log(f"gen: {it['question_id']} already done, skipped")
+            continue
+        with torch.no_grad():
+            rows, inf = gen_item(C, it, infos[it["question_id"]], sels[it["question_id"]], budgets)
+        DB.write_jsonl_gz(f, rows + [inf])
+        n_new += len(rows)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        el = (time.time() - t0) / 60
+        log(f"gen {i + 1}/{len(items)} {it['question_id']}: {inf['n_conds']} conditions, {len(rows)} answers, identity "
+            f"{inf['identity_max_abs_diff']:.1e} | {inf['seconds']:.1f}s, {el:.1f} min, eta "
+            f"{el / (i + 1) * (len(items) - i - 1):.1f} min")
+    al, rs = peak_gb()
+    meta = {"model": A.model, "model_label": C.label, "hf_model": C.mc["model"], "sel_from": str(sel_dir),
+            "budgets": budgets, "n_items": len(items), "answers_new": n_new, "tiny": A.tiny,
+            "samples": GEN_SAMPLES, "max_new": GEN_MAX_NEW, "sampler": cfg["gen"]["sampler"], "seed_tag": GEN_TAG,
+            "minutes": (time.time() - t0) / 60, "load": linfo, "paris": coh, "env": DB.env_meta(),
+            "peak_gpu_gb_allocated": al, "peak_gpu_gb_reserved": rs, "random_model": A.random_model}
+    json.dump(meta, open(gdir / "gen_meta.json", "w"), indent=1)
+    log(f"gen done: {n_new} new answers, {len(items)} items in {meta['minutes']:.1f} min")
+    fit_check(A, "gen")
+
+
+# ----------------------------------------------------------------------------------------------- stage judge (addendum 1)
+
+JUDGE_MAX_NEW = 10          # LongMemEval's max_tokens
+
+
+def stage_judge(A):
+    """The original judge (Qwen3.5-9B, bf16, thinking off, greedy, <= 10 new tokens) with LongMemEval's correctness
+    prompt; core_v1's loader and batched generation (prompts batched by exact token length, identical prompts judged
+    once) -> <out>/score/judge.jsonl.gz."""
+    out = Path(A.out)
+    G, _ = AG.read_gen(out)
+    data = {x["question_id"]: x for x in json.load(open(DATA))["items"]}
+    todo = {}
+    for r in G:
+        it = data[r["item"]]
+        todo.setdefault(AG.lme_prompt(it["question"], it["answer"], r["answer"]), []).append(r["key"])
+    texts = list(todo)[:A.judge_limit] if A.judge_limit else list(todo)
+    cvr = _load("dream_select_core_v1_run", REPO / "experiments" / "core_v1" / "run.py")
+    cfg = yaml.safe_load(open(DB_CFG))
+    cfg_j = {"judge": cfg["judge"], "model": "Qwen/Qwen3.5-2B"}   # 'model' only names the random-model tokenizer
+    Aj = SimpleNamespace(random_model="qwen2" if A.random_model else None, device=A.device)
+    t0 = time.time()
+    jm, jt = cvr.load(cfg_j, Aj, judge=True)
+    body, lm_head = DB.text_model(jm), jm.lm_head
+    eos = {jt.eos_token_id} | {jt.convert_tokens_to_ids(t) for t in ("<|im_end|>", "<|endoftext|>")}
+    eos_list = sorted(e for e in eos if isinstance(e, int) and e != jt.unk_token_id)
+    enc = {t: DB.chat_ids(jt, t) for t in texts}
+    by_len = defaultdict(list)
+    for t in texts:
+        by_len[len(enc[t])].append(t)
+    bs = cfg["judge"]["batch"]
+    raw = {}
+    with torch.no_grad():
+        for n, ts in sorted(by_len.items()):
+            for i in range(0, len(ts), bs):
+                chunk = ts[i:i + bs]
+                P = torch.stack([enc[t] for t in chunk])
+                outs = cvr.core.generate_batch(jm, body, lm_head, P, [(True, None)] * len(chunk), max_new=JUDGE_MAX_NEW,
+                                               eos=eos_list, vocab=lm_head.out_features)
+                for t, o in zip(chunk, outs):
+                    raw[t] = jt.decode(o["ids"], skip_special_tokens=True).strip()
+    rows, n_ok = [], 0
+    for t in texts:
+        p = AG.parse_yesno(raw[t])
+        for k in todo[t]:
+            rows.append({"key": k, "h": hashlib.sha1(t.encode("utf-8")).hexdigest(), "raw": raw[t], **p})
+            n_ok += p["ok"]
+    sc = out / "score"
+    sc.mkdir(parents=True, exist_ok=True)
+    DB.write_jsonl_gz(sc / "judge.jsonl.gz", rows)
+    al, rs = peak_gb()
+    res = {"judge": cfg["judge"], "max_new": JUDGE_MAX_NEW, "unique": len(texts), "rows": len(rows),
+           "parsed_ok": n_ok / max(len(rows), 1), "yes_rate": sum(bool(r["label"]) for r in rows) / max(len(rows), 1),
+           "prompt": AG.LME_SOURCE, "minutes": (time.time() - t0) / 60, "env": DB.env_meta(),
+           "peak_gpu_gb_reserved": rs, "random_model": A.random_model}
+    json.dump(res, open(sc / "judge_config.json", "w"), indent=1, default=str)
+    log(f"judge: {len(texts)} unique prompts, {len(rows)} answers, parsed {res['parsed_ok']:.3f}, yes "
+        f"{res['yes_rate']:.3f}, {res['minutes']:.1f} min")
+
+
+# ----------------------------------------------------------------------------------------------- main
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--out", required=True)
+    p.add_argument("--out", required=True, help="tf: the run dir; gen / judge / analyze-gen: the model dir (holds tf/, "
+                                                "gen/); summary: the run root")
+    p.add_argument("--stage", default="tf", choices=["tf", "gen", "judge", "analyze-gen", "summary", "compare-sel"])
+    p.add_argument("--model", default=MODEL_KEY, choices=sorted(MODELS))
+    p.add_argument("--sel-from", default=None, help="gen: the tf run dir whose selections are generated (default "
+                                                    "<out>/tf); compare-sel: the reference tf run")
     p.add_argument("--tiny", action="store_true", help="3 items, k = 4 only (smoke)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    p.add_argument("--random-model", default=None, choices=["qwen2", "llama"],
+                   help="a tiny random model with the real tokenizer (CPU dry runs; no Paris check)")
+    p.add_argument("--max-reserved-gb", type=float, default=None, help="fit check (smokes)")
+    p.add_argument("--judge-limit", type=int, default=None, help="judge: the first N unique prompts only")
     p.add_argument("--analyze-only", action="store_true")
     A = p.parse_args(argv)
-    if not A.analyze_only:
-        run(A)
-    AN = _load("dream_select_analyze", HERE / "analyze.py")
-    AN.analyze(Path(A.out))
+    if A.stage == "tf":
+        if not A.analyze_only:
+            run(A)
+        AN = _load("dream_select_analyze", HERE / "analyze.py")
+        AN.analyze(Path(A.out))
+    elif A.stage == "gen":
+        stage_gen(A)
+    elif A.stage == "judge":
+        stage_judge(A)
+    elif A.stage == "analyze-gen":
+        AG.analyze_gen(Path(A.out), Path(A.sel_from) if A.sel_from else None, MODELS[A.model]["label"])
+    elif A.stage == "summary":
+        AG.summary(Path(A.out), {k: v["label"] for k, v in MODELS.items()})
+    elif A.stage == "compare-sel":
+        a, _ = load_tf(A.out)
+        b, _ = load_tf(A.sel_from)
+        res = AG.compare_selections(a, b)
+        json.dump(res, open(Path(A.out) / "compare_sel.json", "w"), indent=1)
+        log("compare-sel (information only): " + "; ".join(f"{k} {v['same']}/{v['n']}" for k, v in res.items()))
 
 
 if __name__ == "__main__":

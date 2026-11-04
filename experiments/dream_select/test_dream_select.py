@@ -1,9 +1,10 @@
-"""Unit tests for dream_select (select.py helpers, run.py's selector signatures, analyze.py's rules).
+"""Unit tests for dream_select (selectors_ds.py helpers, run.py's selector signatures, analyze.py's rules; PREREG addendum
+1: the generation layout, LongMemEval's judge prompt and parse, the panel client, the generation analysis).
 
   PYTHONPATH=src:<pytest dir> python -m pytest --import-mode=importlib -p no:cacheprovider \
       experiments/dream_select/test_dream_select.py
 
-(--import-mode=importlib keeps this folder off sys.path: select.py would shadow the stdlib `select` module.)
+The panel job runs the torch-free subset: -k "panel or judge or jobs".
 """
 
 import importlib.util
@@ -24,7 +25,8 @@ def _load(name, path):
     return mod
 
 
-S = _load("dream_select_select_test", HERE / "select.py")
+S = _load("dream_select_select_test", HERE / "selectors_ds.py")
+AG = _load("dream_select_analyze_gen_test", HERE / "analyze_gen.py")
 
 
 @pytest.fixture(scope="module")
@@ -241,3 +243,237 @@ def test_rules():
     assert not AN.rules(pos, zero, 0.6, pos)["Dreamed questions select well"][0]
     assert not AN.rules(pos, pos, 0.49, pos)["Dreamed questions select well"][0]
     assert not AN.rules(pos, pos, 0.6, zero)["Any attention selector works"][0]
+
+
+# ============================================================================== PREREG addendum 1 (DelftBlue)
+
+
+def _tok_or_skip(name, date=None):
+    try:
+        from transformers import AutoTokenizer
+        t = AutoTokenizer.from_pretrained(name, local_files_only=True)
+    except Exception:
+        pytest.skip(f"{name} tokenizer not cached")
+    return t
+
+
+def test_rename_select_module_gone():
+    """select.py was renamed selectors_ds.py (it shadowed the stdlib module); nothing loads the old name."""
+    assert not (HERE / "select.py").exists()
+    for f in ("run.py", "analyze.py", "analyze_gen.py", "panel.py", "jobs.py"):
+        assert '"select.py"' not in (HERE / f).read_text(), f
+
+
+def test_model_table(RUN):
+    import yaml
+    cfg = yaml.safe_load(open(RUN.DB_CFG))
+    assert set(RUN.MODELS) == {"qwen25_15b", "qwen25_7b", "llama32_3b"}
+    for k in RUN.MODELS:
+        mc, label = RUN.model_config(k, cfg)
+        assert {"model", "n_blocks", "thinking_template", "text_only", "eager"} <= set(mc), k
+        assert mc["eager"] and not mc["text_only"] and not mc["thinking_template"] and mc["n_blocks"] == RUN.N_BLOCKS
+    assert RUN.model_config("qwen25_7b", cfg)[0]["model"] == "Qwen/Qwen2.5-7B-Instruct"
+    assert RUN.model_config("llama32_3b", cfg)[0]["date_string"] == "26 Jul 2024"
+    assert RUN.model_config("qwen25_15b", cfg)[0]["model"] == "Qwen/Qwen2.5-1.5B-Instruct"
+
+
+@pytest.mark.parametrize("name", ["Qwen/Qwen2.5-1.5B-Instruct", "Qwen/Qwen2.5-7B-Instruct", "meta-llama/Llama-3.2-3B-Instruct"])
+def test_layout_every_turn_every_template(RUN, name):
+    """Every one of the 64 turns: dream_bind's turn pieces (head from the template), content positions inside the user
+    turn only, the gold span on verbatim items; Llama with the pinned date string."""
+    import json
+    tok = _tok_or_skip(name)
+    if "llama" in name.lower():
+        RUN.DB.date_pinned(tok, "26 Jul 2024")
+        s = tok.apply_chat_template([{"role": "user", "content": "x"}], tokenize=False, add_generation_prompt=True)
+        assert "26 Jul 2024" in s
+    head = RUN.DB.turn_pieces(tok, "x").H
+    items = [x for x in json.load(open(RUN.DATA))["items"] if x["usable"]]
+    assert len(items) == 64
+    for it in items:
+        P = RUN.DB.turn_pieces(tok, it["stored_turn"])
+        assert P.H == head
+        c = S.content_positions(tok, P.Seg, it["stored_turn"])
+        assert c[0] > 0 and c[-1] < len(P.Seg) - 1
+        sp = S.gold_span(tok, P.Seg, c, it["answer"])
+        assert (sp is not None) == it["verbatim"], it["question_id"]
+
+
+def test_gen_conditions():
+    sels = {("gold", "own"): [[5, 6, 7]]}
+    for b in ("k4", "k8"):
+        for c in AG.GEN_SELECTORS:
+            sels[(c, b)] = [[1, 2], [3, 4], [5, 6]] if c == "random" else [[9, 10]]
+    v = AG.gen_conditions(sels, True, ["k4", "k8"])
+    assert len(v) == 17 and [x[0] for x in v[:5]] == ["nomem", "ctx", "R-full", "R-content", "gold"]
+    assert all(x[3] is None for x in v[:4]) and v[4][3] == [5, 6, 7]
+    assert dict((x[0], x[3]) for x in v)["random@k4"] == [1, 2]           # seed 0 = the first of the three
+    nv = AG.gen_conditions(sels, False, ["k4", "k8"])
+    assert len(nv) == 14 and not any(x[1] in ("gold", "gold@k") for x in nv)
+    del sels[("S-loo", "k8")]
+    assert "S-loo@k8" not in [x[0] for x in AG.gen_conditions(sels, True, ["k4", "k8"])]
+    assert len(AG.gen_conditions(sels, True, ["k4"])) == 11
+
+
+def test_judge_template_verbatim():
+    """LongMemEval's single-session-user template, byte-for-byte (sha256 of the string extracted from evaluate_qa.py at
+    commit d6dc8b5 on 2026-11-04)."""
+    import hashlib
+    assert hashlib.sha256(AG.LME_TEMPLATE.encode()).hexdigest() == \
+        "fba020ba3d57982efdc9a937c1c01f897b789a608c7f88e60244121f6505e5bc"
+    p = AG.lme_prompt("What degree did I graduate with?", "Business Administration", "You studied Business Administration.")
+    assert p.startswith("I will give you a question, a correct answer, and a response from a model.")
+    assert "\n\nQuestion: What degree did I graduate with?\n\nCorrect Answer: Business Administration\n\nModel Response: " \
+           "You studied Business Administration.\n\nIs the model response correct? Answer yes or no only." in p
+    assert "Model Response: (empty reply)" in AG.lme_prompt("q", "a", "  ")
+
+
+@pytest.mark.parametrize("text,label,ok", [
+    ("Yes", True, True), ("yes.", True, True), ("No", False, True), ("No.", False, True), ("**Yes**", True, True),
+    ("<think>maybe yes</think>No", False, True), ("", None, False), ("I cannot tell", None, False),
+    ("yesterday", None, False)])
+def test_judge_parse_yesno(text, label, ok):
+    p = AG.parse_yesno(text)
+    assert p["label"] == label and p["ok"] == ok
+    assert p["official"] == ("yes" in AG.repair(text).lower())
+
+
+def test_refusal_re_matches_dream_bind(RUN):
+    assert AG.REFUSAL_RE.pattern == RUN.DB.REFUSAL_RE.pattern and AG.REFUSAL_RE.flags == RUN.DB.REFUSAL_RE.flags
+    assert AG.REFUSAL_RE.search("I'm sorry, but I don't have access to that.")
+    assert not AG.REFUSAL_RE.search("You graduated with a degree in Business Administration.")
+
+
+def test_majority_labels_and_ties():
+    votes = {"orig": {"a": True, "b": False, "c": True, "d": None, "e": None},
+             "gptoss": {"a": False, "b": False, "c": False, "d": True, "e": None},
+             "gemma4": {"a": False, "b": True, "c": None, "d": False}}
+    m = AG.majority_labels(["a", "b", "c", "d", "e"], votes)
+    assert m == {"a": False, "b": False, "c": True, "d": None, "e": None}   # c: 1-1 tie -> orig; d: tie, orig None
+
+
+def test_gap_ratio_and_rule():
+    nm = {i: {0: 0.0} for i in range(10)}
+    full = {i: {0: 1.0} for i in range(10)}
+    half = {i: {0: 0.5} for i in range(10)}
+    g = AG.gap_ratio(half, nm, full)
+    assert g["mean"] == pytest.approx(0.5) and g["lo"] == pytest.approx(0.5) and g["n"] == 10
+    assert AG.gap_ratio(half, nm, {i: {0: 0.02} for i in range(10)})["mean"] is None
+    pos = {"mean": 0.2, "lo": 0.05, "hi": 0.3, "n": 64}
+    assert AG.gen_rule(pos)[0]
+    assert not AG.gen_rule({**pos, "lo": 0.0})[0] and not AG.gen_rule({**pos, "lo": 4e-18})[0]
+    assert not AG.gen_rule({**pos, "lo": -0.1})[0]
+
+
+def test_replication_verdict():
+    assert AG.replication_verdict(2, 3, 3) == "replicates" and AG.replication_verdict(2, 2, 3) == "replicates"
+    assert AG.replication_verdict(1, 3, 3) == "does not replicate" and AG.replication_verdict(0, 2, 3) == "does not replicate"
+    assert AG.replication_verdict(1, 2, 3) == "incomplete" and AG.replication_verdict(0, 1, 3) == "incomplete"
+
+
+def test_compare_selections():
+    a = [{"item": "x", "cond": "S-dream", "budget": "k4", "sel": [[1, 2]]},
+         {"item": "y", "cond": "S-dream", "budget": "k4", "sel": [[3, 4]]}, {"item": "x", "cond": "nomem", "budget": None}]
+    b = [{"item": "x", "cond": "S-dream", "budget": "k4", "sel": [[1, 2]]},
+         {"item": "y", "cond": "S-dream", "budget": "k4", "sel": [[3, 5]]}]
+    assert AG.compare_selections(a, b) == {"S-dream@k4": {"same": 1, "n": 2}}
+
+
+def test_jobs_parse_specs():
+    J = _load("dream_select_jobs_test", HERE / "jobs.py")
+    assert J.parse_specs("tf|/r/m/tf|--tiny --max-reserved-gb 9;gen|/r/m|--tiny;;analyze-gen|/r/m|") == [
+        ("tf", "/r/m/tf", ["--tiny", "--max-reserved-gb", "9"]), ("gen", "/r/m", ["--tiny"]), ("analyze-gen", "/r/m", [])]
+
+
+# ------------------------------------------------------------------------------ a fake model dir (panel + analysis)
+
+
+def _fake_model_dir(tmp_path, n_items=6):
+    """A model dir with generated answers for the first n_items items: S-dream@k4 answers correctly on every item, random
+    on none, plus the anchors."""
+    import gzip
+    import json
+    data = [x for x in json.load(open(AG.DATA))["items"] if x["usable"]][:n_items]
+    d = tmp_path / "m"
+    (d / "gen" / "items").mkdir(parents=True)
+    for it in data:
+        rows = []
+        for cname, good in (("nomem", False), ("ctx", True), ("R-full", True), ("R-content", True), ("S-dream@k4", True),
+                            ("random@k4", False), ("S-attn@k4", False)):
+            for j in range(5):
+                ans = f"It is {it['answer']}." if good else "I'm sorry, I don't know."
+                c, b = (cname.split("@") + [None])[:2]
+                rows.append({"sec": "gen", "key": f"{it['question_id']}|{cname}|{j}", "item": it["question_id"],
+                             "cname": cname, "cond": c, "budget": b, "j": j, "answer": ans, "loop": False})
+        rows.append({"sec": "info", "item": it["question_id"], "identity_max_abs_diff": 1e-4})
+        with gzip.open(d / "gen" / "items" / f"{it['question_id']}.jsonl.gz", "wt") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+    return d, data
+
+
+def _oracle_post(url, tag, prompt, schema, seed, num_predict=None, fmt="schema", timeout=900):
+    resp = prompt.split("Model Response: ")[1].split("\n\nIs the model")[0]
+    return ("Yes" if "sorry" not in resp else "No"), {"prompt_eval_count": 1, "eval_count": 1}
+
+
+def test_panel_tasks_run_and_resume(tmp_path):
+    P = _load("dream_select_panel_test", HERE / "panel.py")
+    d, data = _fake_model_dir(tmp_path)
+    tasks = P.build_tasks(d)
+    # identical (prompt, answer) pairs are judged once: per item 2 unique answers
+    assert len(tasks) == 2 * len(data) and sum(len(t["keys"]) for t in tasks) == 7 * 5 * len(data)
+    out = d / "panel" / "gptoss.jsonl"
+    out.parent.mkdir()
+    res = P.run_tasks("http://x", "gptoss", tasks, out, workers=4, post=_oracle_post, log=lambda m: None)
+    assert res["done_now"] == len(tasks) and res["unparsed_now"] == 0
+    lab = AG.read_panel(out)
+    assert lab[f"{data[0]['question_id']}|S-dream@k4|3"] is True and lab[f"{data[0]['question_id']}|random@k4|0"] is False
+    with open(out, "a") as f:
+        f.write('{"h": "torn')                                          # a killed job's torn last line
+    res2 = P.run_tasks("http://x", "gptoss", tasks, out, workers=4, post=_oracle_post, log=lambda m: None)
+    assert res2["done_now"] == 0
+
+
+def test_panel_judge_one_retries_once():
+    P = _load("dream_select_panel_test2", HERE / "panel.py")
+    calls = []
+
+    def post(url, tag, prompt, schema, seed, num_predict=None, fmt="schema", timeout=900):
+        calls.append((seed, num_predict, fmt))
+        return ("Hmm, hard to say" if len(calls) == 1 else "No"), {}
+    rec = P.judge_one("u", "gemma4", {"h": "h", "prompt": "p", "keys": ["k"]}, post)
+    assert rec["ok"] and rec["label"] is False and rec["attempts"] == 2
+    assert calls == [(P.SEED, 10, "none"), (P.SEED + 1, 10, "none")]
+    calls.clear()
+    rec = P.judge_one("u", "gptoss", {"h": "h", "prompt": "p", "keys": ["k"]},
+                      lambda *a, **k: (calls.append(1), ("???", {}))[1])
+    assert not rec["ok"] and rec["label"] is None and rec["attempts"] == 2
+
+
+def test_analyze_gen_end_to_end(tmp_path):
+    """Fake answers + three judges' files -> the rule holds (S-dream always right, random never), coverage complete,
+    and the cross-model summary counts it."""
+    import gzip
+    import json
+    P = _load("dream_select_panel_test3", HERE / "panel.py")
+    d, data = _fake_model_dir(tmp_path, n_items=8)
+    tasks = P.build_tasks(d)
+    (d / "panel").mkdir()
+    for jt in ("gptoss", "gemma4"):
+        P.run_tasks("http://x", jt, tasks, d / "panel" / f"{jt}.jsonl", workers=2, post=_oracle_post, log=lambda m: None)
+    G, _ = AG.read_gen(d)
+    (d / "score").mkdir()
+    with gzip.open(d / "score" / "judge.jsonl.gz", "wt") as f:
+        for r in G:
+            lab = "sorry" not in r["answer"]
+            f.write(json.dumps({"key": r["key"], "raw": "Yes" if lab else "No", "label": lab, "ok": True}) + "\n")
+    v = AG.analyze_gen(d, label="Fake")
+    assert v["rule"]["holds"] and v["rule"]["ci"]["mean"] == pytest.approx(1.0)
+    assert v["coverage"] == {"orig": len(G), "gptoss": len(G), "gemma4": len(G)} and v["n_majority_missing"] == 0
+    assert v["gap_closed"]["S-dream@k4"]["mean"] == pytest.approx(1.0)
+    assert v["refusal"]["random@k4"]["mean"] == pytest.approx(1.0)
+    assert (d / "report_gen.md").exists()
+    root = tmp_path
+    (root / "qwen25_7b").symlink_to(d)
+    assert AG.summary(root, {"qwen25_7b": "Fake"}) == "incomplete"            # 1 of 1 done, 2 missing
