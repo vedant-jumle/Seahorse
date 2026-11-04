@@ -43,7 +43,21 @@ else
 fi
 
 export OLLAMA_MODELS=/scratch/$USER/ollama/models
-export LD_LIBRARY_PATH=/scratch/$USER/ollama/lib/ollama:${LD_LIBRARY_PATH:-}
+# The Ollama install lost its soname links by 2026-11-04 (libllama.so.0, libggml-base.so.0, libmtmd.so.0,
+# cuda_v12/libcudart.so.12, cuda_v13/libcudart.so.13 + libcublasLt.so.13; libllama.so dangles), so llama-server exits 127
+# at GPU discovery (judge smoke 1195912). The install is not modified: a private dir per job holds the missing major-version
+# links (only those absent from the install) and goes on LD_LIBRARY_PATH.
+OL=/scratch/$USER/ollama/lib/ollama
+SHIM="$MODEL_DIR/panel/ollama_shim_${SLURM_JOB_ID:-x}"
+mkdir -p "$SHIM"
+for f in "$OL"/*.so.* "$OL"/cuda_v12/*.so.* "$OL"/cuda_v13/*.so.*; do
+  b=$(basename "$f")
+  [[ $b =~ ^(.+\.so\.[0-9]+)\.[0-9.]+$ ]] || continue
+  s=${BASH_REMATCH[1]}
+  [ -e "$(dirname "$f")/$s" ] || [ -e "$SHIM/$s" ] || ln -s "$f" "$SHIM/$s"
+done
+echo "ollama shim links: $(ls "$SHIM" | tr '\n' ' ')"
+export LD_LIBRARY_PATH=$OL:$SHIM:${LD_LIBRARY_PATH:-}
 OLLAMA=/scratch/$USER/ollama/bin/ollama
 OPID=
 trap 'kill $OPID 2>/dev/null || true; wait $OPID 2>/dev/null || true' EXIT
