@@ -45,12 +45,11 @@ if [ "$STAGE" = analyze ]; then
 fi
 
 nvidia-smi --query-gpu=name,memory.total --format=csv
-export OLLAMA_MODELS=/scratch/$USER/ollama/models
-export LD_LIBRARY_PATH=/scratch/$USER/ollama/lib/ollama:${LD_LIBRARY_PATH:-}
+# Ollama from a node-local copy (GPU discovery times out from /scratch): see slurm/ollama_local.sh.
+source slurm/ollama_local.sh
 PORT=$(python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1])")
 export OLLAMA_HOST=127.0.0.1:$PORT
 export OLLAMA_NUM_PARALLEL=$PARALLEL OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_KEEP_ALIVE=2h OLLAMA_FLASH_ATTENTION=1
-OLLAMA=/scratch/$USER/ollama/bin/ollama
 $OLLAMA serve > "$PANEL/ollama_${SLURM_JOB_ID}.log" 2>&1 &
 OPID=$!
 trap 'kill $OPID 2>/dev/null || true; wait $OPID 2>/dev/null || true' EXIT
