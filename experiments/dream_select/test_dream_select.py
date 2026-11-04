@@ -66,7 +66,9 @@ def test_content_excludes_template(tok):
 
 def test_content_question_turn(tok):
     q = "What degree did I graduate with?"
-    ids = tok.apply_chat_template([{"role": "user", "content": q}], tokenize=True, add_generation_prompt=True)
+    # render, then tokenise (as sessions.chat_ids): transformers 5's tokenize=True returns a BatchEncoding, not a list
+    s = tok.apply_chat_template([{"role": "user", "content": q}], tokenize=False, add_generation_prompt=True)
+    ids = tok(s, add_special_tokens=False).input_ids
     c = S.content_positions(tok, ids, q)
     assert "".join(tok.decode([ids[i]]) for i in c) == q
     assert c[-1] < len(ids) - 1                            # the assistant header follows
