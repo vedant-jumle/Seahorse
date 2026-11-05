@@ -37,8 +37,8 @@
 
 \begin{abstract}
 A fact a user states in one conversation can be carried into the next by storing part of the model's own key/value
-cache and putting it back later. We ask which part carries the fact, and what goes wrong when several such memories
-are used together. On three frozen models (Qwen2.5-1.5B, the hybrid Qwen3.5-2B and Llama-3.2-3B), the answer reads a
+cache and putting it back later, as recent KV-cache memory systems do. We ask which positions carry the fact, and
+what goes wrong when several such memories are used together. On three frozen models (Qwen2.5-1.5B, the hybrid Qwen3.5-2B and Llama-3.2-3B), the answer reads a
 stated fact from the value's own position, late in the network, so writing a state at the subject cannot work. Two
 stored positions (the value and the full stop after it; on the hybrid, with its recurrent state) restore 0.87--1.00 clean use against 0.90--1.00 with the
 sentence in context, while the same two tokens as text give 0.24--0.27. On the hybrid, the two kinds of memory
@@ -108,8 +108,10 @@ with a shared order tag and fetches the attribute from its own position when ask
 
 This paper asks what a stored representation needs in order to be read by those circuits, using the model's own key/value
 cache as the store. Reinstating a cached turn is prompt caching \citep{gim2024promptcache}; systems work reuses
-cached chunks for speed \citep{yao2025cacheblend,hu2025epic,xiao2024infllm}. Our question is different: which part of
-the cache carries a fact, what a hybrid model's recurrent state adds, and why combining separately stored memories
+cached chunks for speed \citep{yao2025cacheblend,hu2025epic,xiao2024infllm}. Stored KV reused across sessions as
+memory is not new either: MemArt keeps past turns as 16-token KV blocks and puts back the blocks the current question
+attends to, without training \citep{zeng2026memart}. We do not propose a memory system. We ask which few positions of
+the cache carry a fact, what a hybrid model's recurrent state adds, and why combining separately stored memories
 fails. Everything is training-free, on frozen models, with pre-registered decision rules (\S\ref{sec:setup}).
 
 \paragraph{Contributions.}
@@ -350,15 +352,25 @@ diverges at five.}
 position, and confuse IDs that are close \citep{feng2024binding,dai2024binding}; answers are fetched from the
 attribute's position through order-ID lookbacks \citep{prakash2024entity,prakash2026lookbacks}. Facts from the weights
 are instead enriched at the subject \citep{geva2023dissecting}. We find the in-context route for facts said in an
-earlier session, show that separately cached facts share an ID, and locate the entity side at the subject's positions.
+earlier session, show that swaps between separately cached facts come mostly from a shared order tag, and locate the
+entity side at the subject's positions.
 
-\paragraph{Cache reuse.} Prompt Cache reuses separately encoded modules and notes that independence between them
-matters \citep{gim2024promptcache}; CacheBlend, EPIC, Hypic and LinearKV recompute part of each reused chunk to
-recover the cross-chunk attention it lacks
-\citep{yao2025cacheblend,hu2025epic,liu2026hypic,liu2026linearkv}; InfLLM retrieves cached blocks
-\citep{xiao2024infllm}; KV-State Grafting restores full cached blocks across sessions \citep{schelpe2026grafting}.
-These works measure speed and task accuracy. We measure which part of a cached fact carries it, why separately cached
-facts swap, and that a storage-time order fixes it for small sets without recompute.
+\paragraph{Cache reuse and KV memory.} Prompt Cache reuses separately encoded modules, finds that gaps in position do
+not hurt, and notes that independence between modules matters \citep{gim2024promptcache}; CacheBlend, EPIC, Hypic and
+LinearKV recompute part of each reused chunk, and KVLink trains link tokens, to recover the cross-chunk attention it
+lacks \citep{yao2025cacheblend,hu2025epic,liu2026hypic,liu2026linearkv,yang2025kvlink}; InfLLM retrieves cached
+blocks \citep{xiao2024infllm}; KV-State Grafting restores full cached blocks across sessions
+\citep{schelpe2026grafting}. The closest prior system is MemArt \citep{zeng2026memart}: training-free, it stores
+earlier sessions' turns as 16-token KV blocks, retrieves the top blocks by attention from the current prompt,
+re-encodes their positions and is evaluated on LoCoMo. These works measure speed and task accuracy, with blocks or
+chunks as the unit. We measure which single positions of a cached fact carry it, against the same tokens as text, and
+where the answer reads it. We also show why separately cached facts swap and that a storage-time order fixes this for
+small sets without recompute. We found no report of such swaps, although MemArt concatenates blocks from many turns.
+
+\paragraph{Choosing what to keep.} Query-agnostic compression chooses what to keep before the question is known, for
+reuse by later queries \citep{kim2025kvzip,kim2026epicache,devoto2025expected}; KVzip names personalised
+conversational agents as a use case. We propose no selector: our two positions are the value and the full stop,
+located from the known value, and we ask why those carry the fact.
 
 \paragraph{Hybrid states.} On hybrids, the attention cache carries retrieval and the recurrent state matters little for
 it \citep{yu2026dasc}; \citet{afendulev2026hybrid} show recognition from the recurrent state within one session, as
@@ -369,7 +381,9 @@ attention entries.
 \citep{eyuboglu2026cartridges}; Memory Inception inserts text-derived KV at chosen layers for steering
 \citep{liu2026inception}; FwPKM trains a fast-weight memory \citep{zhao2026fwpkm}. Steering vectors as memory carry
 leanings but not facts \citep{jumle2026steering}. Known-entity and refusal directions
-\citep{ferrando2025entity,arditi2024refusal} bear on why attention-only memories refuse.
+\citep{ferrando2025entity,arditi2024refusal} bear on why attention-only memories refuse. Under cache compression,
+models also often fail to use evidence that survived \citep{khodabandehlou2026abstention}, and compression can remove
+a refusal \citep{kim2025kvzip}; we trace most of our refusals to a generic comply gate.
 
 \section{Limitations}
 \label{sec:limits}
@@ -378,7 +392,8 @@ The models are small (1.5--3B in generation; 9B teacher-forced only), and the 2B
 generation. Memories are single sentences about names and simple attributes; we do not test long episodes,
 paraphrased questions beyond our prompts, or facts that must be combined. The two-memory results use oracle gates;
 retrieval by the subject's words works for 59 facts but turns a wrong pick into a confident wrong answer
-(Appendix~\ref{app:retrieval}). Judges are models, checked against each other rather than against human labels. Most
+(Appendix~\ref{app:retrieval}). The two positions are located from the known value, not chosen by a selector, and we do not compare
+with a KV memory system such as MemArt or with query-agnostic selectors. Judges are models, checked against each other rather than against human labels. Most
 results come from addenda with rules fixed before the run, not from the first pre-registration, and several of their
 rules failed in part; we report those verdicts as they came out. The storage-order fix needs to know how many memories
 of a set exist, and fails for five same-kind memories, where joint encoding is still needed.
