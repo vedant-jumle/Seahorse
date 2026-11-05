@@ -13,6 +13,7 @@
 # Times from dream_select addendum 1 (sacct: tf 28-30 min / 64 items; gen 45-77 min / 5,320 answers; judge 18-30 min,
 # gpt-oss 56-97 min, Gemma-4 89-95 min per 5,320), scaled: 133 items with ~2.5x the passes per item; 27k answers
 # (5.1x); Gemma-4 (MoE, fp32, 2 GPUs) and Granite (30B dense fp32, 64 layers) assumed ~4x slower than the 7B; + margin.
+# Qwen2.5-1.5B runs on gpu-v100: gpu-a100-small (the MIG slice) caps jobs at 4 h, below the tf / gen limits.
 # Jobs: 7 per small model, 10 per 2-GPU model, 1 summary = 42 (Stage A's share of the ~100-job cap: <= 45).
 # From the repo on DelftBlue (/scratch/$USER/Seahorse) after `git pull`:
 #   bash experiments/dream_compare/submit_stage_a.sh [RUN_ROOT]
@@ -61,7 +62,7 @@ skip() { [[ " $SKIP " == *" $1 "* ]]; }
     if skip $M; then echo "$M: skipped (SKIP)"; continue; fi
     D=$RUN/$M
     case $M in
-      qwen25_15b)     tag=q15; R=$MIG;    gate="";                     fit="--max-reserved-gb 9.5"; ex=""; ru="--reuse $REUSE"
+      qwen25_15b)     tag=q15; R=$V100;   gate="";                     fit="--max-reserved-gb 30";  ex=""; ru="--reuse $REUSE"
                       t_sm=01:30:00; t_tf=06:00:00; t_gen=14:00:00; ntf=1; ngen=1 ;;
       llama32_3b)     tag=ll;  R=$V100;   gate="";                     fit="--max-reserved-gb 30";  ex=""; ru="--reuse $REUSE"
                       t_sm=01:30:00; t_tf=06:00:00; t_gen=14:00:00; ntf=1; ngen=1 ;;
