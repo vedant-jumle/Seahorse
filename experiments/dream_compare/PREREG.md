@@ -491,3 +491,26 @@ judge (`b-tasks` + `b-judge-local`, left-padded batches checked against run.py's
 Gemma-4 and Granite wait (afterok) for their Stage 0 smokes 1214590 / 1214592 / 1214593; every judge job waits for the
 judge smoke 1214594; Qwen2.5-1.5B and Llama-3.2-3B are ungated. Gemma-4 and Granite (2 GPUs, slower) run LongMemEval
 oracle and s120 as two jobs. Stage B uses 48 queue slots (9 per model, 10 for the two 2-GPU models, + 1 summary).
+
+### Stage B run record
+
+- **Local checks (2026-11-05).** `test_stage_b.py`: 22 passed locally (transformers 4.46; the 5 Gemma-4 cases skip) and
+  26 passed on a DelftBlue CPU node (transformers 5.18, Gemma-4 tiny models included). The old suites
+  (`test_dream_compare.py`, `test_dream_select.py`): 102 passed, 15 skipped. Tiny random-model dry runs of every split
+  (CPU) and a real Qwen2.5-1.5B run of one LongMemEval oracle item (RTX 4060): P3 of a whole session vs its text
+  max |dlogit| 1.9e-4, same greedy tokens; ragged rows == per-row generation (4 / 4). The laptop GPU (8 GB) cannot hold
+  the run's batches, so its times are not used for sizing.
+- **Run root** `/scratch/vvjumle/seahorse_runs/dream_compare_b_20261105_1915` (`jobs.txt`), commits 275444a / 2d93767.
+  Qwen2.5-7B's gate (1214590) had completed before submission, so its smoke has no dependency (Slurm rejects afterok on
+  a finished job); Gemma-4 and Granite wait for 1214592 / 1214593, every judge job for 1214594.
+
+| model | smoke | gens | judge | gpt-oss | Gemma-4 | analyze |
+|---|---|---|---|---|---|---|
+| qwen25_15b (V100) | 1217731 | 1217732-35 | 1217736 | 1217737 | 1217738 | 1217739 |
+| llama32_3b (V100) | 1217740 | 1217741-44 | 1217745 | 1217746 | 1217747 | 1217748 |
+| qwen25_7b (A100) | 1217750 | 1217751-54 | 1217755 | 1217756 | 1217757 | 1217758 |
+| gemma4_26b_a4b (2 x A100) | 1217759 | 1217760-64 | 1217765 | 1217766 | 1217767 | 1217768 |
+| granite42_30b (2 x A100) | 1217769 | 1217770-74 | 1217775 | 1217776 | 1217777 | 1217778 |
+
+  Summary 1217779 (after every analyze). Gens order per model: LongMemEval (one job; Gemma / Granite: oracle, s120),
+  LoCoMo, PersonaMem, BEAM.

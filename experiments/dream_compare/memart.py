@@ -169,19 +169,22 @@ class MemArtHook:
             pick = select_blocks(agg, r["n_blocks"], r.get("cand"))
             self.picked[b][l] = pick
             nh, s0 = r["nh"], r["slot0"]
+            src, dst, newp = [], [], []
             for j, blk in enumerate(pick):
                 g0, n = st.blocks[blk]
-                src = torch.arange(g0, g0 + n)
-                new_pos = torch.arange(nh + BLOCK * j, nh + BLOCK * j + n)
-                Kb = st.K[l][:, src].to(K.device)[None]                       # [1, Hkv, n, d]
-                Vb = st.V[l][:, src].to(V.device)[None]
-                delta = (new_pos - st.pos[src]).to(K.device)
-                Kb = self.rope_rotate(self.C, Kb, delta, l)
                 a = s0 + BLOCK * j
-                K[b, :, a:a + n] = Kb[0].to(K.dtype)
-                V[b, :, a:a + n] = Vb[0].to(V.dtype)
+                src.append(torch.arange(g0, g0 + n))
+                dst.append(torch.arange(a, a + n))
+                newp.append(torch.arange(nh + BLOCK * j, nh + BLOCK * j + n))
                 if n < BLOCK:
                     pads.append((b, list(range(a + n, a + BLOCK))))
+            if src:                       # one gather / rotation / write per row and layer
+                src, dst, newp = torch.cat(src), torch.cat(dst), torch.cat(newp)
+                Kb = st.K[l][:, src].to(K.device)[None]                       # [1, Hkv, n, d]
+                Vb = st.V[l][:, src].to(V.device)
+                Kb = self.rope_rotate(self.C, Kb, (newp - st.pos[src]).to(K.device), l)
+                K[b, :, dst.to(K.device)] = Kb[0].to(K.dtype)
+                V[b, :, dst.to(V.device)] = Vb.to(V.dtype)
             for j in range(len(pick), r["n_blocks"]):          # fewer candidate blocks than the budget
                 pads.append((b, list(range(s0 + BLOCK * j, s0 + BLOCK * (j + 1)))))
         self.pad[l] = pads
