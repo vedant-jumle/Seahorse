@@ -34,6 +34,12 @@ DSJ = _load("dream_compare_ds_jobs", REPO / "experiments" / "dream_select" / "jo
 parse_specs = DSJ.parse_specs
 
 
+def runner_path():
+    """The runner whose main() the specs call: run.py, or $DC_RUNNER.py (Stage B: DC_RUNNER=stage_b, which also
+    forwards run.py's stages)."""
+    return HERE / f"{os.environ.get('DC_RUNNER', 'run')}.py"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", required=True)
@@ -52,7 +58,7 @@ def main(argv=None):
         if rc != 0:
             sys.exit(f"pytest failed ({rc})")
         print("pytest passed", flush=True)
-    run = _load("dream_compare_run_jobs", HERE / "run.py")
+    run = _load("dream_compare_run_jobs", runner_path())
     for st, o, ex in parse_specs(os.environ.get("SPECS", "")):
         argv_ = ["--model", a.model, "--stage", st, "--out", o, "--device", a.device, *ex]
         print(f"=== run.py {' '.join(argv_)}", flush=True)
