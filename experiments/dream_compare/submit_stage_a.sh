@@ -40,7 +40,7 @@ A100="--partition=gpu-a100 --cpus-per-task=6 --mem-per-cpu=7900M --gpus-per-task
 A100x2="--partition=gpu-a100 --cpus-per-task=8 --mem-per-cpu=7900M --gpus-per-task=2"
 V100="--partition=gpu-v100 --cpus-per-task=2 --mem-per-cpu=5300M --gpus-per-task=1"
 A100J="--partition=gpu-a100 --cpus-per-task=4 --mem-per-cpu=7900M --gpus-per-task=1"
-CPU="--partition=compute-p1 --cpus-per-task=2 --mem-per-cpu=4G"
+CPU="--partition=compute-p1 --cpus-per-task=4 --mem-per-cpu=3G"
 GPU=slurm/dream_compare.slurm
 PANEL=slurm/dream_compare_panel.slurm
 ANA=slurm/dream_compare_cpu.slurm
