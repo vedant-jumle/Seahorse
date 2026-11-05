@@ -76,6 +76,8 @@ GEN_MAX_NEW = {"longmemeval": 128, "locomo": 48, "beam": 256, "personamem": 0}
 SUBSET_N, SUBSET_SEED, N_SAMPLES = 100, 7, 4
 LAT_N, LAT_DECODE = 20, 16
 P1_CHUNK = 4096
+PREFILL_CHUNK = 2048            # every long pass (session encoding, ragged prompts) runs in chunks of this many tokens
+ATTN_GB = 3.0                   # text prefills shrink their chunk so that one layer's attention scores stay below this
 NOT_MENTIONED = "Not mentioned in the conversation"
 REFUSAL_EXTRA = re.compile(r"\bnot mentioned\b|\bno information\b|\bnot (?:specified|stated|provided)\b", re.I)
 
@@ -269,7 +271,7 @@ class Store:
         for si, seg in enumerate(mem.segments):
             ids = list(mem.H) + [x for i in seg for x in mem.turns[i].piece]
             with torch.no_grad():
-                P, _, _ = M.harvest_kv(C, ids)
+                P = prefill_text(C, ids, chunk=PREFILL_CHUNK)       # chunked: bounded attention memory
             self.encoded_tokens += len(ids)
             g0 = mem.turns[seg[0]].g0
             n = len(ids) - nh
@@ -398,6 +400,8 @@ def prefill_text(C, ids, chunk=P1_CHUNK):
     cache = M.make_cache([], 1)
     dev = M.input_device(C)
     n = len(ids)
+    hq = int(getattr(C, "spec", {}).get("n_q_heads", 32))
+    chunk = max(256, min(int(chunk), int(ATTN_GB * 2 ** 30 // max(1, hq * n * 4))))   # one layer's scores <= ATTN_GB
     with torch.no_grad():
         for a in range(0, n, chunk):
             b = min(n, a + chunk)
@@ -509,19 +513,28 @@ class Ragged:
             if r.get("p5"):
                 ql = r.get("q_len", Tb)
                 p5rows[b] = dict(r["p5"], slot0=S - n + r["p5"]["nh"], q_cols=(T - Tb, T - Tb + ql))
-        masks = self._masks(qpos, qvalid, torch.cat([kpos, qpos], 1), torch.cat([kvalid, qvalid], 1), diag_from=S)
+        kp_all, kv_all = torch.cat([kpos, qpos], 1), torch.cat([kvalid, qvalid], 1)
+        ch = PREFILL_CHUNK
         if p5rows:
+            assert T <= ch, f"a P5 batch with a {T}-token prompt (> {ch}): MemArt selects in one prefill pass"
             self.hook = MA.MemArtHook(C, p5rows, M.kv_list, rope_rotate, S)
             self.hook.__enter__()
         dev = M.input_device(C)
-        o = C.body(input_ids=x.to(dev), past_key_values=cache, position_ids=qpos.to(dev), attention_mask=masks,
-                   use_cache=True)
-        del masks
-        self.cache = o.past_key_values
-        self.kpos = torch.cat([kpos, qpos], 1)
-        self.kvalid = torch.cat([kvalid, qvalid], 1)
+        hs = []
+        for a in range(0, T, ch):              # the prompt in column chunks: attention memory ~ chunk x (S + T)
+            b = min(T, a + ch)
+            masks = self._masks(qpos[:, a:b], qvalid[:, a:b], kp_all[:, :S + b], kv_all[:, :S + b], diag_from=S + a)
+            o = C.body(input_ids=x[:, a:b].to(dev), past_key_values=cache, position_ids=qpos[:, a:b].to(dev),
+                       attention_mask=masks, use_cache=True)
+            del masks
+            cache = o.past_key_values
+            hs.append(o.last_hidden_state)
+            del o
+        self.cache = cache
+        self.kpos = kp_all
+        self.kvalid = kv_all
         self.next_pos = qpos[:, -1] + 1
-        return o.last_hidden_state
+        return hs[0] if len(hs) == 1 else torch.cat([h.to(hs[-1].device) for h in hs], 1)
 
     def step(self, tok):
         C = self.C

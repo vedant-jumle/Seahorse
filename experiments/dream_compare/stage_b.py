@@ -208,8 +208,10 @@ def batches(rows, C, A, max_new):
         S = max(r["S"] for r in cur)
         T = max(r["T"] for r in cur)
         kv = len(cur) * (S + T + max_new) * bpp
-        mask = len(cur) * T * (S + T) * 4 * (3 if C.sliding else 2)
-        return kv <= A.batch_kv_gb * 2 ** 30 and mask <= A.mask_gb * 2 ** 30
+        ch = min(T, Pm.PREFILL_CHUNK)
+        mask = len(cur) * ch * (S + T) * 4 * (3 if C.sliding else 2)
+        attn = len(cur) * C.spec["n_q_heads"] * ch * (S + T) * 4      # SDPA's math path (fp32 with a mask on V100)
+        return (kv <= A.batch_kv_gb * 2 ** 30 and mask <= A.mask_gb * 2 ** 30 and attn <= A.attn_gb * 2 ** 30)
     for r in rows:
         if cur and (len(cur) >= B_MAX or r["group"] != cur[0]["group"] or not fits(cur + [r])):
             out.append(cur)
@@ -566,6 +568,7 @@ def run_bench(C, A, name, split, root, t_start):
 
 def stage_run(A):
     t0 = time.time()
+    P().ATTN_GB = A.attn_gb
     C = model_setup(A)
     Pm = P()
     complete = True
@@ -791,6 +794,7 @@ def main(argv=None):
     ap.add_argument("--batch-kv-gb", type=float, default=6.0)
     ap.add_argument("--mask-gb", type=float, default=2.0)
     ap.add_argument("--raw-gpu-gb", type=float, default=4.0)
+    ap.add_argument("--attn-gb", type=float, default=4.0, help="batch budget for one layer's attention matrix")
     ap.add_argument("--max-hours", type=float, default=None)
     ap.add_argument("--from", dest="from_dir", default=None)
     ap.add_argument("--judge-dir", default=None)

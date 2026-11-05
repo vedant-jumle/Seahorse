@@ -469,3 +469,25 @@ def test_select_turns_batched_equals_single():
                 assert got[j]["loo"] == ref["loo"], i
             else:
                 assert got[j]["loo"] is None or got[j]["loo"] == got[j]["dream"]
+
+
+@pytest.mark.parametrize("key", TINY)
+def test_chunked_prefill_equals_one_pass(key, monkeypatch):
+    """Ragged prompts and the store's session encoding in small chunks == one pass (greedy tokens, scores, keys)."""
+    C = ctx(key)
+    _, mem = toy_memory(C)
+    Q = P.question_ids(C, "What is my dog's name?")
+    with torch.no_grad():
+        st1 = P.Store(C, mem)
+        P3 = P.p3_prefix(C, st1, [0, 4])
+        ids2 = P.layout_text(mem, [1, 2])[0]
+        opt = M.DB().text_ids(C.tok, "Pepper").tolist()
+        rows = [dict(prefix=P3, ids=Q), dict(prefix=None, ids=ids2 + Q)]
+        srows = [dict(r, ids=r["ids"] + opt, n_score=len(opt)) for r in rows]
+        g1, s1 = P.ragged_gen(C, rows, 6), P.ragged_score(C, srows)
+        monkeypatch.setattr(P, "PREFILL_CHUNK", 5)
+        st2 = P.Store(C, mem)
+        g2, s2 = P.ragged_gen(C, rows, 6), P.ragged_score(C, srows)
+    assert [a["ids"] for a in g1] == [b["ids"] for b in g2]
+    assert all(abs(a[0] - b[0]) <= 1e-3 for a, b in zip(s1, s2))
+    assert all(md(a, b) <= TOL for a, b in zip(st1.K, st2.K))
