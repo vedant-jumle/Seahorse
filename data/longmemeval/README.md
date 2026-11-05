@@ -22,3 +22,20 @@ verbatim, else the first evidence turn; `stored_index` says which) and `usable`.
 - **2 items** also flag the assistant reply right after the user's evidence turn (it repeats the fact). Those turns are
   listed under `assistant_flagged` and never stored: the memory is the user's turn.
 - No item has 2 user evidence turns.
+
+## dream_compare splits (`manifest_oracle.json`, `manifest_s120.json`)
+
+- **Built by:** `python -I experiments/dream_compare/benchmarks/prep_longmemeval.py [--download]`
+  (adapter: `experiments/dream_compare/benchmarks/longmemeval.py`). The processed splits live in
+  `data/external/longmemeval/processed/` (git-ignored). The manifests hold counts, hashes and item ids.
+- **oracle:** all 500 items of `longmemeval_oracle.json`, 30 of them abstention. The source file is the same as
+  dream_select's (sha256 `821a2034...`).
+- **s120:** 120 items of `longmemeval_s_cleaned.json` (same repo and revision `98d7416c...`; sha256 `d6f21ea9...`).
+  It takes 20 per question type, drawn with `random.Random(7)` over the sorted ids of each type (10 are abstention
+  items). Each item keeps its full haystack, about 489k characters on average.
+- **Per item:** one context. Sessions are put in time order (the oracle file lists them unordered). Turn ids are
+  `<question_id>/<session_id>:<turn index>`. Evidence turns are the `has_answer` turns (user or assistant); evidence
+  sessions are `answer_session_ids`.
+- **S-file quirks:** 5 empty distractor turns are dropped. 3 sessions repeated inside one haystack get "#2" suffixes.
+- **For Stage A:** 182 oracle items have exactly one evidence turn. Counting user turns only (dream_select's rule)
+  gives 133, including dream_select's 64 single-session-user items.
