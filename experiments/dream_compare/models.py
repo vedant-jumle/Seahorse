@@ -384,6 +384,7 @@ def setup(key, device="cuda", attn="eager", random_model=None, paris=True, gb_pe
     C = D.DB.context(dA, cfg, mc, model, tok)
     finish_context(C, key, cfg)
     C.load_info = linfo
+    C.multi_device = len(linfo.get("device_map_devices") or []) > 1
     coh = None
     if paris and not random_model:
         coh = D.DB.coherence_check(C)
@@ -683,10 +684,11 @@ def answer_score(C, q_ids, a_ids, prefix=None):
 
 
 def gen_batch(C, ids, rows, *, prefix=None, max_new, streams=None, first_ids=None, force_masks=False):
-    """Generation after an optional Prefix. All-full-attention models: dream_bind's gen_batch with (kv, start)
-    unchanged. Sliding models (or force_masks): the same loop (sampler, random-stream layout, eos handling) with
-    position masks at every step."""
-    if not (needs_pos_masks(C) or force_masks):
+    """Generation after an optional Prefix. All-full-attention models on one device: dream_bind's gen_batch with
+    (kv, start) unchanged. Sliding models, models spread over several GPUs (C.multi_device: dream_bind's loop keeps the
+    logits on lm_head's device, which is not the input device there) or force_masks: the same loop (sampler,
+    random-stream layout, eos handling) with position masks at every step and the logits moved to the input device."""
+    if not (needs_pos_masks(C) or force_masks or getattr(C, "multi_device", False)):
         return DB().gen_batch(C, ids, rows, prefix=prefix.as_db() if prefix else None, max_new=max_new,
                               streams=streams, first_ids=first_ids)
     return _gen_masked(C, ids, rows, prefix=prefix, max_new=max_new, streams=streams, first_ids=first_ids)

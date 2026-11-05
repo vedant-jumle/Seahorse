@@ -455,6 +455,9 @@ def stage_judge_summary(A):
 
 def main(argv=None):
     import torch
+    av = list(sys.argv[1:] if argv is None else argv)
+    if "--stage" in av and av.index("--stage") + 1 < len(av) and av[av.index("--stage") + 1].startswith("a-"):
+        return _load("dream_compare_stage_a_run", HERE / "stage_a.py").main(av)      # Stage A (stage_a.py)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--stage", required=True, choices=["smoke", "judge-tasks", "judge-local", "judge-summary"])
     ap.add_argument("--model", default="qwen25_15b")
