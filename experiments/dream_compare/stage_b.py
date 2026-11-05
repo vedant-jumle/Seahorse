@@ -332,7 +332,10 @@ def run_context(C, A, b, ctx_id, items, outdir, selc, subset, lat, p1cap, first_
             log(f"  batch {bk + 1}/{len(bl)}: {len(bt)} rows ({bt[0]['cond']}...), S {max(r['S'] for r in bt)}, "
                 f"T {max(r['T'] for r in bt)}: {time.time() - tbk:.1f}s; peak {M.peak_gb()}")
     gen_s = time.time() - tb
-    # latency (B = 1)
+    # latency (B = 1): the shared P1 history is freed first (P1's latency prefills its own)
+    P1full = None
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     lat_res = {}
     for x in info.values():
         if x.it.item_id not in lat:
