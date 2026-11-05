@@ -320,6 +320,20 @@ item, resumable per item) to stay under 24 h per job. Gates: qwen25_7b, Gemma-4 
 smokes (1214590, 1214592, 1214593); every judge job waits for the Stage 0 judge smoke (1214594). Outputs per model:
 `report_a.md`, `verdict_a.json`; the run root gets `summary_a.md`.
 
+### Stage A run (record; no rule changed)
+
+- Code: commit 56af7f1 (+ b24e9cc, ec9cec4: submit-script resources only). Local checks before submission: the Stage A
+  tests pass on transformers 4.46 (25, Gemma skipped) and 5.18 (28, Gemma included); the Stage 0 and dream_select
+  suites still pass; dream_select's committed reports re-derive byte for byte; a local `--tiny` smoke on Qwen2.5-1.5B
+  (RTX 4060) passed: R-full == T-full <= 3e-4, keep-all == R-full 0, same picks in every head == splice 2e-5, the
+  recomputed S-attn / S-dream / S-recon equal addendum 1's saved scores to 1e-7 (same top-4 picks), peak 6.6 GB.
+- Shared-module changes (additive, tested): `run.py` dispatches `--stage a-*` to `stage_a.py`; `models.gen_batch`
+  takes the masked loop on models spread over 2 GPUs (dream_bind's loop leaves the logits on lm_head's device; this
+  also applies to the pending Stage 0 Granite smoke).
+- Qwen2.5-1.5B runs on gpu-v100 (gpu-a100-small caps jobs at 4 h).
+- Run root `/scratch/vvjumle/seahorse_runs/dream_compare_a_20261105_1822` (`jobs.txt` lists the 42 jobs), submitted
+  2026-11-05 at ec9cec4.
+
 ## Stage B: paradigms
 
 Written and committed before any Stage B job (2026-11-05). Code: `paradigms.py` (memory layout, store, conditions,
