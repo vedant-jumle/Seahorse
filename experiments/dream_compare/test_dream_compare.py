@@ -38,6 +38,7 @@ except Exception:
     HAVE_GEMMA4 = False
 
 TOL = 1e-4
+ROPE_TOL = 5e-5     # keys are O(1); 1e-5 flaked at 1.07e-5 on a cluster CPU (job 1214589)
 
 
 def _tok(name):
@@ -178,18 +179,18 @@ def test_rope_shift_equals_recompute_per_layer_type(key):
         for l, (a, b) in enumerate(zip(K0, K7)):
             assert not torch.allclose(a, b, atol=1e-4)
             s = M.rope_shift(C, a, 7, l)
-            assert _maxdiff(s, b) <= 1e-5, (key, l)
-            assert _maxdiff(M.rope_shift(C, s, -7, l), a) <= 1e-5
+            assert _maxdiff(s, b) <= ROPE_TOL, (key, l)
+            assert _maxdiff(M.rope_shift(C, s, -7, l), a) <= ROPE_TOL
             L = C.layout[l]
             kinds.add(L.kind)
             if L.rot_dim < L.head_dim:          # partial: dims with zero frequency are not rotated
                 half, r = L.head_dim // 2, L.rot_dim // 2
                 still = list(range(r, half)) + list(range(half + r, L.head_dim))
-                assert _maxdiff(a[..., still], b[..., still]) <= 1e-5      # float noise of earlier layers only
+                assert _maxdiff(a[..., still], b[..., still]) <= ROPE_TOL  # float noise of earlier layers only
                 assert _maxdiff(M.rope_shift(C, a, 7, l)[..., still], a[..., still]) == 0.0
                 assert not torch.allclose(a[..., :r], b[..., :r], atol=1e-4)
         if not C.sliding:
-            assert _maxdiff(M.rope_shift(C, K0[1], 7), K7[1]) <= 1e-5
+            assert _maxdiff(M.rope_shift(C, K0[1], 7), K7[1]) <= ROPE_TOL
         else:
             assert kinds == {M.FULL, M.SLIDE}
 
@@ -211,7 +212,7 @@ def test_compose_prefix_and_shift(key):
         at_d = _keys_at(C, ids, d)
         assert torch.equal(B.pos, torch.arange(d, d + A.n))
         for l, ((K, V), K2) in enumerate(zip(B.kv, at_d)):
-            assert _maxdiff(K, K2) <= 1e-5, l
+            assert _maxdiff(K, K2) <= ROPE_TOL, l
         with pytest.raises(AssertionError):
             M.compose_prefix(C, [("A", [3, 1], 0)], {"A": A}, start=A.start)
 
