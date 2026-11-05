@@ -215,7 +215,7 @@ a { color: var(--s1); }
   <div class="selcards">
     <div class="sc"><span class="nm">S-dream</span><span class="tag">main bet</span><p>The model writes 3 questions it expects the user might ask later about this turn. Keep the positions those questions attend to most.</p></div>
     <div class="sc"><span class="nm">S-attn</span><span class="tag">no question</span><p>Keep the positions the turn’s own later words attend to most (like H2O / Memory3).</p></div>
-    <div class="sc"><span class="nm">S-recon</span><span class="tag">no question</span><p>The model repeats the turn; keep the positions it reads to do so (like KVzip).</p></div>
+    <div class="sc"><span class="nm">S-recon</span><span class="tag">no question</span><p>The model repeats the turn; keep the positions it reads to do so. A KVzip-style selector, but averaged over heads and layers with one shared set of positions, where KVzip selects per head.</p></div>
     <div class="sc"><span class="nm">S-loo</span><span class="tag">expensive reference</span><p>Drop each position in turn and keep the ones whose loss hurts the model’s own answers to the dreamed questions most.</p></div>
     <div class="sc"><span class="nm">random</span><span class="tag">floor</span><p>k random positions (3 seeds).</p></div>
     <div class="sc"><span class="nm">gold@k</span><span class="tag">cheats with the label</span><p>The answer’s own tokens and their neighbours. Shows what knowing the answer’s position buys.</p></div>
@@ -225,8 +225,8 @@ a { color: var(--s1); }
     <div class="body">
       <ul>
         <li><strong>Dreamer:</strong> the same model, greedy, with a frozen prompt (an instruction plus two invented examples; chosen on format only). Each model dreams its own questions and uses its own attention.</li>
-        <li><strong>S-dream score:</strong> attention from each dreamed question’s tokens and the last prompt token to each stored content position, averaged over heads and layers, then summed over the 3 questions. Top-k.</li>
-        <li><strong>S-attn:</strong> mean attention a position receives from later content tokens (mean, not sum, to avoid early-token bias). <strong>S-recon:</strong> mean attention from the teacher-forced repetition. <strong>S-loo:</strong> drop in log P(own greedy answer to each dream) when the position is removed.</li>
+        <li><strong>S-dream score:</strong> attention from each dreamed question’s tokens and the last prompt token to each stored content position, averaged over heads and layers, then summed over the 3 questions. Top-k. Choosing what to keep with stand-in queries made before the real question exists is a known idea: EpiCache scores positions with a patched prompt in place of the question (<a href="https://arxiv.org/abs/2509.17396">arXiv:2509.17396</a>), Expected Attention with an estimate of future queries (<a href="https://arxiv.org/abs/2510.00636">arXiv:2510.00636</a>). S-dream is one form of it.</li>
+        <li><strong>S-attn:</strong> mean attention a position receives from later content tokens (mean, not sum, to avoid early-token bias). <strong>S-recon:</strong> mean attention from the teacher-forced repetition, averaged over heads and layers, with one set of positions kept at every layer and head. KVzip (Kim et al., NeurIPS 2025, <a href="https://arxiv.org/abs/2505.23416">arXiv:2505.23416</a>) takes each KV head’s maximum and lets heads keep different positions, so S-recon is KVzip-style, not KVzip. <strong>S-loo:</strong> drop in log P(own greedy answer to each dream) when the position is removed.</li>
         <li><strong>Anchors:</strong> no memory; R-full (the whole turn as a slice, identical to the turn as an earlier text turn: max |Δlogit| ≤ 3e-4); ctx (turn and question in one user turn).</li>
         <li><strong>Gold:</strong> the gold answer’s tokens plus the next token (56 items where the answer appears verbatim). gold@k fills to k with the nearest neighbours.</li>
       </ul>
