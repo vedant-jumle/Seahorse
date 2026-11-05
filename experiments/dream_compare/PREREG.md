@@ -322,5 +322,148 @@ smokes (1214590, 1214592, 1214593); every judge job waits for the Stage 0 judge 
 
 ## Stage B: paradigms
 
-(Placeholder: the Stage B executor writes the paradigms P0-P5, retrieval sizes, measures and rules B1-B5 here before its
-jobs.)
+Written and committed before any Stage B job (2026-11-05). Code: `paradigms.py` (memory layout, store, conditions,
+ragged batches, P4 selectors, storage accounting), `memart.py` (P5), `stage_b.py` (runner), `analyze_b.py`,
+`test_stage_b.py`, `submit_stage_b.sh`.
+
+### Question
+
+Does a stored-cache memory beat text memory on anything that matters (accuracy, refusals, storage, latency) on real
+memory benchmarks, with retrieval held fixed? Per question, the whole history is the memory.
+
+### Data
+
+All items of: LongMemEval oracle (500) and s120 (120); LoCoMo locomo10 (1,986: 1,540 judged + F1, the 446 adversarial
+as an abstention test); PersonaMem v1 32k (589, multiple choice); BEAM 100K (320). Models: qwen25_15b, qwen25_7b,
+llama32_3b, gemma4_26b_a4b, granite42_30b (fp32; a model whose Stage 0 smoke fails is not run and is reported missing).
+
+### The memory (identical for every paradigm)
+
+- **Turns -> chat messages.** Each turn is one message; its content is `"[<session date>] <text>"` when the turn has a
+  date (LongMemEval, LoCoMo, BEAM sessions with a time anchor), else the text. Text is stripped and cut at 16,000
+  characters (`" [...]"` appended; 3 BEAM turns, 1 LongMemEval-S turn).
+- **Roles.** LongMemEval, BEAM: as given. PersonaMem: as given; its system (persona) turns become user messages (a chat
+  template's system slot is the head).
+- **LoCoMo frame (neutral).** Stage 0 found Llama answering in a speaker's voice when the two speakers map to user /
+  assistant. Here the transcript is a log the user provides: **every** LoCoMo turn is a user message
+  `"[<date>] <Speaker>: <text> [shared an image: <caption>]"` (neither speaker is the assistant), and the question is
+  asked by a third party:
+  `I'm reading a log of conversations between <A> and <B>. <question> Answer with a short phrase from the log. If the log
+  does not say, answer "Not mentioned in the conversation".`
+- **Other question turns.** LongMemEval: `Today is <question_date>. <question>`. BEAM, PersonaMem: the question as given
+  (PersonaMem: the options are scored as the assistant's reply).
+- **Encoding.** Each session is rendered with the chat template (`session_pieces`: the head + one template piece per
+  turn, asserted to tokenise as the whole conversation) and encoded **once** (session-level prefill, SDPA, plain cache,
+  position masks on Gemma). A session longer than 16,384 tokens is encoded in segments of whole turns (each with the
+  head; BEAM only). The store keeps every memory token's K, V on the CPU at its session position. Eager attention only
+  where scores are needed (S-dream's passes).
+
+### Paradigms (conditions)
+
+| | at rest | at question time |
+|---|---|---|
+| P0 | nothing | head + question |
+| P1 | text | head + the whole visible history as text + question; only where it fits (below) |
+| P2-m | text | head + the BM25 top-m turns' pieces (time order) as text + question |
+| P3-m | text (index) + full K, V | the **same** top-m turns restored from the store, each moved to its P2 position (`rope_shift` per layer type); the question at P2's position. Same tokens and positions as P2; only the encoding context differs |
+| P4{loo,dream}-m | text (index) + k = 8 positions per turn | P3-m's prefix reduced to the head + each turn's 8 picked content positions, at their P3 positions; the question where P3's starts |
+| P5-m | full K, V in 16-token blocks | MemArt-style: per layer, the top-k blocks by the question's attention, re-encoded contiguously after the head; k = ceil(P3-m's restored turn tokens / 16) |
+| P5s-m | same | as P5 with k = ceil(P4-m's kept entries / 16) (matched to P4) |
+
+- **Retrieval:** Stage 0's BM25 (`retrieval.py`) over the item's visible turns, query = the raw question; m in {3, 10}
+  turns. PersonaMem is session-level (its evidence is): BM25 over the visible sessions (document = their turns' text),
+  **m in {1, 3} sessions** (deviation from {3, 10}: contexts have 5.3 sessions on average, so m = 10 would be the whole
+  history), all visible turns of the retrieved sessions.
+- **P1** runs where head + history + question <= min(the model's context - 512, the tokens whose plain cache fits
+  `--p1-kv-gb`: 1.5B 12 GB, Llama 8, 7B 20, Gemma 16, Granite 12). N skipped is reported per split. The history is
+  prefilled once per context (chunks of 4,096) and shared by its items (PersonaMem: the prefix up to each item's
+  visible end).
+- **P4 selectors, fixed in advance** (Stage A runs in parallel and is not waited for): **P4loo = S-loo, P4dream =
+  S-dream, k = 8 per turn**, dream_select's dreamer prompt and selectors unchanged, re-implemented device-safely
+  (equal on one device: tested). Selection is query-free: each turn is harvested **alone** (head + its own piece,
+  role header included) and scored there; the picks (content positions = the tokens spelling its rendered content)
+  are applied to its session-level stored entries. Turns with <= 8 content tokens keep all of them; the template
+  tokens of a turn are dropped (as dream_select's slices). S-loo on > 1,024 content tokens falls back to S-dream's picks
+  (counted). The dreamer sees every turn as given (assistant turns and LoCoMo lines included). Picks are cached per
+  (role, content). **P4-kvzip is not included**: Stage A's `baselines.py` was not committed when this was written (it
+  existed only as uncommitted work in progress); a later addendum may add Stage A's winner.
+- **P5 (MemArt-style), from the paper (no public code).** Blocks of BS = 16 consecutive turn tokens per session /
+  segment (head excluded, always kept; a session's last block may be shorter). Relevance I(q, K) = max over the block's
+  keys of q . k with q and k **without RoPE** (stored keys rotated back to position 0 per entry; q = q_proj (+ q_norm)
+  of the layer's input), exact (no AABB pre-filter). Per (query token, query head): reciprocal-rank normalisation
+  1 / (rank + 60) over the candidate blocks; Max over all of them (RR-Max, the paper's Qwen2.5-7B setting); top-k
+  blocks (ties -> earlier), the same for every head, **per layer** inside the question's prefill (layer l's queries
+  have seen the blocks retrieved at layers < l); chronological order; block j re-encoded at positions nh + 16 j ..;
+  the question at nh + 16 k. Departures: exact scoring; c = 60 (the paper gives none); per-layer selection inferred
+  from its per-attention Algorithm 1; the query is the question turn (user header + question + generation prompt);
+  short blocks padded with slots masked in that layer. PersonaMem: only blocks inside the visible turns.
+
+### Answers
+
+- One greedy answer per item and condition (PersonaMem: the four options' summed log-probabilities, no generation),
+  max new tokens LongMemEval 128, LoCoMo 48, BEAM 256.
+- Plus 4 samples per generative condition (dream_bind's sampler: temperature 1, top-k 20, top-p 0.95, presence 1.5;
+  one stream per row seeded by (item, condition, sample)) on a fixed 100-item subset per benchmark:
+  `sorted(random.Random(7).sample(sorted(item ids), 100))` of LongMemEval oracle, LoCoMo and BEAM (PersonaMem has no
+  generation; s120 has none).
+- Batching: rows with different prefixes are left-padded into one batch (masks from RoPE positions, pad slots masked);
+  identical to each row alone (tested; checked on the first context of every job, see below).
+
+### Measures (per model x split x condition)
+
+- **Judged correctness** (primary): LongMemEval's per-type prompts (abstention prompt for `_abs`); LoCoMo: Mem0's J on
+  the 1,540 non-adversarial items (+ the official F1); BEAM: the rubric judge per rubric item, item = mean; PersonaMem:
+  the option with the highest summed log-probability (mean per token beside). Panel = the original judge (Qwen3.5-9B)
+  + gpt-oss + Gemma-4: boolean kinds by majority (tie -> the original judge); BEAM rubric items by the median of the
+  judges' scores (two parsed: their mean). Gemma-4 subject model: also without the Gemma-4 judge.
+- **Refusal rate**: dream_bind's refusal regex or "not mentioned" / "no information" / "not specified|stated|provided",
+  on the greedy answers (all items) and the samples (subset).
+- **Abstention accuracy**: LongMemEval `_abs` (judged), LoCoMo adversarial (the official category-5 rule: "not
+  mentioned" / "no information available" in the answer), BEAM abstention (rubric).
+- **Knowledge-update accuracy**: LongMemEval knowledge-update, BEAM knowledge_update.
+- **Evidence recall@m** of the retrieval (turns; PersonaMem sessions).
+- **Storage per conversation** (at rest, mean over the items' visible histories): text = UTF-8 bytes of the rendered
+  turns (P1, P2; also the BM25 index P3 / P4 need); KV = (head + all turn tokens) x K,V numbers per position x 4 bytes
+  (P3: + text; P5: + MemArt's AABB index, 2 x head_dim per KV head per layer per block, though our scoring is exact);
+  P4 = (head + min(8, content tokens) per turn) x (numbers x 4 + a 4-byte position) + text. Gemma: both as stored
+  (K and V) and V-only on its K = V global layers. Caches are not kept on disk; the numbers are from this accounting.
+- **Question-time cost**: prefill tokens (P0 head + question; P1 + history; P2 + retrieved text; P3-P5 the question
+  only) and restored entries; latency on the first 20 subset items (PersonaMem: the first 20 ids), each condition
+  alone (B = 1, synchronised): time to the first token including the question-time work (P1: the history's prefill;
+  P3 / P4: compose from the CPU store; P5: block scoring in the prefill) and decode time per token.
+
+### Pre-registered rules
+
+Per model x split (LongMemEval oracle, LongMemEval s120, LoCoMo, PersonaMem, BEAM) x m; 95% percentile item bootstrap
+(2000 replicates, seed 7), paired on the items present in both conditions.
+
+- **B1 (format): P3-m vs P2-m judged correctness is equivalent within +-0.03** (TOST: the 90% CI of the paired mean
+  difference inside (-0.03, 0.03)). Else "different" if the 95% CI excludes 0, else "inconclusive". Also pooled per m:
+  the mean over model x split cells of the cell's mean difference, items resampled within cells (per model in its
+  report; over every model x split in the summary).
+- **B2: P4 vs P3** (per selector, m): the correctness difference with its CI, and the storage saving factor P3 KV bytes
+  / P4 KV bytes. No direction.
+- **B3: P4 vs P5 at matched storage**: P4 vs P5s (matched restored entries at question time; at-rest bytes of both
+  reported); P4 vs P5 beside.
+- **B4: Pareto frontier** of correctness vs at-rest storage bytes, vs question-time prefill tokens and vs time to first
+  token: the non-dominated conditions.
+- **B5: refusal rate per condition**, with paired differences P3 - P2, P4 - P3 (both selectors), P5 - P3. The licence gap
+  "appears end to end" on a cell if P4loo - P3 refusal has a 95% CI above 0; counted over cells.
+
+### Checks that fail a job
+
+On the first context of every split: P3 with every turn of the first session restored == that session as text
+(teacher-forced logits at the question rows <= 0.01, same greedy tokens); ragged rows == the adapter's `gen_batch` per
+row (greedy tokens, 4 row kinds). In tests: the same identities on tiny Qwen2 / Llama / Gemma-4 (Gemma on the
+cluster's transformers 5.18), compose / `rope_shift` ordering, MemArt's block scoring on toy tensors, the hook with
+every block == P3 at the same positions, storage accounting by hand, BM25 integration, the judges' routing per
+benchmark and category, the TOST / Pareto helpers.
+
+### Run plan
+
+Per model: smoke (pytest + one item per split through every condition + the checks) -> 4 generation jobs (LongMemEval
+oracle + s120; LoCoMo; PersonaMem; BEAM; resumable per item, `--max-hours 22.5` inside a 24 h limit) -> the original
+judge (`b-tasks` + `b-judge-local`, left-padded batches checked against run.py's unpadded path on the first 8 prompts)
+-> gpt-oss -> Gemma-4 judge -> analyze (`report_b.md`, `verdict_b.json`); then `summary_b.md`. Gates: qwen25_7b,
+Gemma-4 and Granite wait (afterok) for their Stage 0 smokes 1214590 / 1214592 / 1214593; every judge job waits for the
+judge smoke 1214594; Qwen2.5-1.5B and Llama-3.2-3B are ungated. Stage B uses <= 50 queue slots (9 per model + 1).
