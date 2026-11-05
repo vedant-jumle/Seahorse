@@ -397,10 +397,19 @@ llama32_3b, gemma4_26b_a4b, granite42_30b (fp32; a model whose Stage 0 smoke fai
   (equal on one device: tested). Selection is query-free: each turn is harvested **alone** (head + its own piece,
   role header included) and scored there; the picks (content positions = the tokens spelling its rendered content)
   are applied to its session-level stored entries. Turns with <= 8 content tokens keep all of them; the template
-  tokens of a turn are dropped (as dream_select's slices). S-loo on > 1,024 content tokens falls back to S-dream's picks
-  (counted). The dreamer sees every turn as given (assistant turns and LoCoMo lines included). Picks are cached per
-  (role, content). **P4-kvzip is not included**: Stage A's `baselines.py` was not committed when this was written (it
-  existed only as uncommitted work in progress); a later addendum may add Stage A's winner.
+  tokens of a turn are dropped (as dream_select's slices). The dreamer sees every turn as given (assistant turns and
+  LoCoMo lines included). Picks are cached per (role, content); dreams, own answers and leave-one-out rows are batched
+  (ragged rows; == per turn, tested).
+- **S-loo's scope (amended before any Stage B job, 2026-11-05, after the local smoke).** S-loo costs 3 forward passes
+  per content token (measured locally: ~0.1 s per content token per turn on Qwen2.5-1.5B, O(n^2) per turn); on every
+  retrieved turn of every item it would need days per model. So: **P4loo runs on the 100-item subsets only**
+  (LongMemEval oracle, LoCoMo, BEAM; not on s120 or PersonaMem), with dream_select's own cap (S-loo only on turns with
+  <= 200 content tokens, `LOO_MAX_CONTENT`; longer turns take S-dream's picks, counted). **P4dream runs on every
+  item.** B2 / B3 / B5 for P4loo are computed on the subsets. P5s's budget = P4dream's kept entries (both selectors
+  keep min(8, content) per turn, so the budgets are equal).
+- **P4-kvzip is not included**: Stage A's `baselines.py` was not committed when this section was first committed
+  (385c47f); it landed afterwards (56af7f1), after Stage B's design was fixed. A later addendum may add per-head KVzip
+  or Stage A's winner.
 - **P5 (MemArt-style), from the paper (no public code).** Blocks of BS = 16 consecutive turn tokens per session /
   segment (head excluded, always kept; a session's last block may be shorter). Relevance I(q, K) = max over the block's
   keys of q . k with q and k **without RoPE** (stored keys rotated back to position 0 per entry; q = q_proj (+ q_norm)
@@ -480,4 +489,5 @@ oracle + s120; LoCoMo; PersonaMem; BEAM; resumable per item, `--max-hours 22.5` 
 judge (`b-tasks` + `b-judge-local`, left-padded batches checked against run.py's unpadded path on the first 8 prompts)
 -> gpt-oss -> Gemma-4 judge -> analyze (`report_b.md`, `verdict_b.json`); then `summary_b.md`. Gates: qwen25_7b,
 Gemma-4 and Granite wait (afterok) for their Stage 0 smokes 1214590 / 1214592 / 1214593; every judge job waits for the
-judge smoke 1214594; Qwen2.5-1.5B and Llama-3.2-3B are ungated. Stage B uses <= 50 queue slots (9 per model + 1).
+judge smoke 1214594; Qwen2.5-1.5B and Llama-3.2-3B are ungated. Gemma-4 and Granite (2 GPUs, slower) run LongMemEval
+oracle and s120 as two jobs. Stage B uses 48 queue slots (9 per model, 10 for the two 2-GPU models, + 1 summary).
