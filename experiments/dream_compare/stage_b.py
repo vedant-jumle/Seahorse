@@ -125,14 +125,21 @@ def p1_cap_tokens(C, A):
 
 
 def identity_checks(C, store, mem, Q):
-    """(1) P3 with every turn of the first segment restored (at its own positions) == that segment as text
+    """(1) P3 with the leading turns (<= 2,048 tokens) of the first segment restored at their own positions == them as text
     (teacher-forced logits at the question rows, max |dlogit| <= 0.01, and the same greedy tokens); (2) ragged
     rows == the adapter's gen_batch per row (greedy tokens), for P0 / P2-like / P3-like / P4-like rows."""
     import torch
     Pm = P()
     M = Pm.M
     res = {}
-    seg = mem.segments[0]
+    seg0 = mem.segments[0]
+    seg, used = [], 0                   # the segment's leading turns, <= 2,048 tokens (one-pass text reference)
+    for i in seg0:
+        if seg and used + mem.turns[i].n > 2048:
+            break
+        seg.append(i)
+        used += mem.turns[i].n
+    res["turns"] = len(seg)
     with torch.no_grad():
         Pf = Pm.p3_prefix(C, store, seg)
         ids_t, _, qs = Pm.layout_text(mem, seg)
