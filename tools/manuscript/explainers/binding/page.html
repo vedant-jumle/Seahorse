@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Binding Across Positions · Seahorse · Vedant Jumle</title>
+<meta name="description" content="A Seahorse explainer: why a pooled activation vector cannot say which name belongs to which pet, how attention reads a binding back by picking a position, and what this predicts for stored memory slices and their collisions.">
+<link rel="canonical" href="https://vedantjumle.com/seahorse/binding/">
+<meta property="og:title" content="Binding Across Positions · Seahorse">
+<meta property="og:description" content="Binding lives in which slot a concept sits in. A pooled vector loses it; a stored slice of the model's own attention memory keeps it, and collides when slices are stored apart.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://vedantjumle.com/seahorse/binding/">
+<meta property="og:image" content="https://vedantjumle.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Binding Across Positions · Seahorse">
+<meta name="twitter:description" content="Binding lives in which slot a concept sits in. A pooled vector loses it; a stored slice keeps it, and collides when slices are stored apart.">
+<meta name="twitter:image" content="https://vedantjumle.com/og-image.png">
+<script>
+(function () {
+  var t = null;
+  try {
+    var q = new URLSearchParams(location.search).get('theme');
+    t = (q === 'dark' || q === 'light') ? q : localStorage.getItem('seahorse-theme');
+  } catch (e) {}
+  if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script defer data-domain="vedantjumle.com" src="https://plausible.io/js/plausible.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~68ch); activation tables break out wider in their own scroll boxes. Cells are the page's motif: a sequence is a table of positions × features. */
+:root {
+  color-scheme: light;
+  --bg: #F3F5F8;
+  --surface: #FFFFFF;
+  --ink: #18202E;
+  --muted: #5A6474;
+  --line: #D8DEE7;
+  --accent: #2747A3;
+  --tag1: #C27612;
+  --tag2: #0F8A80;
+  --warn: #B4383A;
+  --cell-empty: #EBEFF4;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F141C; --surface: #161D28; --ink: #E6EBF2; --muted: #9AA5B5; --line: #2A3444;
+    --accent: #7C9BFF; --tag1: #F0A63A; --tag2: #33C2B5; --warn: #F07474; --cell-empty: #1E2734;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F141C; --surface: #161D28; --ink: #E6EBF2; --muted: #9AA5B5; --line: #2A3444;
+  --accent: #7C9BFF; --tag1: #F0A63A; --tag2: #33C2B5; --warn: #F07474; --cell-empty: #1E2734;
+  color-scheme: dark;
+}
+html { -webkit-text-size-adjust: 100%; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.wrap {
+  max-width: 50rem;
+  margin: 0 auto;
+  padding-block: 2.5rem 4rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+a { color: var(--accent); }
+.back { margin-bottom: -1.75rem; font-family: var(--font-mono); font-size: 0.8rem; }
+.back a { color: var(--muted); text-decoration: none; }
+.back a:hover { color: var(--ink); text-decoration: underline; }
+.prose { max-width: 68ch; display: flex; flex-direction: column; gap: 0.9rem; }
+.prose p { margin: 0; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 5vw, 2.9rem); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.55rem; font-weight: 700; }
+h3 { font-size: 1.1rem; font-weight: 500; }
+.eyebrow {
+  font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+}
+.lead { font-size: 1.2rem; line-height: 1.5; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+em { font-style: italic; }
+strong { font-weight: 600; }
+
+header.hero { display: flex; flex-direction: column; gap: 1rem; }
+.answer {
+  border-left: 3px solid var(--accent);
+  padding: 0.25rem 0 0.25rem 1rem;
+  font-size: 1.15rem;
+}
+
+section { display: flex; flex-direction: column; gap: 1.1rem; }
+
+/* Activation tables */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 0;
+}
+.controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.controls .label { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); margin-right: 0.25rem; }
+button.seg {
+  font-family: var(--font-mono); font-size: 0.8rem;
+  background: transparent; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 0.35rem 0.8rem; cursor: pointer;
+}
+button.seg[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+button.seg:hover { border-color: var(--ink); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.scroll { overflow-x: auto; min-width: 0; }
+.grid {
+  display: grid;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  width: max-content;
+}
+.grid .rowlab { color: var(--muted); padding-right: 0.5rem; display: flex; align-items: center; justify-content: flex-end; white-space: nowrap; }
+.grid .colhead {
+  text-align: center; padding: 0.2rem 0.15rem; white-space: nowrap; color: var(--ink);
+  border-bottom: 2px solid transparent;
+}
+.grid .colhead.t1 { border-bottom-color: var(--tag1); }
+.grid .colhead.t2 { border-bottom-color: var(--tag2); }
+.grid .colhead.pool { color: var(--accent); font-weight: 600; }
+.grid .cell {
+  width: 3.4rem; height: 1.55rem; border-radius: 3px;
+  background: var(--cell-empty);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink); font-variant-numeric: tabular-nums;
+  transition: outline-color 0.2s, opacity 0.2s;
+  outline: 2px solid transparent; outline-offset: -1px;
+}
+.grid .cell.dim { opacity: 0.28; }
+.grid .cell.hit { outline-color: var(--ink); }
+.grid .gap { width: 0.6rem; }
+.grid .rowsep { grid-column: 1 / -1; height: 0.35rem; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 1rem; font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.sw { width: 0.8rem; height: 0.8rem; border-radius: 2px; display: inline-block; }
+
+.verdict {
+  font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.5;
+  border-radius: 6px; padding: 0.6rem 0.8rem;
+  background: var(--cell-empty); color: var(--ink);
+}
+.verdict.good { border-left: 3px solid var(--tag2); }
+.verdict.bad { border-left: 3px solid var(--warn); }
+
+.steps { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.note { font-size: 0.85rem; color: var(--muted); }
+
+/* Mode cards */
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 0.9rem; }
+.stat { font-family: var(--font-display); font-size: 1.8rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat small { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 400; color: var(--muted); display: block; margin-top: 0.3rem; }
+
+/* Math */
+.math {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0;
+}
+.eq { font-family: var(--font-mono); font-size: 0.92rem; overflow-x: auto; white-space: nowrap; padding: 0.4rem 0; }
+.eq b { color: var(--accent); font-weight: 600; }
+table.map { border-collapse: collapse; font-size: 0.92rem; width: 100%; }
+table.map th, table.map td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.map th { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 400; }
+
+ul.tight { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.5rem; }
+footer { font-size: 0.85rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.3rem; }
+
+@media (prefers-reduced-motion: reduce) { .grid .cell { transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+<nav class="back" aria-label="Back"><a href="/seahorse/">← Seahorse</a></nav>
+
+<header class="hero">
+  <div class="eyebrow">Seahorse · explainer</div>
+  <h1>What “across positions” means</h1>
+  <p class="lead">A transformer doesn’t hold a conversation as one vector. It holds a <strong>table</strong>: one residual vector per token position. Concepts inside one vector are (roughly) added together. Which concept belongs to which is recorded by <em>where</em> things sit in that table, and attention reads it back by picking a position.</p>
+  <div class="answer">“Binding is across positions” = the link between <em>dog</em> and <em>Pepper</em> is not stored inside any single vector. It is stored by Pepper sitting in its own slot, tagged as part of the dog pair, where a question can find it.</div>
+</header>
+
+<section aria-labelledby="s1">
+  <div class="eyebrow">The problem with one vector</div>
+  <h2 id="s1">A sum can’t say which goes with which</h2>
+  <div class="prose">
+    <p>Take two sentences that mean different things. Below, each column is one token position, and each row is a feature the residual vector at that position carries. The rightmost column is what you get if you average all the positions into one vector, which is what a pooled steering shift does.</p>
+    <p>Switch between the two sentences. The table changes. The pooled vector does not.</p>
+  </div>
+  <div class="panel">
+    <div class="controls" role="group" aria-label="Sentence">
+      <span class="label">sentence</span>
+      <button class="seg" id="sentA" aria-pressed="true">dog = Pepper, cat = Jasper</button>
+      <button class="seg" id="sentB" aria-pressed="false">dog = Jasper, cat = Pepper</button>
+    </div>
+    <div class="scroll"><div class="grid" id="grid1"></div></div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--accent)"></i>content feature</span>
+      <span><i class="sw" style="background:var(--tag1)"></i>order tag: pair 1</span>
+      <span><i class="sw" style="background:var(--tag2)"></i>order tag: pair 2</span>
+    </div>
+    <div class="verdict bad" id="verdict1"></div>
+    <p class="note">Toy numbers chosen by hand to show the idea, not measured activations. The tag rows stand for the “binding ID” directions found by Feng &amp; Steinhardt and Dai et al.</p>
+  </div>
+  <div class="prose">
+    <p>This is the classic binding problem: <span class="mono">red·square + blue·circle</span> and <span class="mono">blue·square + red·circle</span> add up to the same bag of features. Once you sum over positions, the information about which name belongs to which pet is gone. Nothing you do to that one vector afterwards can recover it.</p>
+  </div>
+</section>
+
+<section aria-labelledby="s2">
+  <div class="eyebrow">How the model reads it back</div>
+  <h2 id="s2">Attention fetches by slot, not by content</h2>
+  <div class="prose">
+    <p>Now ask <span class="mono">“What’s my cat’s name?”</span> The model doesn’t search for a vector that says “cat’s name”. Interpretability work on entity tracking (Prakash et al.; the Lookbacks paper) finds a chain: work out which pair the question is about, carry that address to the answer position, then let value-fetching heads attend to the slot with that address and copy what’s there. Step through it.</p>
+  </div>
+  <div class="panel">
+    <div class="controls" role="group" aria-label="Representation">
+      <span class="label">memory as</span>
+      <button class="seg" id="viewSeq" aria-pressed="true">table of positions</button>
+      <button class="seg" id="viewPool" aria-pressed="false">one pooled vector</button>
+    </div>
+    <div class="steps" role="group" aria-label="Steps">
+      <button class="seg" id="st0" aria-pressed="true">0 · the memory</button>
+      <button class="seg" id="st1" aria-pressed="false">1 · find the pair</button>
+      <button class="seg" id="st2" aria-pressed="false">2 · fetch the value</button>
+    </div>
+    <div class="scroll"><div class="grid" id="grid2"></div></div>
+    <div class="verdict" id="verdict2"></div>
+  </div>
+  <div class="prose">
+    <p>The key move is step 2: attention’s score is a dot product between a query and each position’s key, so it can single out <em>one column</em>. A table gives it columns to choose between. A pooled vector gives it one, already mixed.</p>
+    <p>One subtlety. “Position” here means a separate slot attention can pick, carrying its tag. It does not mean the absolute index. In Seahorse’s collision test, shifting a stored slice to a later index changed nothing (confusion 0.35 vs 0.37). The tag, set when the slice was stored, does the work, not the index.</p>
+  </div>
+</section>
+
+<section aria-labelledby="s3">
+  <div class="eyebrow">What this explains in Seahorse</div>
+  <h2 id="s3">Four ways to store a fact, one rule</h2>
+  <div class="prose">
+    <p>Every Seahorse result on facts follows from whether the stored thing keeps its own slot and a tag the question can match. Numbers are clean use of the fact in a coherent answer, from the project’s runs.</p>
+  </div>
+  <div class="modes" id="modes"></div>
+</section>
+
+<section aria-labelledby="s4">
+  <div class="eyebrow">One way to write it down · an interpretation</div>
+  <h2 id="s4">Sums inside a slot, a tensor product across slots</h2>
+  <div class="verdict bad"><strong>Status: a lens, not a measured finding.</strong> Tensor-product structure has been confirmed in small RNNs on synthetic tasks (McCoy et al. 2019; ROLE). Encoders trained on natural text looked more like a bag of words, and the TP-Transformer had to build binding into attention explicitly. No paper has tested whether an LLM’s sequence actually has this structure. The maths below is a tidy way to describe the Seahorse results, not evidence for them.</div>
+  <div class="math">
+    <p>Call the content at position <span class="mono">i</span> its <em>filler</em> <span class="mono">fᵢ</span>, and what identifies the slot (its place and tag) its <em>role</em> <span class="mono">rᵢ</span>. The whole sequence then behaves like a tensor product representation (Smolensky):</p>
+    <div class="eq">sequence ≈ Σᵢ <b>fᵢ ⊗ rᵢ</b></div>
+    <p>Attention undoes the binding. The query names a role; the dot product with each key picks the matching slot; the value comes out:</p>
+    <div class="eq">answer ≈ Σᵢ softmax(⟨q, kᵢ⟩) · vᵢ   →   f_j  where r_j matches q</div>
+    <p>Pooling a shift averages over the role index. In tensor language that contracts the role away, and only the bag of fillers is left:</p>
+    <div class="eq">pooled = (1/n) Σᵢ fᵢ    ← no rᵢ, no binding</div>
+  </div>
+  <div class="scroll">
+    <table class="map">
+      <thead><tr><th>Object</th><th>What it keeps</th><th>Binding?</th></tr></thead>
+      <tbody>
+        <tr><td>One residual vector</td><td>A near-additive sum of features at that slot (plus its own tag)</td><td>Only as a tag for others to match</td></tr>
+        <tr><td>The KV cache / a stored slice</td><td>Fillers with the roles they were encoded with, one row per slot</td><td>Yes, but a slice stored on its own always carries the first pair’s role</td></tr>
+        <tr><td>A pooled steering shift</td><td>The sum of fillers, roles averaged out</td><td>No</td></tr>
+        <tr><td>Concept × sign</td><td>A filler times a 1-D role (+1 / −1)</td><td>Only the sign, which the model can already read as a push toward or away</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="s5">
+  <div class="eyebrow">Where the picture is simplified</div>
+  <h2 id="s5">Caveats</h2>
+  <ul class="tight">
+    <li><strong>Each column is already contextual.</strong> By the late layers, Pepper’s slot carries “dog’s name” as well as “Pepper”, because attention has mixed earlier tokens into it. That is why a stored 2-position slice beats the same two tokens given as text (0.86 vs 0.27): the slice was computed with the whole sentence in view.</li>
+    <li><strong>The tag is a direction, not a label.</strong> Binding IDs are vectors added at the entity and attribute slots. Seahorse found the direction is real in late layers (it flips partners in 75% of contexts) but adding it to a separately stored slice did not stop the swaps. Storing the slice in order did (next points).</li>
+    <li><strong>One slot can hold a lot, and “roughly added” is a hypothesis.</strong> MLPs build new features inside a slot. For a multi-token word like “peanut butter”, the MLP writes a whole-word vector at the last token, and information about the separate parts fades in early layers (Kaplan et al. 2025; Feucht et al. 2024). So a compound is not simply its parts plus an extra feature. Hierarchies do look additive and orthogonal (Park et al. 2025), but some features are irreducibly multi-dimensional (Engels et al.), and no one has rigorously tested additivity for compound concepts in a modern LLM. The claim here is only that <em>relations between</em> things in different slots are read by attention picking slots.</li>
+    <li><strong>What is measured and what is inferred.</strong> Measured: the answer reads the value from the attribute’s own slot, late (Seahorse stage 0; Prakash et al.; Lookbacks). Pooling loses the binding (it has to, mathematically). Separately stored slices swap partners because of storage order: a slice stored on its own is always “the first pair”. Storing the new fact after a dummy fact, so it is written as the second pair, cuts partner confusion from 0.33–0.41 to 0.09–0.15 on three models. The binding sits at the subject’s positions, and only joint encoding writes it there. Storing in order removes most swaps up to 3 facts and about halves them at 5; for five same-kind facts, joint encoding is still needed. Inferred: that a shared tag is exactly what collides (storing both facts as the second pair brought the swaps back only on Qwen2.5), and the tensor-product reading above.</li>
+    <li><strong>Hybrids differ.</strong> In Qwen3.5-2B most layers are recurrent (Gated DeltaNet) and fold all positions into one state. That state gives recognition (yes/no 0.93) but not recall (0.00). Recall still came from the attention slots.</li>
+  </ul>
+</section>
+
+<footer>
+  <span>Seahorse project notes · sources: dream_bind stage 0, addenda 5, 6, 8 and 9 (<code>docs/dreaming/01-binding.md</code>, a path in the <a href="https://github.com/vedant-jumle/Seahorse">Seahorse repository</a>); core_v1; Feng &amp; Steinhardt (binding IDs); Dai et al. (ordering IDs); Prakash et al. (entity tracking, lookbacks); Smolensky (tensor product representations); McCoy et al. 2019 (TPRs in RNNs); Kaplan et al. 2025 and Feucht et al. 2024 (multi-token words); Park et al. 2025 (hierarchical concepts); Engels et al. (non-linear features).</span>
+  <span>Related results: <a href="../subject-position/">The Subject-Position Test</a> (which stored position lets the model answer) and <a href="../automatic-selection/">Automatic Slice Selection</a> (letting the model choose the positions).</span>
+</footer>
+</div>
+
+<script>
+(function () {
+  const FEATS = [
+    { key: "dog", label: "dog" },
+    { key: "cat", label: "cat" },
+    { key: "name", label: "name" },
+    { key: "Pepper", label: "Pepper" },
+    { key: "Jasper", label: "Jasper" },
+    { key: "t1", label: "tag: pair 1", tag: 1 },
+    { key: "t2", label: "tag: pair 2", tag: 2 }
+  ];
+
+  function sentence(dogName, catName) {
+    return [
+      { label: "my dog", tag: 1, v: { dog: 1, t1: 1 } },
+      { label: "'s name is", tag: 1, v: { dog: 0.3, name: 0.6, t1: 0.3 } },
+      { label: dogName, tag: 1, role: "value", v: { [dogName]: 1, name: 0.5, dog: 0.4, t1: 1 } },
+      { label: ".", tag: 1, v: { [dogName]: 0.5, dog: 0.4, name: 0.3, t1: 0.6 } },
+      { label: "my cat", tag: 2, v: { cat: 1, t2: 1 } },
+      { label: "'s name is", tag: 2, v: { cat: 0.3, name: 0.6, t2: 0.3 } },
+      { label: catName, tag: 2, role: "value", v: { [catName]: 1, name: 0.5, cat: 0.4, t2: 1 } },
+      { label: ".", tag: 2, v: { [catName]: 0.5, cat: 0.4, name: 0.3, t2: 0.6 } }
+    ];
+  }
+
+  function pool(cols) {
+    const out = {};
+    FEATS.forEach(f => {
+      out[f.key] = cols.reduce((s, c) => s + (c.v[f.key] || 0), 0) / cols.length;
+    });
+    return { label: "pooled", pool: true, v: out };
+  }
+
+  function colorFor(f) {
+    if (f.tag === 1) return "var(--tag1)";
+    if (f.tag === 2) return "var(--tag2)";
+    return "var(--accent)";
+  }
+
+  function fmt(x) { return x ? x.toFixed(2).replace(/^0/, "") : ""; }
+
+  // cols: array of columns; null entries render as a spacer column
+  function render(el, cols, opts) {
+    opts = opts || {};
+    const max = opts.max || 1;
+    const feats = opts.feats || FEATS;
+    const tmpl = ["auto"].concat(cols.map(c => c ? "auto" : "0.6rem")).join(" ");
+    el.style.gridTemplateColumns = tmpl;
+    let html = '<div></div>';
+    cols.forEach(c => {
+      if (!c) { html += '<div class="gap"></div>'; return; }
+      const cls = c.pool ? "pool" : (c.tag === 1 ? "t1" : c.tag === 2 ? "t2" : "");
+      html += '<div class="colhead ' + cls + '">' + c.label + '</div>';
+    });
+    feats.forEach(f => {
+      html += '<div class="rowlab">' + f.label + '</div>';
+      cols.forEach((c, ci) => {
+        if (!c) { html += '<div class="gap"></div>'; return; }
+        const val = c.v[f.key] || 0;
+        const pct = Math.min(100, Math.round((val / max) * 85));
+        const hit = opts.hit && opts.hit(c, f, ci);
+        const dim = opts.dim && opts.dim(c, f, ci);
+        const bg = val ? 'background: color-mix(in oklab, ' + colorFor(f) + ' ' + pct + '%, var(--cell-empty));' : '';
+        const fg = pct > 55 ? 'color: var(--surface);' : '';
+        html += '<div class="cell' + (hit ? ' hit' : '') + (dim ? ' dim' : '') + '" style="' + bg + fg + '" title="' + f.label + ' at ' + c.label + ': ' + val.toFixed(2) + '">' + fmt(val) + '</div>';
+      });
+    });
+    el.innerHTML = html;
+  }
+
+  function press(group, active) {
+    group.forEach(b => b.setAttribute("aria-pressed", b === active ? "true" : "false"));
+  }
+
+  // ---------- Section 1 ----------
+  const g1 = document.getElementById("grid1");
+  const v1 = document.getElementById("verdict1");
+  const A = sentence("Pepper", "Jasper");
+  const B = sentence("Jasper", "Pepper");
+  const pA = pool(A), pB = pool(B);
+  const same = FEATS.every(f => Math.abs(pA.v[f.key] - pB.v[f.key]) < 1e-9);
+
+  function show1(cols, p, which) {
+    render(g1, cols.concat([null, p]), { max: 1 });
+    v1.innerHTML = (which === "A" ? "Sentence: dog = Pepper, cat = Jasper." : "Sentence: dog = Jasper, cat = Pepper.") +
+      "<br>Pooled vector for the two sentences: " + (same ? "<strong>identical</strong> in every row (difference 0.00)." : "different.") +
+      " The table of positions differs: Pepper sits in a pair-" + (which === "A" ? "1" : "2") + " slot.";
+  }
+  const sa = document.getElementById("sentA"), sb = document.getElementById("sentB");
+  sa.addEventListener("click", () => { press([sa, sb], sa); show1(A, pA, "A"); });
+  sb.addEventListener("click", () => { press([sa, sb], sb); show1(B, pB, "B"); });
+  show1(A, pA, "A");
+
+  // ---------- Section 2 ----------
+  const g2 = document.getElementById("grid2");
+  const v2 = document.getElementById("verdict2");
+  const vs = document.getElementById("viewSeq"), vp = document.getElementById("viewPool");
+  const steps = [0, 1, 2].map(i => document.getElementById("st" + i));
+  let view = "seq", step = 0;
+
+  function show2() {
+    v2.className = "verdict";
+    if (view === "seq") {
+      const opts = { max: 1 };
+      if (step === 1) {
+        opts.hit = (c, f) => f.key === "cat";
+        opts.dim = (c, f) => !(f.key === "cat" || f.key === "t2");
+        v2.innerHTML = "Question: “What’s my cat’s name?” The word <em>cat</em> matches the slot that carries <em>cat</em>. That slot is tagged <strong>pair 2</strong>, so the address to look up is “pair 2”.";
+      } else if (step === 2) {
+        opts.hit = (c, f) => c.role === "value" && c.tag === 2 && (f.key === "Jasper" || f.key === "t2");
+        opts.dim = (c) => !(c.role === "value" && c.tag === 2);
+        v2.className = "verdict good";
+        v2.innerHTML = "A value-fetching head scores every slot against “pair 2 + a name”. One slot wins clearly. Its content is copied to the answer: <strong>Jasper</strong>. Pepper’s slot is never read, because its tag is pair 1.";
+      } else {
+        v2.innerHTML = "The memory: one slot per token, each a sum of features plus an order tag.";
+      }
+      render(g2, A, opts);
+    } else {
+      const P = pool(A);
+      const opts = { max: 0.5 };
+      if (step === 1) {
+        opts.hit = (c, f) => f.key === "cat";
+        v2.innerHTML = "There is only one slot. It contains <em>cat</em>, but also <em>dog</em>, and both tags at half strength. Finding the pair gives nothing to point at.";
+      } else if (step === 2) {
+        opts.hit = (c, f) => f.key === "Pepper" || f.key === "Jasper";
+        v2.className = "verdict bad";
+        v2.innerHTML = "The only slot holds Pepper and Jasper at equal strength (" + P.v.Pepper.toFixed(2) + " each). The question can’t choose. Best case: a coin flip. In practice, added as a push at every word, the model just says a name, sometimes in a loop.";
+      } else {
+        v2.innerHTML = "The same sentence pooled into one vector, as a steering shift stores it.";
+      }
+      render(g2, [P], opts);
+    }
+  }
+  vs.addEventListener("click", () => { view = "seq"; press([vs, vp], vs); show2(); });
+  vp.addEventListener("click", () => { view = "pool"; press([vs, vp], vp); show2(); });
+  steps.forEach((b, i) => b.addEventListener("click", () => { step = i; press(steps, b); show2(); }));
+  show2();
+
+  // ---------- Section 3 ----------
+  const MF = [
+    { key: "dog", label: "dog" }, { key: "cat", label: "cat" },
+    { key: "Pepper", label: "Pepper" }, { key: "Jasper", label: "Jasper" },
+    { key: "t1", label: "tag 1", tag: 1 }, { key: "t2", label: "tag 2", tag: 2 }
+  ];
+  const modes = [
+    {
+      title: "Pooled push",
+      sub: "steer channel",
+      cols: [{ label: "shift", pool: true, v: { dog: 0.45, Pepper: 0.4, t1: 0.35 } }],
+      stat: "≤ 0.15", statNote: "clean use, core_v1, 2B and 9B (in context 0.96–0.98)",
+      kind: "bad",
+      text: "Roles averaged away and added at every word. Nothing to fetch, so the model either ignores it or says “Pepper” in a loop."
+    },
+    {
+      title: "Stored slice",
+      sub: "2 positions put back",
+      cols: [{ label: "Pepper", tag: 1, v: { Pepper: 1, dog: 0.4, t1: 1 } }, { label: ".", tag: 1, v: { Pepper: 0.5, dog: 0.4, t1: 0.6 } }],
+      stat: "0.86", statNote: "clean use, Qwen2.5-1.5B (in context 0.90; same tokens as text 0.27)",
+      kind: "good",
+      text: "Its own slots, with a tag, inside the user’s turn. The question finds it and copies the name. Ownership comes free: it reads as the user’s."
+    },
+    {
+      title: "Two slices, stored apart",
+      sub: "separate sessions",
+      cols: [{ label: "Pepper", tag: 1, v: { Pepper: 1, dog: 0.4, t1: 1 } }, null, { label: "Jasper", tag: 1, v: { Jasper: 1, cat: 0.4, t1: 1 } }],
+      stat: "0.19–0.37", statNote: "wrong partner’s name, both models (both in context: 0.01–0.05)",
+      kind: "bad",
+      text: "Each was the first pair in its own session, so both carry tag 1. The address “pair 1” matches two slots, and the answer mixes them."
+    },
+    {
+      title: "Two slices, encoded together",
+      sub: "joint re-encoding",
+      cols: [{ label: "Pepper", tag: 1, v: { Pepper: 1, dog: 0.4, t1: 1 } }, null, { label: "Jasper", tag: 2, v: { Jasper: 1, cat: 0.4, t2: 1 } }],
+      stat: "0.89", statNote: "right name, confusable pairs, Qwen2.5 (confusion 0.05; in context 0.93)",
+      kind: "good",
+      text: "Read in one pass, the model gives them different tags itself, at the subjects’ positions. No swaps. Cheaper for a few facts: store the new one after a dummy fact, as the second pair (confusion 0.09–0.15)."
+    }
+  ];
+  const host = document.getElementById("modes");
+  modes.forEach((m, i) => {
+    const card = document.createElement("div");
+    card.className = "panel";
+    card.innerHTML =
+      '<div><div class="eyebrow">' + m.sub + '</div><h3>' + m.title + '</h3></div>' +
+      '<div class="scroll"><div class="grid" id="mg' + i + '"></div></div>' +
+      '<div class="stat">' + m.stat + '<small>' + m.statNote + '</small></div>' +
+      '<div class="verdict ' + m.kind + '">' + m.text + '</div>';
+    host.appendChild(card);
+    render(card.querySelector("#mg" + i), m.cols, { max: 1, feats: MF });
+  });
+})();
+</script>
+
+</body>
+</html>

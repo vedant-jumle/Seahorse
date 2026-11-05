@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Subject-Position Test · Seahorse · Vedant Jumle</title>
+<meta name="description" content="Seahorse results: a stored two-position memory slice knows a fact but often refuses to say it. Adding the subject's stored position, and only that one, makes the model answer. Teacher-forced, Qwen2.5-1.5B, 45 facts.">
+<link rel="canonical" href="https://vedantjumle.com/seahorse/subject-position/">
+<meta property="og:title" content="The Subject-Position Test · Seahorse">
+<meta property="og:description" content="Which extra stored position makes a memory slice answer instead of refuse? The subject's, and only the subject's. The name is equally available in every version; the subject changes whether the model commits to it.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://vedantjumle.com/seahorse/subject-position/">
+<meta property="og:image" content="https://vedantjumle.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="The Subject-Position Test · Seahorse">
+<meta name="twitter:description" content="Which extra stored position makes a memory slice answer instead of refuse? The subject's, and only the subject's.">
+<meta name="twitter:image" content="https://vedantjumle.com/og-image.png">
+<script>
+(function () {
+  var t = null;
+  try {
+    var q = new URLSearchParams(location.search).get('theme');
+    t = (q === 'dark' || q === 'light') ? q : localStorage.getItem('seahorse-theme');
+  } catch (e) {}
+  if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script defer data-domain="vedantjumle.com" src="https://plausible.io/js/plausible.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~70ch) with figures allowed to run to 56rem; each finding = plain paragraph, figure, then a collapsible "Technical" block. */
+:root {
+  color-scheme: light;
+  --bg: #f4f5f7;
+  --surface: #fcfcfb;
+  --ink: #16191f;
+  --ink-2: #4c525c;
+  --muted: #868b93;
+  --line: #dde0e5;
+  --grid: #e6e7ea;
+  --axis: #c3c6cc;
+  --accent: #2a78d6;      /* series 1 (blue): the subject condition, "answers" */
+  --s2: #eb6834;          /* series 2 (orange): refusal / the stored name */
+  --s3: #1baf7a;          /* series 3 (aqua): name-first answers */
+  --neutral: #a3a8b0;     /* controls, "other" */
+  --chip: #eceef2;
+  --band: rgba(42,120,214,0.07);
+  --band2: rgba(235,104,52,0.08);
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1114; --surface: #1a1a19; --ink: #eceef1; --ink-2: #b9bec6; --muted: #8b9098;
+    --line: #2c3036; --grid: #2a2c2f; --axis: #43474d; --accent: #3987e5; --s2: #d95926; --s3: #199e70;
+    --neutral: #6b7078; --chip: #23262b; --band: rgba(57,135,229,0.12); --band2: rgba(217,89,38,0.12);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1114; --surface: #1a1a19; --ink: #eceef1; --ink-2: #b9bec6; --muted: #8b9098;
+  --line: #2c3036; --grid: #2a2c2f; --axis: #43474d; --accent: #3987e5; --s2: #d95926; --s3: #199e70;
+  --neutral: #6b7078; --chip: #23262b; --band: rgba(57,135,229,0.12); --band2: rgba(217,89,38,0.12);
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 1.0625rem; line-height: 1.6;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.wrap {
+  max-width: 58rem; margin: 0 auto;
+  padding-block: 2.5rem 4rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 3.25rem;
+}
+.prose { max-width: 70ch; display: flex; flex-direction: column; gap: 0.85rem; }
+.prose p, .prose ul { margin: 0; }
+.prose ul { padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; letter-spacing: -0.015em; }
+h2 { font-size: 1.6rem; font-weight: 700; }
+h3 { font-size: 1.08rem; font-weight: 500; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lead { font-size: 1.2rem; line-height: 1.5; max-width: 66ch; margin: 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+.tok { font-family: var(--font-mono); font-size: 0.86em; background: var(--chip); border-radius: 4px; padding: 0.05em 0.35em; white-space: nowrap; }
+section { display: flex; flex-direction: column; gap: 1.1rem; }
+header.hero { display: flex; flex-direction: column; gap: 1.1rem; }
+.answer { border-left: 3px solid var(--accent); padding: 0.2rem 0 0.2rem 1rem; font-size: 1.12rem; max-width: 68ch; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.75rem; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.tile .label { font-family: var(--font-ui); font-size: 0.8rem; color: var(--ink-2); }
+.tile .value { font-family: var(--font-ui); font-size: 1.7rem; font-weight: 600; line-height: 1.1; }
+.tile .note { font-family: var(--font-ui); font-size: 0.78rem; color: var(--muted); }
+
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1rem 0.9rem; display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; position: relative; }
+figure .ftitle { font-family: var(--font-ui); font-size: 0.95rem; font-weight: 600; color: var(--ink); }
+figure .fsub { font-family: var(--font-ui); font-size: 0.82rem; color: var(--ink-2); margin-top: -0.4rem; }
+figcaption { font-family: var(--font-ui); font-size: 0.82rem; color: var(--ink-2); line-height: 1.5; }
+.chart { width: 100%; overflow-x: auto; }
+.chart svg { display: block; width: 100%; height: auto; min-width: 34rem; }
+.chart.small svg { min-width: 0; }
+svg text { font-family: var(--font-ui); fill: var(--ink-2); font-size: 12px; }
+svg .t-muted { fill: var(--muted); font-size: 11px; }
+svg .t-ink { fill: var(--ink); }
+svg .t-strong { fill: var(--ink); font-weight: 600; }
+svg .grid { stroke: var(--grid); stroke-width: 1; }
+svg .axis { stroke: var(--axis); stroke-width: 1; }
+svg .hit { fill: transparent; cursor: default; }
+.legend { display: flex; flex-wrap: wrap; gap: 0.9rem; font-family: var(--font-ui); font-size: 0.8rem; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.sw { width: 0.75rem; height: 0.75rem; border-radius: 3px; display: inline-block; }
+.sw.line { height: 3px; width: 1rem; border-radius: 2px; }
+.multiples { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; }
+.pair2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1rem; }
+
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--surface); font-family: var(--font-ui); font-size: 0.78rem; line-height: 1.4; padding: 0.45rem 0.6rem; border-radius: 6px; max-width: 16rem; z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,0.18); }
+.tip b { font-weight: 600; }
+
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.2rem 1rem; max-width: 70ch; }
+details[open] { padding-bottom: 0.9rem; }
+summary { cursor: pointer; font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-2); padding: 0.6rem 0; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: "+ "; color: var(--accent); }
+details[open] summary::before { content: "− "; }
+details .body { display: flex; flex-direction: column; gap: 0.7rem; font-size: 0.95rem; }
+details .body p, details .body ul { margin: 0; }
+details .body ul { padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.formula { font-family: var(--font-mono); font-size: 0.85rem; background: var(--chip); border-radius: 6px; padding: 0.55rem 0.7rem; overflow-x: auto; white-space: nowrap; }
+
+.scroll { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; font-family: var(--font-ui); font-size: 0.85rem; width: 100%; }
+th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 500; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.hl td { background: var(--band); }
+
+/* positions grid */
+.posgrid { display: grid; gap: 4px; font-family: var(--font-mono); font-size: 0.8rem; width: max-content; }
+.posgrid .lab { font-family: var(--font-ui); font-size: 0.8rem; color: var(--ink-2); padding-right: 0.6rem; display: flex; align-items: center; white-space: nowrap; }
+.posgrid .code { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); margin-left: 0.4rem; }
+.posgrid .hd { text-align: center; color: var(--ink); padding: 0.2rem 0.3rem; }
+.posgrid .c { height: 1.6rem; min-width: 2.7rem; font-size: 0.7rem; padding: 0 0.3rem; border-radius: 4px; background: var(--chip); display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.posgrid .c.on { background: var(--neutral); color: var(--surface); }
+.posgrid .c.on.key { background: var(--accent); color: #fff; }
+.posgrid .c.on.val { background: var(--ink-2); color: var(--surface); }
+.posgrid .sep { grid-column: 1 / -1; height: 0.3rem; }
+
+.answers { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.75rem; }
+.ans { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 0.9rem; display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; font-family: var(--font-ui); font-size: 0.86rem; }
+.ans .q { color: var(--ink); font-weight: 600; }
+.ans .row { display: grid; grid-template-columns: 6.2rem 1fr; gap: 0.5rem; align-items: start; }
+.ans .row .k { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); padding-top: 0.1rem; }
+.ans .row .v.refuse { color: var(--ink-2); font-style: italic; }
+.ans .row .v.ok { color: var(--ink); }
+.pill { display: inline-block; font-family: var(--font-ui); font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45rem; border-radius: 999px; margin-right: 0.35rem; vertical-align: 1px; }
+.pill.ok { background: var(--band); color: var(--accent); }
+.pill.no { background: var(--band2); color: var(--s2); }
+
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr)); gap: 0.75rem; }
+.st { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.85rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.st .tag { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.st p { margin: 0; font-size: 0.95rem; }
+.note-p { font-family: var(--font-ui); font-size: 0.86rem; color: var(--ink-2); margin: 0; max-width: 70ch; line-height: 1.55; }
+footer { font-family: var(--font-ui); font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.3rem; }
+a { color: var(--accent); }
+.back { margin-bottom: -2rem; font-family: var(--font-mono); font-size: 0.8rem; }
+.back a { color: var(--muted); text-decoration: none; }
+.back a:hover { color: var(--ink); text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="back" aria-label="Back"><a href="/seahorse/">← Seahorse</a></nav>
+
+<header class="hero">
+  <div class="eyebrow">Seahorse · dream_subj · run 22 Oct 2026 · Qwen2.5-1.5B · teacher-forced</div>
+  <h1>Does a stored memory need the subject’s position?</h1>
+  <p class="lead">A memory of “My dog’s name is Pepper.” can be stored as the model’s own cached state for just two tokens, <span class="tok">Pepper</span> and <span class="tok">.</span>. That memory knows the name but often refuses when asked “What’s my dog’s name?”. This test asked which extra stored position fixes that.</p>
+  <div class="answer"><strong>Answer: the subject’s position (<span class="tok">dog</span>), and only that one.</strong> Adding it makes the model answer instead of refuse, almost as well as storing the whole sentence. Adding <span class="tok">is</span> or <span class="tok">name</span> does nothing. The name itself is equally available in every version. What the subject changes is whether the model is willing to say it.</div>
+  <div class="tiles" id="tiles"></div>
+</header>
+
+<section aria-labelledby="s-why">
+  <div class="eyebrow">Background</div>
+  <h2 id="s-why">The problem this test was built for</h2>
+  <div class="prose">
+    <p>Seahorse’s working fact memory is a <em>slice</em>: in session 1 the model reads the sentence once, and we keep its attention memory (the keys and values, K,V) for a few token positions. In session 2, a fresh chat, we put those entries back in front of the user’s question. The model then behaves as if it had read the sentence, without the text being there.</p>
+    <p>The smallest slice that worked kept two positions: the name and the full stop after it (<span class="tok">Pepper</span> <span class="tok">.</span>, called <strong>R-min</strong>). On prompts that use the fact (“Write a note to the vet about my dog”), it was as good as having the sentence in the prompt. On the direct question it was weaker: 0.66 clean answers, against 0.91 for the whole sentence. The rest were refusals like “As an AI, I don’t have access to your personal information.”</p>
+    <p>So the model had the name and still refused. Two explanations fit:</p>
+    <ul>
+      <li><strong>Two-step lookup.</strong> To answer “What’s my dog’s name?”, the model first finds the entity (<em>dog</em>) in its context, then fetches the attribute tied to it (<em>Pepper</em>). That is how interpretability work describes in-context recall. R-min threw away the dog’s position, so step 1 had nothing to find.</li>
+      <li><strong>More evidence.</strong> The model answers when it has enough evidence that it was told something. Two positions are just less evidence than the whole sentence. Any extra stored position should help.</li>
+    </ul>
+    <p>The test separates them by adding <em>one</em> position at a time, keeping the size equal, and seeing whether it matters <em>which</em> one.</p>
+  </div>
+  <details>
+    <summary>Technical</summary>
+    <div class="body">
+      <p>Earlier results this builds on (all in <code>docs/dreaming/01-binding.md</code>): R-min clean use 0.86 on use prompts and 0.66 [0.40, 0.89] on direct questions (Qwen2.5, addendum 2); R-full 0.91. Teacher-forced, the right slice equals ctx on the target (about +9.5 nats). Stage 0 showed the answer reads the value from the attribute’s own position late in the network, and the question’s subject holds no copy of the value.</p>
+      <p>The two-step reading follows Prakash et al. (entity tracking: position detectors, then value fetchers) and the Lookbacks paper (the attribute token carries the value plus an order-ID address). The “more evidence” reading predicts any added position helps roughly in proportion to how much context it carries.</p>
+    </div>
+  </details>
+</section>
+
+<section aria-labelledby="s-what">
+  <div class="eyebrow">Setup</div>
+  <h2 id="s-what">What was stored, and how it was put back</h2>
+  <figure>
+    <div class="ftitle">Storing and restoring a slice</div>
+    <div class="chart"><svg viewBox="0 0 860 250" role="img" aria-label="Session 1: the model reads the sentence and its K,V entries are saved. Selected positions are kept. Session 2: the kept entries are placed before the user's question, and the model answers.">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+      </defs>
+      <g style="color: var(--ink-2)">
+        <text x="20" y="26" class="t-strong">Session 1 (once, offline)</text>
+        <text x="470" y="26" class="t-strong">Session 2 (a fresh chat)</text>
+        <!-- session 1 tokens -->
+        <g id="s1tokens"></g>
+        <text x="20" y="118" class="t-muted">each token leaves a key and value (K,V) at all 28 layers</text>
+        <rect x="20" y="130" width="400" height="38" rx="6" fill="none" stroke="var(--axis)"/>
+        <text x="220" y="154" text-anchor="middle" class="t-ink">K,V for every token, at all 28 layers</text>
+        <line x1="220" y1="170" x2="220" y2="196" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="232" y="190" class="t-muted">keep only chosen positions</text>
+        <rect x="120" y="200" width="200" height="34" rx="6" fill="var(--band)" stroke="var(--accent)"/>
+        <text x="220" y="222" text-anchor="middle" class="t-ink">stored slice (2–3 positions)</text>
+        <path d="M322,217 H624 V96" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="472" y="208" class="t-muted" text-anchor="middle">put back, same positions</text>
+        <!-- session 2 sequence -->
+        <rect x="480" y="56" width="92" height="34" rx="6" fill="var(--chip)"/>
+        <text x="526" y="78" text-anchor="middle" class="t-ink">system</text>
+        <rect x="578" y="56" width="92" height="34" rx="6" fill="var(--band)" stroke="var(--accent)"/>
+        <text x="624" y="78" text-anchor="middle" class="t-ink">slice</text>
+        <rect x="676" y="56" width="166" height="34" rx="6" fill="var(--chip)"/>
+        <text x="759" y="78" text-anchor="middle" class="t-ink">“What’s my dog’s name?”</text>
+        <text x="480" y="110" class="t-muted">slice sits inside</text><text x="480" y="124" class="t-muted">the user’s turn</text>
+        <line x1="759" y1="92" x2="759" y2="140" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+        <rect x="640" y="146" width="200" height="34" rx="6" fill="none" stroke="var(--axis)"/>
+        <text x="740" y="168" text-anchor="middle" class="t-ink">answer or refuse?</text>
+        <text x="640" y="206" class="t-muted">The sentence’s text is never</text>
+        <text x="640" y="222" class="t-muted">shown in session 2, only the</text>
+        <text x="640" y="238" class="t-muted">stored entries.</text>
+      </g>
+    </svg></div>
+    <figcaption>A slice is part of the model’s own attention memory from session 1, kept at the positions it was computed at and placed inside the user’s turn in session 2. Because each entry was computed with the whole sentence in view, it carries more than its own word.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="ftitle">Which positions each condition keeps</div>
+    <div class="fsub">“My dog’s name is Pepper.” Blue = the subject. Dark = the name and full stop that every slice keeps.</div>
+    <div class="scroll"><div class="posgrid" id="posgrid"></div></div>
+    <figcaption>Text controls (not shown): “Pepper.” (T-min) or “dog Pepper.” (T-subj3) typed as an earlier user turn, the same tokens with no stored context. The three 3-position slices are the same size and differ only in the third token. R-subj2 keeps 2 positions like R-min, but swaps the full stop for the subject. The anchors are no memory, the whole sentence as a slice, and the sentence in the prompt.</figcaption>
+  </figure>
+
+  <div class="prose">
+    <p><strong>Facts.</strong> 45 facts about people and pets: the 7 hand-written ones from experiment 1 (dog, cat, sister, brother, grandmother, best friend, boss) and 38 from the fact pool (hairdresser, ferret, mother-in-law…), all in the form “My X’s name is V.”.</p>
+    <p><strong>What was measured.</strong> Nothing was generated and judged. Instead, for each question the model’s probabilities were read directly (“teacher-forced”):</p>
+    <ul>
+      <li><strong>Answer score:</strong> how likely the model is to begin “Your dog’s name is”, rather than a refusal. This is the main measure.</li>
+      <li><strong>Name gain:</strong> once forced to begin “Your dog’s name is”, how much more likely the right name is than with no memory.</li>
+      <li><strong>Yes/no:</strong> “Is my dog called Pepper?” and “Is my dog called Max?”, scored so that always saying yes gets 0.5.</li>
+      <li><strong>Attention:</strong> where the model looks when it reads the question.</li>
+    </ul>
+    <p>Scores are in <em>nats</em>, the natural log of a probability. A difference of +1 nat means about 2.7 times more likely, +2 nats about 7 times.</p>
+  </div>
+  <details>
+    <summary>Technical</summary>
+    <div class="body">
+      <ul>
+        <li><strong>Model:</strong> Qwen2.5-1.5B-Instruct, fp32, every layer full attention (28 blocks). Run locally on an RTX 4060 (3.7 min, peak 6.3 GB).</li>
+        <li><strong>Harvest:</strong> one pass over [chat head][experience user turn]. K,V kept at every layer for the chosen positions, at their stored RoPE positions; the question turn starts where R-full’s would (<code>n_head + n_seg</code>). R-min’s kept indices are asserted equal to <code>bind.splice_keep("R-min")</code>.</li>
+        <li><strong>Subject token:</strong> the last token of the subject span inside the experience sentence (e.g. <span class="tok">dog</span>, <span class="tok">friend</span>). 12 pool subjects end in a word piece (<span class="tok">er</span> for hairdresser, <span class="tok">-law</span>). Multi-token values keep their first sub-token plus the next token.</li>
+        <li><strong>Pool facts:</strong> <code>sample_pool</code> seed 0, hand-written slots excluded, as in addendum 7 C. 10 attribute facts (job, instrument…) were run but are reported separately.</li>
+        <li><strong>Checks that fail the run:</strong> R-full teacher-forced = the sentence as a prior user turn (max |Δlogit| 2.5e-5); kept-entry counts; subject index before value index.</li>
+      </ul>
+      <div class="formula">answer score = Σ_t log P(prefix_t | question, prefix_&lt;t)   with prefix = “Your dog’s name is”</div>
+      <div class="formula">name gain = log P(target | question + prefix) − same under no memory</div>
+      <div class="formula">yes/no = ½ [acc(Yes probes) + acc(No probes)],  “yes” if log P(Yes) &gt; log P(No) at the first token</div>
+      <p>Statistics: 95% percentile bootstrap over facts, 2000 replicates, seed 7; contrasts paired on the same fact. Pre-registered in <code>experiments/dream_subj/PREREG.md</code> (commit <code>1cec0e8</code>) before the full run.</p>
+    </div>
+  </details>
+</section>
+
+<section aria-labelledby="s-r1">
+  <div class="eyebrow">Result 1</div>
+  <h2 id="s-r1">Only the subject makes the model answer</h2>
+  <div class="prose">
+    <p>With no memory the model almost never starts with “Your dog’s name is” (−9 nats). The 2-position slice moves it most of the way (−2.3). Adding the subject takes it to −1.0, close to the whole sentence (−0.7). Adding <span class="tok">is</span> or <span class="tok">name</span> leaves it where R-min was.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Answer score by condition</div>
+    <div class="fsub">log P(“Your dog’s name is” | question), mean over 45 facts, with 95% intervals. Higher = more willing to answer.</div>
+    <div class="chart" id="c-answer"></div>
+    <figcaption>The 3-position slice with the subject closes 81% of the gap between R-min and the whole sentence. The two same-size controls don’t move. Text versions of the same tokens stay far lower: the stored entries carry context the bare words don’t.</figcaption>
+  </figure>
+  <details>
+    <summary>Technical: the pre-registered rule</summary>
+    <div class="body">
+      <p>Rule (direct question, answer score, all 45 person/pet facts): <strong>“subject position matters (two-step lookup)”</strong> if the paired CIs of R+subj − R-min, R+subj − R+fill and R+subj − R+rel all have lower bound &gt; 0. All three do.</p>
+      <div class="scroll"><table id="t-contrasts"></table></div>
+    </div>
+  </details>
+</section>
+
+<section aria-labelledby="s-r2">
+  <div class="eyebrow">Result 2</div>
+  <h2 id="s-r2">It holds fact by fact, not just on average</h2>
+  <div class="prose">
+    <p>Each line is one fact, from its R-min score (left) to its score with the extra position (right). Adding the subject raises the score for 42 of 45 facts. Adding “is” raises it for 26, about a coin flip, and “name” more often lowers it.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Per-fact change in answer score when one position is added to R-min</div>
+    <div class="legend"><span><i class="sw line" style="background:var(--accent)"></i>rises by more than 0.25 nat</span><span><i class="sw line" style="background:var(--s2)"></i>falls by more than 0.25 nat</span><span><i class="sw line" style="background:var(--neutral)"></i>within ±0.25</span></div>
+    <div class="multiples" id="c-slopes"></div>
+    <figcaption>Same 45 facts in each panel, same scale. Hover a line to see the fact.</figcaption>
+  </figure>
+  <div class="prose">
+    <p><strong>Where it doesn’t hold as well.</strong> On the 7 hand-written facts alone the gain is smaller and not significant (+0.46 [−0.20, 1.13]). Three of their questions don’t fit the forced opening: “Do you remember my sister’s name?” is naturally answered “Yes, …”, and two ask what the pet is “called”. Their yes/no gain is significant (+0.14). The 38 pool facts carry the result (+1.47 [1.16, 1.81]).</p>
+  </div>
+</section>
+
+<section aria-labelledby="s-r3">
+  <div class="eyebrow">Result 3</div>
+  <h2 id="s-r3">The subject changes the decision, not the content</h2>
+  <div class="prose">
+    <p>This is the most informative part. Look at the model’s very first word. With R-min, a refusal opening (“I…”, “Sorry”, “As an AI…”) still takes a quarter of the probability. With the subject added it nearly vanishes. Yet once the model is made to start “Your dog’s name is”, the right name is equally likely under every slice. The name was there all along. The subject decides whether the model commits to saying it.</p>
+  </div>
+  <div class="pair2">
+    <figure>
+      <div class="ftitle">How the answer starts</div>
+      <div class="fsub">Probability of the first word, mean over 45 facts</div>
+      <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>“Your …”</span><span><i class="sw" style="background:var(--s3)"></i>the name first (“Pepper …”)</span><span><i class="sw" style="background:var(--s2)"></i>refusal start (“I”, “Sorry”, “As”)</span><span><i class="sw" style="background:var(--neutral)"></i>anything else</span></div>
+      <div class="chart small" id="c-first"></div>
+    </figure>
+    <figure>
+      <div class="ftitle">The name, once answering</div>
+      <div class="fsub">Gain in log P(right name) after the forced opening, vs no memory (nats, 95% CI)</div>
+      <div class="chart small" id="c-gain"></div>
+    </figure>
+  </div>
+  <p class="note-p">Left: the decision moves a lot. Right: the content barely moves. Every slice gives about +9.9 nats on the name (contrasts ≤ 0.1 nat), the same as the sentence in the prompt. So “more evidence” as a single quantity doesn’t describe this. Content and the willingness to answer come apart, and the subject entry controls the second.</p>
+  <details>
+    <summary>Technical</summary>
+    <div class="body">
+      <p>Refusal start here = P(“I”) + P(“Sorry”) + P(“As”) at the first assistant token; the report’s refusal mass counts only “I” + “Sorry” (0.15 → 0.02). “I” can start a non-refusal (“I remember…”), so this is a proxy. “The name first” is the first sub-token of the value. The answer score misses answers that start with the name, which is why R+subj’s score (−0.96) is slightly below R-full’s (−0.66) while its refusal mass is the same.</p>
+      <p>Name gain contrasts (all 45): R+subj − R-min +0.02 [0.01, 0.04]; R+subj − R+fill +0.07; R+subj − R+rel +0.09. Significant but tiny next to the answer-score contrasts (1.2 to 1.5 nats).</p>
+    </div>
+  </details>
+</section>
+
+<section aria-labelledby="s-r4">
+  <div class="eyebrow">Result 4</div>
+  <h2 id="s-r4">Yes/no confirmation follows the same pattern</h2>
+  <div class="prose">
+    <p>“Is my dog called Pepper?” / “Is my dog called Max?”: R-min gets 0.82. With the subject, 1.00, as with the whole sentence. The two same-size controls are slightly <em>worse</em> than R-min. Swapping the full stop for the subject (R-subj2, still 2 positions) gives 0.97.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Balanced yes/no accuracy</div>
+    <div class="fsub">0.5 = chance (always saying yes). Mean over 45 facts, 95% CI.</div>
+    <div class="chart" id="c-yn"></div>
+  </figure>
+</section>
+
+<section aria-labelledby="s-r5">
+  <div class="eyebrow">Result 5 · descriptive</div>
+  <h2 id="s-r5">Where the model looks: two steps, at two depths</h2>
+  <div class="prose">
+    <p>With the 3-position slice in place, we read where attention goes when the model processes the question. Two things stand out. In the early and middle layers, the question’s own word “dog” looks at the stored “dog” entry far more than at the stored name. In the last layers, the position that will produce the answer looks at the stored name. That is the shape the two-step reading predicts: first find the entity, then fetch its value.</p>
+  </div>
+  <div class="pair2">
+    <figure>
+      <div class="ftitle">From the question’s “dog”</div>
+      <div class="fsub">Share of attention on each stored entry, by layer (mean over heads and 45 facts)</div>
+      <div class="legend"><span><i class="sw line" style="background:var(--accent)"></i>stored subject (“dog”)</span><span><i class="sw line" style="background:var(--s2)"></i>stored name (“Pepper”)</span></div>
+      <div class="chart small" id="c-att-q"></div>
+    </figure>
+    <figure>
+      <div class="ftitle">From the answer position</div>
+      <div class="fsub">The last prompt token, where the first answer word is predicted</div>
+      <div class="legend"><span><i class="sw line" style="background:var(--accent)"></i>stored subject (“dog”)</span><span><i class="sw line" style="background:var(--s2)"></i>stored name (“Pepper”)</span></div>
+      <div class="chart small" id="c-att-l"></div>
+    </figure>
+  </div>
+  <figure>
+    <div class="ftitle">The two-step reading</div>
+    <div class="chart"><svg viewBox="0 0 860 300" role="img" aria-label="Step 1, layers 3 to 13: the question's dog token attends to the stored dog entry. Step 2, layers 23 to 27: the answer position attends to the stored Pepper entry and the model says Pepper. Without the stored dog entry step 1 finds nothing and the model tends to refuse.">
+      <defs>
+        <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+        <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+        <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--s2)"/></marker>
+      </defs>
+      <g style="color: var(--ink-2)">
+        <!-- depth axis -->
+        <text x="24" y="38" class="t-muted">layer</text>
+        <text x="24" y="70" class="t-muted">0</text>
+        <text x="24" y="270" class="t-muted">27</text>
+        <line x1="40" y1="64" x2="40" y2="266" class="axis"/>
+        <rect x="50" y="86" width="800" height="72" rx="6" fill="var(--band)"/>
+        <text x="60" y="104" class="t-ink">layers 3–13</text>
+        <text x="60" y="122" class="t-muted">step 1: find the entity</text>
+        <rect x="50" y="196" width="800" height="62" rx="6" fill="var(--band2)"/>
+        <text x="60" y="214" class="t-ink">layers 23–27</text>
+        <text x="60" y="232" class="t-muted">step 2: fetch its value</text>
+        <!-- stored entries -->
+        <text x="300" y="40" class="t-strong" text-anchor="middle">stored slice</text>
+        <rect x="236" y="50" width="56" height="26" rx="5" fill="var(--accent)"/><text x="264" y="68" text-anchor="middle" style="fill:#fff">dog</text>
+        <rect x="298" y="50" width="62" height="26" rx="5" fill="var(--ink-2)"/><text x="329" y="68" text-anchor="middle" style="fill:var(--surface)">Pepper</text>
+        <rect x="366" y="50" width="28" height="26" rx="5" fill="var(--ink-2)"/><text x="380" y="68" text-anchor="middle" style="fill:var(--surface)">.</text>
+        <!-- question -->
+        <text x="650" y="40" class="t-strong" text-anchor="middle">question</text>
+        <rect x="520" y="50" width="60" height="26" rx="5" fill="var(--chip)"/><text x="550" y="68" text-anchor="middle" class="t-ink">What’s</text>
+        <rect x="586" y="50" width="34" height="26" rx="5" fill="var(--chip)"/><text x="603" y="68" text-anchor="middle" class="t-ink">my</text>
+        <rect x="626" y="50" width="46" height="26" rx="5" fill="var(--chip)" stroke="var(--accent)"/><text x="649" y="68" text-anchor="middle" class="t-ink">dog</text>
+        <rect x="678" y="50" width="56" height="26" rx="5" fill="var(--chip)"/><text x="706" y="68" text-anchor="middle" class="t-ink">’s name</text>
+        <rect x="740" y="50" width="90" height="26" rx="5" fill="var(--chip)" stroke="var(--s2)"/><text x="785" y="68" text-anchor="middle" class="t-ink">→ answer</text>
+        <!-- step1 arrow -->
+        <path d="M649,78 C649,140 400,150 270,80" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#ar3)"/>
+        <text x="470" y="146" class="t-ink" text-anchor="middle">“dog” looks at stored “dog”</text>
+        <!-- step2 arrow -->
+        <path d="M785,78 C785,250 420,250 332,80" fill="none" stroke="var(--s2)" stroke-width="2" marker-end="url(#ar4)"/>
+        <text x="560" y="250" class="t-ink" text-anchor="middle">answer position reads “Pepper”</text>
+        <text x="840" y="290" class="t-ink" text-anchor="end">“Your dog’s name is Pepper.”</text>
+      </g>
+    </svg></div>
+    <figcaption>The reading the attention pattern fits. With R-min, there is no stored “dog” entry for step 1 to find. Step 2 can still reach the name, which is why the name’s probability is unchanged, but the model is less willing to commit. Attention shows correlation, not cause; the causal evidence is Results 1–4.</figcaption>
+  </figure>
+  <details>
+    <summary>Technical</summary>
+    <div class="body">
+      <p>Eager attention with the injected cache; weights averaged over heads, then over facts. From the question’s subject token, attention to the stored subject exceeds attention to the stored name in layers 0–13 (largest 0.13 at layers 5 and 8), then the name dominates. From the last prompt token, attention to the stored name rises in layers 23–27 (0.12 at layer 27); layers 20–21 show a small subject peak. R-subj2 has the same profile. Most attention in every layer goes to the chat head and the question’s own tokens, which are not plotted.</p>
+    </div>
+  </details>
+</section>
+
+<section aria-labelledby="s-ex">
+  <div class="eyebrow">In the model’s words</div>
+  <h2 id="s-ex">What the answers look like</h2>
+  <div class="prose"><p>Short greedy answers for three facts. These were read, not scored.</p></div>
+  <div class="answers">
+    <div class="ans">
+      <div class="q">“Do you remember my sister’s name?”</div>
+      <div class="row"><span class="k">R-min</span><span class="v refuse"><span class="pill no">refuses</span>I’m sorry, but I don’t have any information about your sister’s name…</span></div>
+      <div class="row"><span class="k">+ “is”</span><span class="v refuse"><span class="pill no">refuses</span>I’m sorry, but I don’t have any information about your sister’s name…</span></div>
+      <div class="row"><span class="k">+ subject</span><span class="v ok"><span class="pill ok">answers</span>Yes, I remember. Your sister’s name is Petra.</span></div>
+    </div>
+    <div class="ans">
+      <div class="q">“What’s my best friend’s name?”</div>
+      <div class="row"><span class="k">R-min</span><span class="v refuse"><span class="pill no">refuses</span>As an AI language model, I don’t have access to your personal information… I cannot determine your best friend’s name.</span></div>
+      <div class="row"><span class="k">+ “name”</span><span class="v refuse"><span class="pill no">refuses</span>As an AI language model, I don’t have access to your personal information…</span></div>
+      <div class="row"><span class="k">+ subject</span><span class="v ok"><span class="pill ok">answers</span>Your best friend’s name is Omar.</span></div>
+    </div>
+    <div class="ans">
+      <div class="q">“Do you remember my sister’s name?”: text vs slice</div>
+      <div class="row"><span class="k">text “sister Petra.”</span><span class="v refuse"><span class="pill no">disowns</span>I don’t have any specific information about a sister named Petra.</span></div>
+      <div class="row"><span class="k">slice, 3 pos.</span><span class="v ok"><span class="pill ok">answers</span>Yes, I remember. Your sister’s name is Petra.</span></div>
+    </div>
+  </div>
+  <p class="note-p">Not every fact behaves. The dog fact answers under R-min but refuses under R-subj2 (subject + name, no full stop), and the mother-in-law fact (subject token <span class="tok">-law</span>) refuses under R-subj2 too. The full stop seems to matter for some facts.</p>
+</section>
+
+<section aria-labelledby="s-mean">
+  <div class="eyebrow">Interpretation</div>
+  <h2 id="s-mean">What it means, and how it fits what came after</h2>
+  <div class="prose">
+    <p><strong>In plain terms.</strong> To answer a direct question about something the user said, the model needs two things: the content (the name), and something that lets it commit to an answer. A stored slice can carry the first without the second. The subject’s own stored position supplies the second. For a memory, the practical rule is: <strong>keep subject + value + full stop</strong>. Three positions do almost everything the whole sentence does.</p>
+  </div>
+  <div class="status">
+    <div class="st"><span class="tag">Established here</span><p>The subject position specifically, not any third position, restores answering and yes/no. Content is unchanged across slices.</p></div>
+    <div class="st"><span class="tag">Addendum 7 (same day)</span><p>A “told” direction (ctx − no memory, from other facts) also restores direct answering from the 2-position slice (Qwen2.5 0.66 → 0.94). So the refusal is a response gate, separate from content.</p></div>
+    <div class="st"><span class="tag">Addendum 8 (29 Oct)</span><p>That “told” direction is mostly a generic “answer personal questions” direction. And for two stored facts, the binding that keeps them apart sits at the subject’s positions, but only when the facts were encoded together.</p></div>
+    <div class="st"><span class="tag">Reading (inferred)</span><p>The subject entry may do two jobs. Alone, from any harvest, it opens the response gate for its fact. Encoded jointly with other facts, it also carries the tag that says which value belongs to which subject.</p></div>
+  </div>
+  <div class="prose">
+    <p><strong>What it can’t tell us yet.</strong></p>
+    <ul>
+      <li><strong>Lookup or mention?</strong> The result fits a real binding lookup (find “dog”, follow its tag to “Pepper”), and also a simpler rule (“this subject came up before, so answering is allowed”). The cheap test that would separate them: restore a “dog” entry from an unrelated sentence (“My dog loves long walks.”) alongside the Pepper slice. If mention is enough, it helps as much as the real one. If it is a lookup, it doesn’t.</li>
+      <li><strong>No generation.</strong> Everything is teacher-forced. The judged clean-use rate on direct questions with the 3-position slice hasn’t been measured.</li>
+      <li><strong>One model, one template.</strong> Qwen2.5-1.5B and “My X’s name is V.” only. The hybrid 2B (where the recurrent state seemed to supply this signal) and Llama weren’t run.</li>
+      <li><strong>Use prompts untested.</strong> The prediction that the subject matters more for direct questions than for use prompts couldn’t be checked: the only use-prompt measure was saturated.</li>
+      <li><strong>Attribute facts</strong> (job, instrument; 10 facts) show a different, noisy pattern: there “is” helps and the subject alone hurts. Their “subject” is often a weak match.</li>
+    </ul>
+  </div>
+</section>
+
+<section aria-labelledby="s-data">
+  <div class="eyebrow">Reference</div>
+  <h2 id="s-data">All numbers</h2>
+  <details>
+    <summary>Per-condition table (45 person and pet facts)</summary>
+    <div class="body"><div class="scroll"><table id="t-all"></table></div></div>
+  </details>
+  <details>
+    <summary>Per-fact answer scores</summary>
+    <div class="body"><div class="scroll"><table id="t-facts"></table></div></div>
+  </details>
+</section>
+
+<footer>
+  <span>Paths are in the <a href="https://github.com/vedant-jumle/Seahorse">Seahorse repository</a>. Code: <code>experiments/dream_subj/</code> (PREREG <code>1cec0e8</code>, code and tests <code>e3c51bd</code>, 21 tests). Results: <code>results/dream_subj_20261022_1755/report.md</code>, <code>verdict.json</code>, <code>rows.jsonl.gz</code> (run outputs, kept locally, not in the repository). This page is built from them by <code>tools/manuscript/explainers/build_explainers.py</code>.</span>
+  <span>Related: <code>docs/dreaming/01-binding.md</code> addenda 7 and 8; the <a href="../binding/">Binding Across Positions</a> explainer; <a href="../automatic-selection/">Automatic Slice Selection</a>, the follow-up that lets the model choose the positions.</span>
+</footer>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script id="stats" type="application/json">__STATS__</script>
+<script>
+(function () {
+  const D = JSON.parse(document.getElementById('data').textContent);
+  const ST = JSON.parse(document.getElementById('stats').textContent);
+  const facts = Object.entries(D.facts).map(([id, f]) => Object.assign({ id }, f));
+  const NS = 'http://www.w3.org/2000/svg';
+
+  const LAB = {
+    'nomem': 'No memory', 'T-min': 'Text “Pepper.”', 'T-subj3': 'Text “dog Pepper.”',
+    'R-min': 'Slice: Pepper .', 'R+fill': 'Slice: is Pepper .', 'R+rel': 'Slice: name Pepper .',
+    'R-subj2': 'Slice: dog Pepper', 'R+subj': 'Slice: dog Pepper .', 'R-full': 'Slice: whole sentence',
+    'ctx': 'Sentence in the prompt'
+  };
+  const ORDER = ['nomem', 'T-min', 'T-subj3', 'R-min', 'R+fill', 'R+rel', 'R-subj2', 'R+subj', 'R-full', 'ctx'];
+  const GROUP = { 'nomem': 'anchor', 'ctx': 'anchor', 'R-full': 'anchor', 'T-min': 'text', 'T-subj3': 'text' };
+  // The run's CIs (verdict.json: 95% bootstrap over the 45 facts), filled in by build_explainers.py
+  const CI = { answer: ST.answer, gain: ST.gain, yn: ST.yn };
+  const CONTRASTS = ST.contrasts;
+
+  const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
+  const fmt = (x, d = 2) => (x >= 0 ? '' : '−') + Math.abs(x).toFixed(d);
+  const fmtS = (x, d = 2) => (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(d);
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(parent, x, y, s, cls, anchor) {
+    const t = el('text', { x, y, class: cls || '', 'text-anchor': anchor || 'start' }, parent);
+    t.textContent = s; return t;
+  }
+  function svgIn(host, w, h, label) {
+    const s = el('svg', { viewBox: `0 0 ${w} ${h}`, role: 'img', 'aria-label': label });
+    host.appendChild(s); return s;
+  }
+  // tooltip
+  function tipFor(fig) {
+    let t = fig.querySelector('.tip');
+    if (!t) { t = document.createElement('div'); t.className = 'tip'; t.hidden = true; fig.appendChild(t); }
+    return t;
+  }
+  function bindTip(node, fig, html) {
+    const t = tipFor(fig);
+    const show = (ev) => {
+      t.innerHTML = html; t.hidden = false;
+      const r = fig.getBoundingClientRect();
+      const cx = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left;
+      const cy = (ev.touches ? ev.touches[0].clientY : ev.clientY) - r.top;
+      const tw = t.offsetWidth;
+      t.style.left = Math.max(6, Math.min(r.width - tw - 6, cx + 12)) + 'px';
+      t.style.top = Math.max(6, cy - t.offsetHeight - 10) + 'px';
+    };
+    node.addEventListener('mousemove', show);
+    node.addEventListener('mouseenter', show);
+    node.addEventListener('mouseleave', () => { t.hidden = true; });
+    node.addEventListener('touchstart', show, { passive: true });
+  }
+
+  // ---------- tiles ----------
+  const CT = Object.fromEntries(CONTRASTS.map(r => [r[0], r]));
+  const cs = CT['R+subj − R-min'];
+  const tiles = [
+    ['Answer score, + subject vs R-min', `${fmtS(cs[1])} nats`, `[${fmt(cs[2])}, ${fmt(cs[3])}]; same-size controls ${fmtS(CT['R+fill − R-min'][1])}, ${fmtS(CT['R+rel − R-min'][1])}`],
+    ['Gap to the whole sentence closed', `${Math.round(ST.closed * 100)}%`, 'with 3 positions instead of the full turn'],
+    ['Refusal at the first word', `${ST.refuse['R-min'].toFixed(2)} → ${ST.refuse['R+subj'].toFixed(2)}`, '“I” + “Sorry”, R-min → + subject'],
+    ['Yes/no, balanced', `${CI.yn['R-min'][0].toFixed(2)} → ${CI.yn['R+subj'][0].toFixed(2)}`, 'R-min → + subject (chance 0.5)']
+  ];
+  const th = document.getElementById('tiles');
+  tiles.forEach(([l, v, n]) => {
+    const d = document.createElement('div'); d.className = 'tile';
+    d.innerHTML = `<span class="label">${l}</span><span class="value">${v}</span><span class="note">${n}</span>`;
+    th.appendChild(d);
+  });
+
+  // ---------- session 1 tokens in diagram ----------
+  (function () {
+    const g = document.getElementById('s1tokens');
+    const toks = ['My', 'dog', '’s', 'name', 'is', 'Pepper', '.'];
+    let x = 20;
+    toks.forEach(t => {
+      const w = Math.max(30, t.length * 9 + 18);
+      el('rect', { x, y: 50, width: w, height: 34, rx: 6, fill: t === 'dog' ? 'var(--accent)' : (t === 'Pepper' || t === '.') ? 'var(--ink-2)' : 'var(--chip)' }, g);
+      const tt = txt(g, x + w / 2, 72, t, '', 'middle');
+      tt.setAttribute('style', t === 'dog' ? 'fill:#fff' : (t === 'Pepper' || t === '.') ? 'fill:var(--surface)' : 'fill:var(--ink)');
+      x += w + 6;
+    });
+    txt(g, 20, 102, '“My dog’s name is Pepper.” (in the user’s turn)', 't-muted');
+  })();
+
+  // ---------- positions grid ----------
+  (function () {
+    const toks = ['My', 'dog', '’s', 'name', 'is', 'Pepper', '.'];
+    const rows = [
+      ['R-min', 'Pepper .', [5, 6]], ['R+subj', 'dog Pepper .', [1, 5, 6]], ['R+fill', 'is Pepper .', [4, 5, 6]],
+      ['R+rel', 'name Pepper .', [3, 5, 6]], ['R-subj2', 'dog Pepper', [1, 5]], ['R-full', 'whole sentence', [0, 1, 2, 3, 4, 5, 6]]
+    ];
+    const g = document.getElementById('posgrid');
+    g.style.gridTemplateColumns = `auto repeat(${toks.length}, auto)`;
+    let h = '<div></div>' + toks.map(t => `<div class="hd">${t}</div>`).join('');
+    rows.forEach(([code, name, keep]) => {
+      h += `<div class="lab">${LAB[code] || name}<span class="code">${code}</span></div>`;
+      toks.forEach((t, i) => {
+        const on = keep.includes(i);
+        const cls = on ? (i === 1 ? 'on key' : (i >= 5 ? 'on val' : 'on')) : '';
+        h += `<div class="c ${cls}">${on ? 'kept' : '·'}</div>`;
+      });
+    });
+    g.innerHTML = h;
+  })();
+
+  // ---------- dot plot with CI ----------
+  function dotCI(hostId, key, xmin, xmax, ticks, unit, highlight) {
+    const host = document.getElementById(hostId), fig = host.closest('figure');
+    const W = 760, rowH = 30, top = 14, left = 210, right = 70, H = top + ORDER.length * rowH + 34;
+    const s = svgIn(host, W, H, `${unit} by condition`);
+    const x = v => left + (v - xmin) / (xmax - xmin) * (W - left - right);
+    ticks.forEach(t => {
+      el('line', { x1: x(t), x2: x(t), y1: top - 4, y2: H - 30, class: 'grid' }, s);
+      txt(s, x(t), H - 12, fmt(t, Number.isInteger(t) ? 0 : 1), 't-muted', 'middle');
+    });
+    ORDER.forEach((c, i) => {
+      const y = top + i * rowH + rowH / 2;
+      const [m, lo, hi] = CI[key][c];
+      const hl = highlight.includes(c);
+      const grp = GROUP[c];
+      txt(s, left - 12, y + 4, LAB[c], hl ? 't-strong' : (grp === 'anchor' ? 't-muted' : ''), 'end');
+      el('line', { x1: x(lo), x2: x(hi), y1: y, y2: y, stroke: hl ? 'var(--accent)' : 'var(--neutral)', 'stroke-width': 2, 'stroke-linecap': 'round' }, s);
+      el('circle', { cx: x(m), cy: y, r: hl ? 6 : 5, fill: hl ? 'var(--accent)' : (grp === 'anchor' ? 'var(--surface)' : 'var(--neutral)'), stroke: grp === 'anchor' && !hl ? 'var(--neutral)' : 'var(--surface)', 'stroke-width': 2 }, s);
+      txt(s, x(hi) + 8, y + 4, fmt(m), hl ? 't-strong' : 't-muted');
+      const hit = el('rect', { x: 0, y: y - rowH / 2, width: W, height: rowH, class: 'hit' }, s);
+      bindTip(hit, fig, `<b>${LAB[c]}</b> <span style="opacity:.7">${c}</span><br>${unit}: ${fmt(m)} [${fmt(lo)}, ${fmt(hi)}]`);
+    });
+    return { s, x };
+  }
+  dotCI('c-answer', 'answer', -10, 0, [-10, -8, -6, -4, -2, 0], 'answer score (nats)', ['R+subj']);
+  // contrasts table
+  (function () {
+    const t = document.getElementById('t-contrasts');
+    t.innerHTML = '<thead><tr><th>contrast</th><th class="num">answer score (nats)</th><th class="num">95% CI</th><th class="num">yes/no</th></tr></thead><tbody>' +
+      CONTRASTS.map(([n, m, lo, hi, yn]) => `<tr${n.startsWith('R+subj − R-min') || n.startsWith('R+subj − R+') ? ' class="hl"' : ''}><td>${n}</td><td class="num">${fmtS(m)}</td><td class="num">[${fmt(lo)}, ${fmt(hi)}]</td><td class="num">${fmtS(yn)}</td></tr>`).join('') + '</tbody>';
+  })();
+
+  // ---------- slopes ----------
+  (function () {
+    const host = document.getElementById('c-slopes'), fig = host.closest('figure');
+    const panels = [['R+subj', 'Add the subject (“dog”)'], ['R+fill', 'Add “is”'], ['R+rel', 'Add “name”']];
+    const all = facts.flatMap(f => [f.c['R-min'].a, f.c['R+subj'].a, f.c['R+fill'].a, f.c['R+rel'].a]);
+    const ymin = Math.floor(Math.min(...all)), ymax = 0;
+    panels.forEach(([c, title]) => {
+      const wrap = document.createElement('div'); wrap.className = 'chart small'; host.appendChild(wrap);
+      const W = 300, H = 300, top = 34, bot = 30, left = 40, right = 40;
+      const s = svgIn(wrap, W, H, `${title}: per-fact change from R-min`);
+      const y = v => top + (ymax - v) / (ymax - ymin) * (H - top - bot);
+      const xl = left + 10, xr = W - right - 10;
+      let up = 0;
+      txt(s, W / 2, 16, title, 't-strong', 'middle');
+      for (let t = ymax; t >= ymin; t -= 2) {
+        el('line', { x1: left, x2: W - right, y1: y(t), y2: y(t), class: 'grid' }, s);
+        txt(s, left - 6, y(t) + 4, fmt(t, 0), 't-muted', 'end');
+      }
+      txt(s, xl, H - 10, 'R-min', 't-muted', 'middle');
+      txt(s, xr, H - 10, c, 't-muted', 'middle');
+      const sorted = facts.slice().sort((a, b) => Math.abs(a.c[c].a - a.c['R-min'].a) - Math.abs(b.c[c].a - b.c['R-min'].a));
+      sorted.forEach(f => {
+        const a = f.c['R-min'].a, b = f.c[c].a, d = b - a;
+        const col = d > 0.25 ? 'var(--accent)' : d < -0.25 ? 'var(--s2)' : 'var(--neutral)';
+        if (d > 0) up++;
+        const ln = el('line', { x1: xl, y1: y(a), x2: xr, y2: y(b), stroke: col, 'stroke-width': 1.5, 'stroke-linecap': 'round', opacity: 0.75 }, s);
+        const hit = el('line', { x1: xl, y1: y(a), x2: xr, y2: y(b), stroke: 'transparent', 'stroke-width': 9 }, s);
+        hit.addEventListener('mouseenter', () => { ln.setAttribute('stroke-width', 3); ln.setAttribute('opacity', 1); });
+        hit.addEventListener('mouseleave', () => { ln.setAttribute('stroke-width', 1.5); ln.setAttribute('opacity', 0.75); });
+        bindTip(hit, fig, `<b>${f.exp}</b><br>R-min ${fmt(a)} → ${c} ${fmt(b)} (${fmtS(d)})`);
+      });
+      const n = facts.length;
+      txt(s, W / 2, top - 6, `${up} of ${n} rise`, '', 'middle');
+    });
+  })();
+
+  // ---------- first-token stacked bars ----------
+  (function () {
+    const host = document.getElementById('c-first'), fig = host.closest('figure');
+    const W = 420, rowH = 26, top = 6, left = 150, right = 10, H = top + ORDER.length * rowH + 28;
+    const s = svgIn(host, W, H, 'First-word probability by condition');
+    const x = v => left + v * (W - left - right);
+    [0, 0.25, 0.5, 0.75, 1].forEach(t => {
+      el('line', { x1: x(t), x2: x(t), y1: top, y2: H - 24, class: 'grid' }, s);
+      txt(s, x(t), H - 8, t.toFixed(2).replace(/^0/, '').replace(/^1\.00$/, '1'), 't-muted', 'middle');
+    });
+    ORDER.forEach((c, i) => {
+      const yc = top + i * rowH;
+      const your = mean(facts.map(f => f.c[c].your)), val = mean(facts.map(f => f.c[c].val));
+      const ref = mean(facts.map(f => f.c[c].ref + f.c[c].asx));
+      const other = Math.max(0, 1 - your - val - ref);
+      txt(s, left - 10, yc + rowH / 2 + 4, LAB[c], c === 'R+subj' ? 't-strong' : (GROUP[c] === 'anchor' ? 't-muted' : ''), 'end');
+      let acc = 0;
+      [[your, 'var(--accent)', '“Your …”'], [val, 'var(--s3)', 'name first'], [ref, 'var(--s2)', 'refusal start'], [other, 'var(--neutral)', 'other']].forEach(([v, col, nm], k, arr) => {
+        if (v <= 0) return;
+        const x0 = x(acc) + (k ? 1 : 0), x1 = x(acc + v) - (k < arr.length - 1 ? 1 : 0);
+        const r = el('rect', { x: x0, y: yc + 5, width: Math.max(0, x1 - x0), height: rowH - 10, rx: 3, fill: col, opacity: nm === 'other' ? 0.45 : 1 }, s);
+        bindTip(r, fig, `<b>${LAB[c]}</b><br>${nm}: ${v.toFixed(2)}`);
+        acc += v;
+      });
+    });
+  })();
+
+  // ---------- gain dot plot (compact) ----------
+  (function () {
+    const host = document.getElementById('c-gain'), fig = host.closest('figure');
+    const W = 420, rowH = 26, top = 6, left = 150, right = 44, H = top + ORDER.length * rowH + 28;
+    const s = svgIn(host, W, H, 'Name gain by condition');
+    const x = v => left + v / 12 * (W - left - right);
+    [0, 3, 6, 9, 12].forEach(t => {
+      el('line', { x1: x(t), x2: x(t), y1: top, y2: H - 24, class: 'grid' }, s);
+      txt(s, x(t), H - 8, String(t), 't-muted', 'middle');
+    });
+    ORDER.forEach((c, i) => {
+      const y = top + i * rowH + rowH / 2;
+      const [m, lo, hi] = CI.gain[c];
+      const hl = c === 'R+subj';
+      txt(s, left - 10, y + 4, LAB[c], hl ? 't-strong' : (GROUP[c] === 'anchor' ? 't-muted' : ''), 'end');
+      if (hi > lo) el('line', { x1: x(lo), x2: x(hi), y1: y, y2: y, stroke: hl ? 'var(--accent)' : 'var(--neutral)', 'stroke-width': 2, 'stroke-linecap': 'round' }, s);
+      el('circle', { cx: x(m), cy: y, r: 4.5, fill: hl ? 'var(--accent)' : 'var(--neutral)', stroke: 'var(--surface)', 'stroke-width': 2 }, s);
+      txt(s, x(Math.max(hi, m)) + 7, y + 4, m.toFixed(1), 't-muted');
+      const hit = el('rect', { x: 0, y: y - rowH / 2, width: W, height: rowH, class: 'hit' }, s);
+      bindTip(hit, fig, `<b>${LAB[c]}</b><br>name gain ${m.toFixed(2)} [${lo.toFixed(2)}, ${hi.toFixed(2)}] nats`);
+    });
+  })();
+
+  // ---------- yes/no bars ----------
+  (function () {
+    const host = document.getElementById('c-yn'), fig = host.closest('figure');
+    const W = 760, rowH = 28, top = 8, left = 210, right = 70, H = top + ORDER.length * rowH + 30;
+    const s = svgIn(host, W, H, 'Balanced yes/no accuracy by condition');
+    const x = v => left + (v - 0.4) / 0.6 * (W - left - right);
+    [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1].forEach(t => {
+      el('line', { x1: x(t), x2: x(t), y1: top, y2: H - 26, class: t === 0.5 ? 'axis' : 'grid' }, s);
+      txt(s, x(t), H - 10, t === 1 ? '1.0' : t.toFixed(1), 't-muted', 'middle');
+    });
+    txt(s, x(0.5) + 4, top + 10, 'chance', 't-muted');
+    ORDER.forEach((c, i) => {
+      const y = top + i * rowH;
+      const [m, lo, hi] = CI.yn[c];
+      const hl = c === 'R+subj';
+      txt(s, left - 12, y + rowH / 2 + 4, LAB[c], hl ? 't-strong' : (GROUP[c] === 'anchor' ? 't-muted' : ''), 'end');
+      const x0 = x(0.4), x1 = x(m);
+      el('path', { d: `M${x0},${y + 6} H${x1 - 4} Q${x1},${y + 6} ${x1},${y + 10} V${y + rowH - 10} Q${x1},${y + rowH - 6} ${x1 - 4},${y + rowH - 6} H${x0} Z`, fill: hl ? 'var(--accent)' : 'var(--neutral)', opacity: GROUP[c] === 'anchor' && !hl ? 0.55 : 1 }, s);
+      if (hi > lo) el('line', { x1: x(lo), x2: x(hi), y1: y + rowH / 2, y2: y + rowH / 2, stroke: 'var(--ink-2)', 'stroke-width': 1.5 }, s);
+      txt(s, x(Math.max(m, hi)) + 8, y + rowH / 2 + 4, m.toFixed(2), hl ? 't-strong' : 't-muted');
+      const hit = el('rect', { x: 0, y, width: W, height: rowH, class: 'hit' }, s);
+      bindTip(hit, fig, `<b>${LAB[c]}</b><br>balanced yes/no ${m.toFixed(2)} [${lo.toFixed(2)}, ${hi.toFixed(2)}]`);
+    });
+  })();
+
+  // ---------- attention lines ----------
+  function attChart(hostId, q, bands) {
+    const host = document.getElementById(hostId), fig = host.closest('figure');
+    const A = D.attn['R+subj'];
+    const sub = A[q + '_subj'], val = A[q + '_value'];
+    const n = sub.length;
+    const W = 420, H = 230, top = 12, bot = 30, left = 40, right = 12;
+    const s = svgIn(host, W, H, 'Attention to stored entries by layer');
+    const ymax = Math.ceil(Math.max(...sub, ...val) * 20) / 20;
+    const x = l => left + l / (n - 1) * (W - left - right);
+    const y = v => top + (ymax - v) / ymax * (H - top - bot);
+    bands.forEach(([a, b, col]) => el('rect', { x: x(a) - 4, y: top, width: x(b) - x(a) + 8, height: H - top - bot, fill: col }, s));
+    for (let t = 0; t <= ymax + 1e-9; t += 0.05) {
+      el('line', { x1: left, x2: W - right, y1: y(t), y2: y(t), class: 'grid' }, s);
+      txt(s, left - 6, y(t) + 4, t.toFixed(2).replace(/^0/, ''), 't-muted', 'end');
+    }
+    [0, 5, 10, 15, 20, 25, 27].forEach(l => txt(s, x(l), H - 10, String(l), 't-muted', 'middle'));
+    const path = arr => arr.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    el('path', { d: path(val), fill: 'none', stroke: 'var(--s2)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, s);
+    el('path', { d: path(sub), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, s);
+    const cross = el('line', { x1: 0, x2: 0, y1: top, y2: H - bot, stroke: 'var(--axis)', 'stroke-width': 1 }, s); cross.style.display = 'none';
+    const d1 = el('circle', { r: 4, fill: 'var(--accent)', stroke: 'var(--surface)', 'stroke-width': 2 }, s); d1.style.display = 'none';
+    const d2 = el('circle', { r: 4, fill: 'var(--s2)', stroke: 'var(--surface)', 'stroke-width': 2 }, s); d2.style.display = 'none';
+    const hit = el('rect', { x: left, y: top, width: W - left - right, height: H - top - bot, class: 'hit' }, s);
+    const t = tipFor(fig);
+    hit.addEventListener('mousemove', ev => {
+      const pt = s.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+      const p = pt.matrixTransform(s.getScreenCTM().inverse());
+      const l = Math.max(0, Math.min(n - 1, Math.round((p.x - left) / (W - left - right) * (n - 1))));
+      [cross, d1, d2].forEach(e => e.style.display = '');
+      cross.setAttribute('x1', x(l)); cross.setAttribute('x2', x(l));
+      d1.setAttribute('cx', x(l)); d1.setAttribute('cy', y(sub[l]));
+      d2.setAttribute('cx', x(l)); d2.setAttribute('cy', y(val[l]));
+      t.innerHTML = `<b>Layer ${l}</b><br>stored subject ${sub[l].toFixed(3)}<br>stored name ${val[l].toFixed(3)}`;
+      t.hidden = false;
+      const r = fig.getBoundingClientRect();
+      t.style.left = Math.max(6, Math.min(r.width - t.offsetWidth - 6, ev.clientX - r.left + 12)) + 'px';
+      t.style.top = Math.max(6, ev.clientY - r.top - t.offsetHeight - 10) + 'px';
+    });
+    hit.addEventListener('mouseleave', () => { [cross, d1, d2].forEach(e => e.style.display = 'none'); t.hidden = true; });
+  }
+  attChart('c-att-q', 'qsubj', [[3, 13, 'var(--band)']]);
+  attChart('c-att-l', 'last', [[23, 27, 'var(--band2)']]);
+
+  // ---------- tables ----------
+  (function () {
+    const t = document.getElementById('t-all');
+    const cols = ['answer score', 'P(“Your”)', 'P(name first)', 'P(I+Sorry+As)', 'name gain', 'yes/no'];
+    t.innerHTML = '<thead><tr><th>condition</th>' + cols.map(c => `<th class="num">${c}</th>`).join('') + '</tr></thead><tbody>' +
+      ORDER.map(c => {
+        const a = CI.answer[c], g = CI.gain[c], y = CI.yn[c];
+        const your = mean(facts.map(f => f.c[c].your)), val = mean(facts.map(f => f.c[c].val)), ref = mean(facts.map(f => f.c[c].ref + f.c[c].asx));
+        return `<tr${c === 'R+subj' ? ' class="hl"' : ''}><td>${LAB[c]} <span class="mono" style="color:var(--muted)">${c}</span></td><td class="num">${fmt(a[0])} [${fmt(a[1])}, ${fmt(a[2])}]</td><td class="num">${your.toFixed(2)}</td><td class="num">${val.toFixed(2)}</td><td class="num">${ref.toFixed(2)}</td><td class="num">${g[0].toFixed(2)}</td><td class="num">${y[0].toFixed(2)}</td></tr>`;
+      }).join('') + '</tbody>';
+    const tf = document.getElementById('t-facts');
+    const fc = ['R-min', 'R+fill', 'R+rel', 'R-subj2', 'R+subj', 'R-full'];
+    const sorted = facts.slice().sort((a, b) => (a.tier === b.tier ? a.id.localeCompare(b.id) : a.tier === 'primary' ? -1 : 1));
+    tf.innerHTML = '<thead><tr><th>fact</th><th>subject token</th>' + fc.map(c => `<th class="num">${c}</th>`).join('') + '</tr></thead><tbody>' +
+      sorted.map(f => `<tr><td>${f.exp}${f.tier === 'primary' ? ' <span class="mono" style="color:var(--muted)">primary</span>' : ''}</td><td><span class="tok">${f.subj}</span></td>` + fc.map(c => `<td class="num">${fmt(f.c[c].a)}</td>`).join('') + '</tr>').join('') + '</tbody>';
+  })();
+})();
+</script>
+</body>
+</html>

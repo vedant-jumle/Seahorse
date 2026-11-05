@@ -241,7 +241,7 @@ footer { font: 13px var(--ui); color: var(--muted); margin-top: 48px; padding-to
 <li><b>The direction.</b> Slices for content, the push for abstracted leanings, and an offline “dreaming” phase for what one forward pass can’t do: re-encoding memories that belong together, abstracting leanings from episodes, choosing what to keep. A small trained read adapter on the frozen model is the likely next step.</li>
 </ul>
 </section>
-<p class="toc"><a href="#question">1 The question</a> · <a href="#two-ways">2 Two ways to put a memory back</a> · <a href="#push">3 What a pushed vector carries</a> · <a href="#position">4 Why: binding is positional</a> · <a href="#slice">5 What a stored slice carries</a> · <a href="#breaks">6 Where it breaks</a> · <a href="#refs-self">7 The model writes its own references</a> · <a href="#next">8 Where this is going</a> · <a href="#limits">9 Limits</a> · <a href="#refs">References</a> · <a href="#appendix">Appendix</a></p>
+<p class="toc"><a href="#question">1 The question</a> · <a href="#two-ways">2 Two ways to put a memory back</a> · <a href="#push">3 What a pushed vector carries</a> · <a href="#position">4 Why: binding is positional</a> · <a href="#slice">5 What a stored slice carries</a> · <a href="#breaks">6 Where it breaks</a> · <a href="#refs-self">7 The model writes its own references</a> · <a href="#next">8 Where this is going</a> · <a href="#limits">9 Limits</a> · <a href="#explainers">Explainers and newer results</a> · <a href="#refs">References</a> · <a href="#appendix">Appendix</a></p>
 
 <h2 id="question"><span class="n">1</span>The question</h2>
 <p>A language model has two kinds of memory. Its weights are permanent but slow to change. Its context is instant, but it disappears when the session ends. Nothing sits in between: no fast, lasting memory that forms from experience, the role the hippocampus plays in animals (the project is named after it; <em>hippocampus</em> is Greek for seahorse).</p>
@@ -461,6 +461,14 @@ footer { font: 13px var(--ui); color: var(--muted); margin-top: 48px; padding-to
 <li><b>The recurrent state is large</b> ({{STATE_MB}} per memory on the 2B), so on hybrid models the slice is compact only for long episodes.</li>
 <li><b>The mechanism is cache reuse.</b> The contribution is which part of the cache carries a fact, how little is needed, and why combining separately stored pieces fails, not the act of reusing a cache.</li>
 <li><b>Some readings are inferred.</b> The binding-tag explanation of the swaps, and the reading of the state’s yes/no as recognition, still lack their decisive controls.</li>
+</ul>
+
+<h2 id="explainers"><span class="n">·</span>Explainers and newer results</h2>
+<p>Three companion pages: one explainer, and two results pages built from the run outputs like this one.</p>
+<ul>
+<li><a href="binding/">Binding across positions</a>: why one pooled vector cannot say which name goes with which pet, how attention reads a binding back by picking a slot, and why separately stored slices collide.</li>
+<li><a href="subject-position/">The subject-position test</a>: a stored two-position slice knows the name but often refuses to say it. Adding the subject’s stored position, and only that one, makes the model answer.</li>
+<li><a href="automatic-selection/">Automatic slice selection</a>: on LongMemEval, positions the model picks from its own dreamed questions beat random picks on all three models tested, but recover only a small part of what the whole stored turn gives.</li>
 </ul>
 
 <h2 id="refs"><span class="n">·</span>References</h2>

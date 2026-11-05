@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Automatic Slice Selection · Seahorse · Vedant Jumle</title>
+<meta name="description" content="Seahorse results on LongMemEval: can a frozen model choose which positions of its own attention memory to keep? Positions picked from its own dreamed questions beat random on three models, but recover little, and even the answer's own tokens rarely get used in free generation.">
+<link rel="canonical" href="https://vedantjumle.com/seahorse/automatic-selection/">
+<meta property="og:title" content="Automatic Slice Selection · Seahorse">
+<meta property="og:description" content="Letting the model choose which tokens to remember, on LongMemEval with Qwen2.5-1.5B, Qwen2.5-7B and Llama-3.2-3B: a small, replicated win over random, and a gap between having the answer and giving it.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://vedantjumle.com/seahorse/automatic-selection/">
+<meta property="og:image" content="https://vedantjumle.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Automatic Slice Selection · Seahorse">
+<meta name="twitter:description" content="Letting the model choose which tokens to remember: a small, replicated win over random, and a gap between having the answer and giving it.">
+<meta name="twitter:image" content="https://vedantjumle.com/og-image.png">
+<script>
+(function () {
+  var t = null;
+  try {
+    var q = new URLSearchParams(location.search).get('theme');
+    t = (q === 'dark' || q === 'light') ? q : localStorage.getItem('seahorse-theme');
+  } catch (e) {}
+  if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<script defer data-domain="vedantjumle.com" src="https://plausible.io/js/plausible.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~70ch); figures run to 58rem. Each finding = plain paragraph, figure, then a collapsible Technical block. Same visual system as the Subject-Position Test page. */
+:root {
+  color-scheme: light;
+  --bg: #f4f5f7; --surface: #fcfcfb; --ink: #16191f; --ink-2: #4c525c; --muted: #868b93;
+  --line: #dde0e5; --grid: #e6e7ea; --axis: #c3c6cc; --chip: #eceef2;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --neutral: #a3a8b0; --ref: #4c525c;
+  --s1-light: #9ec5f4;
+  --band: rgba(42,120,214,0.08); --band2: rgba(235,104,52,0.09); --band3: rgba(27,175,122,0.10);
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1114; --surface: #1a1a19; --ink: #eceef1; --ink-2: #b9bec6; --muted: #8b9098;
+    --line: #2c3036; --grid: #2a2c2f; --axis: #43474d; --chip: #23262b;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --neutral: #6b7078; --ref: #c3c2b7; --s1-light: #1c5cab;
+    --band: rgba(57,135,229,0.13); --band2: rgba(217,89,38,0.13); --band3: rgba(25,158,112,0.14);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1114; --surface: #1a1a19; --ink: #eceef1; --ink-2: #b9bec6; --muted: #8b9098;
+  --line: #2c3036; --grid: #2a2c2f; --axis: #43474d; --chip: #23262b;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --neutral: #6b7078; --ref: #c3c2b7; --s1-light: #1c5cab;
+  --band: rgba(57,135,229,0.13); --band2: rgba(217,89,38,0.13); --band3: rgba(25,158,112,0.14);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1.0625rem; line-height: 1.6;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.wrap { max-width: 58rem; margin: 0 auto; padding-block: 2.5rem 4rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 3.25rem; }
+.prose { max-width: 70ch; display: flex; flex-direction: column; gap: 0.85rem; }
+.prose p, .prose ul, .prose ol { margin: 0; }
+.prose ul, .prose ol { padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 5vw, 2.9rem); font-weight: 700; letter-spacing: -0.015em; }
+h2 { font-size: 1.6rem; font-weight: 700; }
+h3 { font-size: 1.08rem; font-weight: 500; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lead { font-size: 1.2rem; line-height: 1.5; max-width: 66ch; margin: 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+.tok { font-family: var(--font-mono); font-size: 0.86em; background: var(--chip); border-radius: 4px; padding: 0.05em 0.35em; white-space: nowrap; }
+section { display: flex; flex-direction: column; gap: 1.1rem; }
+header.hero { display: flex; flex-direction: column; gap: 1.1rem; }
+.answer { border-left: 3px solid var(--s1); padding: 0.2rem 0 0.2rem 1rem; font-size: 1.1rem; max-width: 68ch; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.75rem; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.tile .label { font-family: var(--font-ui); font-size: 0.8rem; color: var(--ink-2); }
+.tile .value { font-family: var(--font-ui); font-size: 1.6rem; font-weight: 600; line-height: 1.15; }
+.tile .note { font-family: var(--font-ui); font-size: 0.78rem; color: var(--muted); }
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1rem 0.9rem; display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; position: relative; }
+figure .ftitle { font-family: var(--font-ui); font-size: 0.95rem; font-weight: 600; color: var(--ink); }
+figure .fsub { font-family: var(--font-ui); font-size: 0.82rem; color: var(--ink-2); margin-top: -0.4rem; }
+figcaption { font-family: var(--font-ui); font-size: 0.82rem; color: var(--ink-2); line-height: 1.5; }
+.chart { width: 100%; overflow-x: auto; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart.wide svg { min-width: 34rem; }
+svg text { font-family: var(--font-ui); fill: var(--ink-2); font-size: 12px; }
+svg .t-muted { fill: var(--muted); font-size: 11px; }
+svg .t-ink { fill: var(--ink); }
+svg .t-strong { fill: var(--ink); font-weight: 600; }
+svg .grid { stroke: var(--grid); stroke-width: 1; }
+svg .axis { stroke: var(--axis); stroke-width: 1; }
+svg .hit { fill: transparent; }
+.legend { display: flex; flex-wrap: wrap; gap: 0.9rem; font-family: var(--font-ui); font-size: 0.8rem; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.sw { width: 0.75rem; height: 0.75rem; border-radius: 3px; display: inline-block; }
+.sw.line { height: 3px; width: 1rem; border-radius: 2px; }
+.multiples { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--surface); font-family: var(--font-ui); font-size: 0.78rem; line-height: 1.4; padding: 0.45rem 0.6rem; border-radius: 6px; max-width: 17rem; z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,0.18); }
+.tip b { font-weight: 600; }
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.2rem 1rem; max-width: 70ch; }
+details[open] { padding-bottom: 0.9rem; }
+summary { cursor: pointer; font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-2); padding: 0.6rem 0; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: "+ "; color: var(--s1); }
+details[open] summary::before { content: "− "; }
+details .body { display: flex; flex-direction: column; gap: 0.7rem; font-size: 0.95rem; }
+details .body p, details .body ul { margin: 0; }
+details .body ul { padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.formula { font-family: var(--font-mono); font-size: 0.85rem; background: var(--chip); border-radius: 6px; padding: 0.55rem 0.7rem; overflow-x: auto; white-space: nowrap; }
+.scroll { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; font-family: var(--font-ui); font-size: 0.85rem; width: 100%; }
+th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 500; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.hl td { background: var(--band); }
+.selcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.75rem; }
+.sc { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.85rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.sc .nm { font-family: var(--font-mono); font-size: 0.78rem; color: var(--ink); font-weight: 600; }
+.sc p { margin: 0; font-size: 0.93rem; }
+.sc .tag { font-family: var(--font-ui); font-size: 0.72rem; color: var(--muted); }
+.ex { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+.ex .qa { font-family: var(--font-ui); font-size: 0.88rem; color: var(--ink); }
+.ex .qa b { font-weight: 600; }
+.ex .dreams { font-family: var(--font-ui); font-size: 0.82rem; color: var(--ink-2); }
+.ex .dreams li { margin: 0.1rem 0; }
+.toks { display: flex; flex-wrap: wrap; gap: 3px; font-family: var(--font-mono); font-size: 0.74rem; line-height: 1.2; }
+.toks span { padding: 0.12rem 0.25rem; border-radius: 3px; background: var(--chip); color: var(--ink-2); white-space: pre; }
+.toks span.gold { box-shadow: inset 0 -2px 0 var(--ink); color: var(--ink); }
+.toks span.pick { background: var(--s1); color: #fff; }
+.pickrow { display: grid; grid-template-columns: 7rem 1fr; gap: 0.6rem; align-items: start; }
+.pickrow .k { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); padding-top: 0.15rem; }
+.pickrow .score { font-family: var(--font-ui); font-size: 0.74rem; color: var(--muted); }
+.answers { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.75rem; }
+.ans { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 0.9rem; display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; font-family: var(--font-ui); font-size: 0.85rem; }
+.ans .q { color: var(--ink); font-weight: 600; }
+.ans .row { display: grid; grid-template-columns: 5.6rem 1fr; gap: 0.5rem; }
+.ans .row .k { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); padding-top: 0.1rem; }
+.ans .v.no { color: var(--ink-2); font-style: italic; }
+.pill { display: inline-block; font-family: var(--font-ui); font-size: 0.68rem; font-weight: 600; padding: 0.04rem 0.42rem; border-radius: 999px; margin-right: 0.35rem; vertical-align: 1px; }
+.pill.ok { background: var(--band); color: var(--s1); }
+.pill.no { background: var(--band2); color: var(--s2); }
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.75rem; }
+.st { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.85rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.st .tag { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.st p { margin: 0; font-size: 0.95rem; }
+.note-p { font-family: var(--font-ui); font-size: 0.86rem; color: var(--ink-2); margin: 0; max-width: 70ch; line-height: 1.55; }
+footer { font-family: var(--font-ui); font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.3rem; }
+a { color: var(--s1); }
+.back { margin-bottom: -2rem; font-family: var(--font-mono); font-size: 0.8rem; }
+.back a { color: var(--muted); text-decoration: none; }
+.back a:hover { color: var(--ink); text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="back" aria-label="Back"><a href="/seahorse/">← Seahorse</a></nav>
+
+<header class="hero">
+  <div class="eyebrow">Seahorse · dream_select · 4 Nov 2026 · LongMemEval · Qwen2.5-1.5B, Qwen2.5-7B, Llama-3.2-3B</div>
+  <h1>Can the model choose which tokens to remember?</h1>
+  <p class="lead">A stored memory works if we keep the right few positions of the model’s cache. So far we chose them by hand. This test let the model choose them itself, on real conversational text from a memory benchmark, and checked the answers it later gave.</p>
+  <div class="answer"><strong>Partly.</strong> Positions picked from the model’s own dreamed questions beat random picks on all three models, and in generated answers on two of three, as pre-registered. But they recover only a small part of what the whole stored turn gives. And even the answer’s own tokens, picked with the label, rarely get used: the model has the content and still declines to answer. Picking the answer is not enough; the memory also has to carry what lets the model commit to it.</div>
+  <div class="tiles" id="tiles"></div>
+</header>
+
+<section aria-labelledby="s-bg">
+  <div class="eyebrow">Background</div>
+  <h2 id="s-bg">Why this test</h2>
+  <div class="prose">
+    <p>Seahorse stores a fact as a <em>slice</em>: the model’s own attention memory (keys and values, K,V) for a few positions of the sentence, put back in a later chat. With hand-picked positions (subject, value, full stop) a 3-position slice almost matched the whole sentence (the <a href="../subject-position/">Subject-Position Test</a>).</p>
+    <p>A real system can’t hand-pick: nobody labels which word is the answer. So this test asks: <strong>given a user turn known to hold a fact, can the model itself choose which k positions to keep?</strong> Which turn to store is still given (that is a separate, later problem).</p>
+    <p><strong>Benchmark:</strong> LongMemEval (Wu et al., ICLR 2025), the 64 usable “single-session-user” questions. A user mentions something in passing in an ordinary chat (“I’ve been listening to audiobooks during my daily commute, which takes 45 minutes each way.”), and is later asked about it (“How long is my daily commute to work?”). The turns are natural text, 20 to 98 tokens.</p>
+  </div>
+  <figure>
+    <div class="ftitle">The task</div>
+    <div class="chart wide"><svg viewBox="0 0 860 210" role="img" aria-label="A user turn is read once; a selector picks k of its positions without seeing the question; only those K,V entries are stored; later the benchmark question is asked with the slice in place and the answer is judged.">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+      <g style="color: var(--ink-2)">
+        <text x="20" y="24" class="t-strong">Session 1</text>
+        <rect x="20" y="38" width="250" height="62" rx="8" fill="var(--chip)"/>
+        <text x="32" y="60" class="t-ink">“…my daily commute, which</text>
+        <text x="32" y="78" class="t-ink">takes 45 minutes each way.”</text>
+        <text x="32" y="94" class="t-muted">one user turn, read once</text>
+        <line x1="272" y1="69" x2="318" y2="69" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+        <rect x="322" y="38" width="200" height="62" rx="8" fill="var(--band)" stroke="var(--s1)"/>
+        <text x="422" y="62" text-anchor="middle" class="t-strong">selector picks k</text>
+        <text x="422" y="80" text-anchor="middle" class="t-ink">positions (k = 2, 4, 8)</text>
+        <text x="422" y="94" text-anchor="middle" class="t-muted">never sees the question</text>
+        <line x1="524" y1="69" x2="570" y2="69" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+        <rect x="574" y="38" width="266" height="62" rx="8" fill="none" stroke="var(--axis)"/>
+        <text x="707" y="62" text-anchor="middle" class="t-ink">stored slice: K,V of those</text>
+        <text x="707" y="80" text-anchor="middle" class="t-ink">k positions, all layers</text>
+        <text x="20" y="140" class="t-strong">Session 2</text>
+        <path d="M707,102 V150 H560" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+        <rect x="20" y="130" width="536" height="44" rx="8" fill="var(--chip)"/>
+        <text x="36" y="157" class="t-ink">[slice] + “How long is my daily commute to work?” → model answers</text>
+        <text x="20" y="200" class="t-muted">Scored two ways: teacher-forced log P(gold answer), and generated answers judged by LongMemEval’s own correctness prompt (three judges).</text>
+      </g>
+    </svg></div>
+  </figure>
+</section>
+
+<section aria-labelledby="s-sel">
+  <div class="eyebrow">The contenders</div>
+  <h2 id="s-sel">How each selector chooses</h2>
+  <div class="selcards">
+    <div class="sc"><span class="nm">S-dream</span><span class="tag">main bet</span><p>The model writes 3 questions it expects the user might ask later about this turn. Keep the positions those questions attend to most.</p></div>
+    <div class="sc"><span class="nm">S-attn</span><span class="tag">no question</span><p>Keep the positions the turn’s own later words attend to most (like H2O / Memory3).</p></div>
+    <div class="sc"><span class="nm">S-recon</span><span class="tag">no question</span><p>The model repeats the turn; keep the positions it reads to do so (like KVzip).</p></div>
+    <div class="sc"><span class="nm">S-loo</span><span class="tag">expensive reference</span><p>Drop each position in turn and keep the ones whose loss hurts the model’s own answers to the dreamed questions most.</p></div>
+    <div class="sc"><span class="nm">random</span><span class="tag">floor</span><p>k random positions (3 seeds).</p></div>
+    <div class="sc"><span class="nm">gold@k</span><span class="tag">cheats with the label</span><p>The answer’s own tokens and their neighbours. Shows what knowing the answer’s position buys.</p></div>
+  </div>
+  <details>
+    <summary>Technical</summary>
+    <div class="body">
+      <ul>
+        <li><strong>Dreamer:</strong> the same model, greedy, with a frozen prompt (an instruction plus two invented examples; chosen on format only). Each model dreams its own questions and uses its own attention.</li>
+        <li><strong>S-dream score:</strong> attention from each dreamed question’s tokens and the last prompt token to each stored content position, averaged over heads and layers, then summed over the 3 questions. Top-k.</li>
+        <li><strong>S-attn:</strong> mean attention a position receives from later content tokens (mean, not sum, to avoid early-token bias). <strong>S-recon:</strong> mean attention from the teacher-forced repetition. <strong>S-loo:</strong> drop in log P(own greedy answer to each dream) when the position is removed.</li>
+        <li><strong>Anchors:</strong> no memory; R-full (the whole turn as a slice, identical to the turn as an earlier text turn: max |Δlogit| ≤ 3e-4); ctx (turn and question in one user turn).</li>
+        <li><strong>Gold:</strong> the gold answer’s tokens plus the next token (56 items where the answer appears verbatim). gold@k fills to k with the nearest neighbours.</li>
+      </ul>
+    </div>
+  </details>
+</section>
+
+<section aria-labelledby="s-r1">
+  <div class="eyebrow">Result 1 · teacher-forced</div>
+  <h2 id="s-r1">Dreamed questions beat random, but recover little</h2>
+  <div class="prose">
+    <p>“Gap closed” puts the answer’s probability on a scale from no memory (0) to the whole stored turn (1). With 4 positions, dreamed questions close about a quarter to a third of the gap, on every model. Random closes almost nothing. The expensive leave-one-out reference does better, and the label-cheating gold does best, so better choices exist.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Gap closed by number of stored positions</div>
+    <div class="fsub">0 = no memory, 1 = the whole turn stored. Mean over items (95% CI shown on hover).</div>
+    <div class="legend"><span><i class="sw line" style="background:var(--s1)"></i>S-dream</span><span><i class="sw line" style="background:var(--s2)"></i>S-attn</span><span><i class="sw line" style="background:var(--s3)"></i>S-loo (reference)</span><span><i class="sw line" style="background:var(--ref)"></i>gold@k (uses the label)</span><span><i class="sw line" style="background:var(--neutral)"></i>random</span></div>
+    <div class="multiples" id="c-gap"></div>
+    <figcaption>Pre-registered rule (k = 4): “dreamed questions select well” needed S-dream to beat random <em>and</em> plain attention, and close at least half the gap. It fails on all three models (it beats random everywhere; beats attention only on Llama). “Any attention selector beats random” holds on all three.</figcaption>
+  </figure>
+  <details>
+    <summary>Technical: rule numbers</summary>
+    <div class="body"><div class="scroll"><table id="t-rules"></table></div></div>
+  </details>
+</section>
+
+<section aria-labelledby="s-r2">
+  <div class="eyebrow">Result 2 · what they pick</div>
+  <h2 id="s-r2">Attention-based selectors love full stops</h2>
+  <div class="prose">
+    <p>Why so little? Look at what gets picked. Punctuation is about 9% of the tokens in these turns, but half or more of what S-dream and S-recon keep on the Qwen models. Sentence ends attract attention (they summarise the sentence), but they don’t carry the answer. Leave-one-out, which judges positions by their effect on behaviour rather than by attention, rarely picks punctuation and finds the answer’s position far more often.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Share of picks that are punctuation (k = 4)</div>
+    <div class="fsub">Dashed line = punctuation’s share of all tokens in the turns</div>
+    <div class="multiples" id="c-punct"></div>
+  </figure>
+  <figure>
+    <div class="ftitle">How often the picks include the answer’s position (k = 4)</div>
+    <div class="fsub">56 items where the answer appears verbatim in the turn</div>
+    <div class="multiples" id="c-hit"></div>
+    <figcaption>S-dream finds the answer no more often than random on the Qwen models (and more often on Llama). S-loo finds it in half to three quarters of items.</figcaption>
+  </figure>
+  <div class="prose"><p><strong>Four examples</strong> (Qwen2.5-1.5B, k = 4). The answer is underlined; blue tokens are a selector’s picks. Scores are teacher-forced log P(answer): higher is better.</p></div>
+  <div id="examples" style="display:flex;flex-direction:column;gap:0.9rem"></div>
+</section>
+
+<section aria-labelledby="s-r3">
+  <div class="eyebrow">Result 3 · generated answers, judged</div>
+  <h2 id="s-r3">In real answers: a small, replicated win, at a low level</h2>
+  <div class="prose">
+    <p>Each model generated answers (1 greedy + 4 samples per question), judged by LongMemEval’s own correctness prompt with three judges (agreement 0.93–0.96). The pre-registered rule: S-dream beats random in judged correctness at k = 4, on at least 2 of 3 models. <strong>It replicates</strong> (Qwen2.5-7B and Llama-3.2-3B yes, Qwen2.5-1.5B no). At k = 8, S-dream also beats plain attention on the 7B and Llama.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Share of judged-correct answers</div>
+    <div class="fsub">Light = k = 4, dark = k = 8. Dashed line = the whole turn stored (R-full).</div>
+    <div class="legend"><span><i class="sw" style="background:var(--s1-light)"></i>k = 4</span><span><i class="sw" style="background:var(--s1)"></i>k = 8</span><span><i class="sw line" style="background:var(--ref)"></i>whole turn (R-full)</span></div>
+    <div class="multiples" id="c-gen"></div>
+    <figcaption>Even with 8 positions, the best automatic selector reaches about a third of answers on the 7B and Llama (R-full: 0.87 and 0.77). Leave-one-out reaches 0.56 on the 7B.</figcaption>
+  </figure>
+  <details>
+    <summary>Technical</summary>
+    <div class="body">
+      <p>Pre-registered rule (addendum 1): S-dream − random in judged correctness at k = 4, item bootstrap, lower bound &gt; 0. Qwen2.5-1.5B +0.034 [−0.019, 0.094]; Qwen2.5-7B +0.081 [0.009, 0.162]; Llama-3.2-3B +0.116 [0.034, 0.197]. Replicates (2 of 3).</p>
+      <p>Judges: the original Qwen3.5-9B (bf16), gpt-oss and Gemma-4, LongMemEval’s single-session-user prompt verbatim (repo commit d6dc8b5); label = majority. 5,320 answers per model, all labelled by all three judges. Sampling: T 1, top-p 0.95, top-k 20, presence penalty 1.5, max 64 new tokens.</p>
+      <div class="scroll"><table id="t-gen"></table></div>
+    </div>
+  </details>
+</section>
+
+<section aria-labelledby="s-r4">
+  <div class="eyebrow">Result 4 · the important one</div>
+  <h2 id="s-r4">Having the answer isn’t enough to give it</h2>
+  <div class="prose">
+    <p>Teacher-forced, keeping just the answer’s own tokens (gold) recovers most of the whole turn: the right answer becomes nearly as likely <em>once the model is made to say it</em>. In free generation the same memory is used far less, and on Qwen2.5-1.5B and Llama the model mostly refuses (“I don’t have specific information about…”), as if nothing had been stored.</p>
+    <p>This is the same split the <a href="../subject-position/">Subject-Position Test</a> found with hand-picked facts: some positions carry the <em>content</em>, others carry whatever lets the model <em>commit</em> to using it. Teacher forcing skips the decision to answer, so it hid the problem.</p>
+  </div>
+  <div class="multiples">
+    <figure>
+      <div class="ftitle">Gold slice: teacher-forced vs generated</div>
+      <div class="fsub">Gap closed (0 = no memory, 1 = whole turn)</div>
+      <div class="legend"><span><i class="sw" style="background:var(--neutral)"></i>teacher-forced</span><span><i class="sw" style="background:var(--s1)"></i>generated, judged</span></div>
+      <div class="chart" id="c-tfgen"></div>
+    </figure>
+    <figure>
+      <div class="ftitle">Refusals in generated answers</div>
+      <div class="fsub">Share of answers that refuse or claim no information</div>
+      <div class="legend"><span><i class="sw" style="background:var(--neutral)"></i>no memory</span><span><i class="sw" style="background:var(--s2)"></i>gold slice</span><span><i class="sw" style="background:var(--s1)"></i>whole turn</span></div>
+      <div class="chart" id="c-ref"></div>
+    </figure>
+  </div>
+  <div class="prose"><p><strong>Generated answers</strong> (Qwen2.5-7B, greedy):</p></div>
+  <div class="answers">
+    <div class="ans">
+      <div class="q">“What is the name of my cat?” (Luna)</div>
+      <div class="row"><span class="k">S-dream, k=4</span><span class="v"><span class="pill ok">correct</span>Your cat’s name is Luna.</span></div>
+      <div class="row"><span class="k">S-attn, k=4</span><span class="v no"><span class="pill no">refuses</span>I’m sorry, but I don’t have any information about your cat’s name…</span></div>
+      <div class="row"><span class="k">random, k=4</span><span class="v no"><span class="pill no">refuses</span>I’m sorry, but I don’t have any information about your cat’s name…</span></div>
+    </div>
+    <div class="ans">
+      <div class="q">“How long did I wait for the decision on my asylum application?” (over a year)</div>
+      <div class="row"><span class="k">whole turn</span><span class="v"><span class="pill ok">correct</span>…as you mentioned waiting over a year for the decision on your asylum application.</span></div>
+      <div class="row"><span class="k">gold</span><span class="v no"><span class="pill no">declines</span>To provide an accurate answer, I would need more specific information about your asylum application…</span></div>
+    </div>
+    <div class="ans">
+      <div class="q">“How long is my daily commute to work?” (45 minutes each way)</div>
+      <div class="row"><span class="k">whole turn</span><span class="v"><span class="pill ok">correct</span>Your daily commute to work is 45 minutes each way…</span></div>
+      <div class="row"><span class="k">S-dream, k=4</span><span class="v no"><span class="pill no">half</span>…you mentioned it takes some time each way… One way: assuming it takes X hours.</span></div>
+    </div>
+  </div>
+  <p class="note-p">The commute answer shows the content/licence split in miniature: the model knows a commute was mentioned and that it is “each way”, but not the 45 minutes.</p>
+</section>
+
+<section aria-labelledby="s-mean">
+  <div class="eyebrow">Interpretation</div>
+  <h2 id="s-mean">What it means</h2>
+  <div class="status">
+    <div class="st"><span class="tag">Established</span><p>Automatic selection works a little: dreamed questions beat random on 3 of 3 models teacher-forced and 2 of 3 in judged answers. The pre-registered replication rule holds.</p></div>
+    <div class="st"><span class="tag">Established</span><p>Attention is the wrong signal on its own. It favours sentence ends; it rarely finds the answer. Behaviour-based selection (leave-one-out) does much better with the same dreamed questions.</p></div>
+    <div class="st"><span class="tag">Established</span><p>Content is not enough. Even the answer’s own tokens are mostly not used in free generation. Teacher-forced scores overstate a slice’s usefulness.</p></div>
+    <div class="st"><span class="tag">Reading (inferred)</span><p>A good automatic slice has to keep two kinds of position: the value, and whatever licenses an answer (in templated facts, the subject). Selecting for the answer’s probability alone misses the second.</p></div>
+  </div>
+  <div class="prose">
+    <p><strong>Directions this suggests</strong> (not yet run):</p>
+    <ul>
+      <li><strong>A cheaper leave-one-out.</strong> Its signal is in behaviour, not attention. A gradient or attribution score with respect to the dreamed answers could approximate it in one pass.</li>
+      <li><strong>Select for answering, not only for content.</strong> Score positions by how much they lower the refusal on dreamed questions, as well as by the answer’s probability.</li>
+      <li><strong>Better dreamed questions.</strong> Some dreams asked about the help requested, or addressed the assistant as “you”. The 7B dreamed slightly better than the 1.5B (gap closed 0.32 vs 0.25).</li>
+    </ul>
+    <p><strong>Limits.</strong> 64 questions; which turn to store was given by the label; turns are short (≤ 98 tokens); one dreamer prompt; the hybrid models (Qwen3.5) are not yet run. The “ctx” anchor (turn and question in one message) scored below the stored turn in generation (e.g. 0.68 vs 0.87 on the 7B): with both in one message the model often answers the turn’s own request instead.</p>
+  </div>
+</section>
+
+<section aria-labelledby="s-data">
+  <div class="eyebrow">Reference</div>
+  <h2 id="s-data">Files and numbers</h2>
+  <details>
+    <summary>Gap closed, every selector and budget</summary>
+    <div class="body"><div class="scroll"><table id="t-gap"></table></div></div>
+  </details>
+</section>
+
+<footer>
+  <span>Paths are in the <a href="https://github.com/vedant-jumle/Seahorse">Seahorse repository</a>; <code>results/</code> holds the run outputs, kept locally and not in the repository. This page is built from them by <code>tools/manuscript/explainers/build_explainers.py</code>.</span>
+  <span>Code: <code>experiments/dream_select/</code> (PREREG <code>91ac19d</code>; addendum 1 <code>7919219</code>; cluster code <code>6ac583f</code>, fixes <code>50e0168</code>, <code>755cae8</code>). Data: <code>data/longmemeval/ssu70.json</code> (LongMemEval, MIT).</span>
+  <span>Results: <code>results/dream_select_20261104_0032/report.md</code> (local teacher-forced, Qwen2.5-1.5B); <code>results/dream_select_cluster_20261104_0129/summary.md</code> and per-model <code>report_gen.md</code>, <code>tf/report.md</code>.</span>
+</footer>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(function () {
+  const D = JSON.parse(document.getElementById('data').textContent);
+  const MK = ['qwen25_15b', 'qwen25_7b', 'llama32_3b'];
+  const M = D.models;
+  const NS = 'http://www.w3.org/2000/svg';
+  const fmt = (x, d = 2) => (x < 0 ? '−' : '') + Math.abs(x).toFixed(d);
+  function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(p, x, y, s, cls, anchor) { const t = el('text', { x, y, class: cls || '', 'text-anchor': anchor || 'start' }, p); t.textContent = s; return t; }
+  function svgIn(host, w, h, label) { const s = el('svg', { viewBox: `0 0 ${w} ${h}`, role: 'img', 'aria-label': label }); host.appendChild(s); return s; }
+  function tipFor(fig) { let t = fig.querySelector(':scope > .tip'); if (!t) { t = document.createElement('div'); t.className = 'tip'; t.hidden = true; fig.appendChild(t); } return t; }
+  function bindTip(node, fig, html) {
+    const t = tipFor(fig);
+    const show = ev => { t.innerHTML = html; t.hidden = false; const r = fig.getBoundingClientRect();
+      const cx = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left, cy = (ev.touches ? ev.touches[0].clientY : ev.clientY) - r.top;
+      t.style.left = Math.max(6, Math.min(r.width - t.offsetWidth - 6, cx + 12)) + 'px'; t.style.top = Math.max(6, cy - t.offsetHeight - 10) + 'px'; };
+    node.addEventListener('mousemove', show); node.addEventListener('mouseenter', show);
+    node.addEventListener('mouseleave', () => { t.hidden = true; }); node.addEventListener('touchstart', show, { passive: true });
+  }
+  function panel(host, title) { const w = document.createElement('div'); w.className = 'chart'; host.appendChild(w); return w; }
+
+  // tiles
+  const byModel = (c) => MK.map(mk => M[mk].gen_correct[c][0]);
+  const rnd8 = byModel('random@k8');
+  const tiles = [
+    ['Replication (pre-registered)', `${MK.filter(mk => M[mk].rule.holds).length} of ${MK.length} models`, 'S-dream beats random in judged answers, k = 4'],
+    ['Judged correct, S-dream k = 8', byModel('S-dream@k8').map(v => v.toFixed(2)).join(' · '), `Qwen 1.5B · Qwen 7B · Llama 3B (random ${Math.min(...rnd8).toFixed(2)}–${Math.max(...rnd8).toFixed(2)})`],
+    ['Whole turn stored', byModel('R-full').map(v => v.toFixed(2)).join(' · '), 'judged correct, same order'],
+    ['Gold slice: forced vs free', `${fmt(M.qwen25_15b.gap['gold|own'][0])} → ${fmt((M.qwen25_15b.gen_correct.gold[0] - M.qwen25_15b.gen_correct.nomem[0]) / (M.qwen25_15b.gen_correct['R-full'][0] - M.qwen25_15b.gen_correct.nomem[0]))}`, 'gap closed, Qwen 1.5B: teacher-forced → generated']
+  ];
+  const th = document.getElementById('tiles');
+  tiles.forEach(([l, v, n]) => { const d = document.createElement('div'); d.className = 'tile'; d.innerHTML = `<span class="label">${l}</span><span class="value">${v}</span><span class="note">${n}</span>`; th.appendChild(d); });
+
+  // ---- gap vs k small multiples ----
+  (function () {
+    const host = document.getElementById('c-gap'), fig = host.closest('figure');
+    const series = [['random', 'var(--neutral)'], ['gold@k', 'var(--ref)'], ['S-attn', 'var(--s2)'], ['S-loo', 'var(--s3)'], ['S-dream', 'var(--s1)']];
+    const B = ['k2', 'k4', 'k8'], KV = [2, 4, 8];
+    MK.forEach(mk => {
+      const m = M[mk]; const w = panel(host);
+      const W = 300, H = 240, top = 28, bot = 30, left = 36, right = 14;
+      const s = svgIn(w, W, H, `${m.name}: gap closed by k`);
+      const x = i => left + i / 2 * (W - left - right), y = v => top + (1 - v) / 1.1 * (H - top - bot);
+      txt(s, W / 2, 16, m.name, 't-strong', 'middle');
+      [0, 0.25, 0.5, 0.75, 1].forEach(t => { el('line', { x1: left, x2: W - right, y1: y(t), y2: y(t), class: t === 0 ? 'axis' : 'grid' }, s); txt(s, left - 6, y(t) + 4, t.toFixed(2).replace(/^0/, ''), 't-muted', 'end'); });
+      KV.forEach((k, i) => txt(s, x(i), H - 10, 'k = ' + k, 't-muted', 'middle'));
+      series.forEach(([sel, col]) => {
+        const pts = B.map((b, i) => { const g = m.gap[sel + '|' + b]; return g ? [x(i), y(Math.max(-0.1, g[0])), g] : null; }).filter(Boolean);
+        el('polyline', { points: pts.map(p => p[0] + ',' + p[1]).join(' '), fill: 'none', stroke: col, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, s);
+        pts.forEach((p, i) => {
+          const c = el('circle', { cx: p[0], cy: p[1], r: 4, fill: col, stroke: 'var(--surface)', 'stroke-width': 2 }, s);
+          const h = el('circle', { cx: p[0], cy: p[1], r: 10, class: 'hit' }, s);
+          bindTip(h, fig, `<b>${m.name} · ${sel} · k = ${KV[i]}</b><br>gap closed ${fmt(p[2][0])} [${fmt(p[2][1])}, ${fmt(p[2][2])}], N ${p[2][3]}`);
+        });
+      });
+    });
+  })();
+
+  // rules table
+  (function () {
+    const t = document.getElementById('t-rules');
+    t.innerHTML = '<thead><tr><th>model</th><th>“dreamed questions select well”</th><th>“any attention selector works”</th></tr></thead><tbody>' +
+      MK.map(mk => { const r = M[mk].tf_rules || {}; const a = r['Dreamed questions select well'] || {}, b = r['Any attention selector works'] || {};
+        return `<tr><td>${M[mk].name}</td><td>${a.holds ? 'holds' : 'does not hold'}<br><span style="color:var(--muted)">${a.reason || ''}</span></td><td>${b.holds ? 'holds' : 'does not hold'}<br><span style="color:var(--muted)">${b.reason || ''}</span></td></tr>`; }).join('') + '</tbody>';
+  })();
+
+  // ---- horizontal bar small multiples ----
+  function hbars(hostId, getter, sels, xmax, refLine, label) {
+    const host = document.getElementById(hostId), fig = host.closest('figure');
+    MK.forEach(mk => {
+      const m = M[mk]; const w = panel(host);
+      const W = 300, rowH = 26, top = 26, left = 70, right = 40, H = top + sels.length * rowH + 26;
+      const s = svgIn(w, W, H, `${m.name}: ${label}`);
+      const x = v => left + v / xmax * (W - left - right);
+      txt(s, W / 2, 14, m.name, 't-strong', 'middle');
+      [0, xmax / 2, xmax].forEach(t => { el('line', { x1: x(t), x2: x(t), y1: top - 4, y2: H - 22, class: t === 0 ? 'axis' : 'grid' }, s); txt(s, x(t), H - 8, t.toFixed(1), 't-muted', 'middle'); });
+      sels.forEach((sel, i) => {
+        const v = getter(m, sel); const y = top + i * rowH;
+        txt(s, left - 8, y + rowH / 2 + 4, sel, sel === 'S-dream' ? 't-strong' : '', 'end');
+        if (v == null) return;
+        const col = sel === 'S-dream' ? 'var(--s1)' : sel === 'S-loo' ? 'var(--s3)' : sel === 'S-attn' ? 'var(--s2)' : 'var(--neutral)';
+        const x1 = x(Math.max(0, v));
+        el('path', { d: `M${x(0)},${y + 6} H${Math.max(x(0), x1 - 3)} Q${x1},${y + 6} ${x1},${y + 9} V${y + rowH - 9} Q${x1},${y + rowH - 6} ${Math.max(x(0), x1 - 3)},${y + rowH - 6} H${x(0)} Z`, fill: col }, s);
+        txt(s, x1 + 6, y + rowH / 2 + 4, v.toFixed(2), 't-muted');
+        const h = el('rect', { x: 0, y, width: W, height: rowH, class: 'hit' }, s);
+        bindTip(h, fig, `<b>${m.name} · ${sel}</b><br>${label}: ${v.toFixed(2)}`);
+      });
+      if (refLine) { const r = refLine(m); el('line', { x1: x(r), x2: x(r), y1: top - 4, y2: H - 22, stroke: 'var(--ink-2)', 'stroke-width': 1.5, 'stroke-dasharray': '4 3' }, s); }
+    });
+  }
+  hbars('c-punct', (m, s) => m.punct[s + '|k4'], ['S-dream', 'S-recon', 'S-attn', 'S-loo', 'random'], 0.8, m => m.punct_base, 'punctuation share');
+  hbars('c-hit', (m, s) => m.hit[s + '|k4'], ['S-dream', 'S-attn', 'S-recon', 'S-loo', 'random'], 1.0, null, 'answer hit rate');
+
+  // ---- examples ----
+  (function () {
+    const host = document.getElementById('examples');
+    const order = ['c5e8278d', 'e47becba', '1e043500', '6ade9755'];
+    order.forEach(id => {
+      const e = D.examples[id]; if (!e) return;
+      const gold = new Set(e.gold || []);   // gold_span: the answer's own positions
+      const div = document.createElement('div'); div.className = 'ex';
+      let h = `<div class="qa"><b>Q:</b> ${e.q} &nbsp; <b>A:</b> ${e.a}</div>`;
+      h += `<div class="dreams">Dreamed questions: <ul style="margin:0.2rem 0 0;padding-left:1.1rem">${e.dreams.map(q => `<li>${q}</li>`).join('')}</ul></div>`;
+      ['S-dream', 'S-attn', 'S-loo', 'random'].forEach(sel => {
+        const picks = new Set(e.picks[sel] || []);
+        h += `<div class="pickrow"><span class="k">${sel}<br><span class="score">${e.scores[sel] != null ? fmt(e.scores[sel]) : ''}</span></span><div class="toks">` +
+          e.content.map((p, i) => `<span class="${picks.has(p) ? 'pick' : ''} ${gold.has(p) ? 'gold' : ''}">${e.tokens[i].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`).join('') + '</div></div>';
+      });
+      h += `<div class="pickrow"><span class="k">anchors</span><span class="score">no memory ${fmt(e.scores.nomem)} · whole turn ${fmt(e.scores['R-full'])}</span></div>`;
+      div.innerHTML = h; host.appendChild(div);
+    });
+  })();
+
+  // ---- generation grouped bars ----
+  (function () {
+    const host = document.getElementById('c-gen'), fig = host.closest('figure');
+    const sels = ['S-dream', 'S-attn', 'S-recon', 'S-loo', 'random', 'gold@k'];
+    MK.forEach(mk => {
+      const m = M[mk]; const w = panel(host);
+      const W = 300, rowH = 34, top = 44, left = 70, right = 40, H = top + sels.length * rowH + 26;
+      const s = svgIn(w, W, H, `${m.name}: judged correctness`);
+      const x = v => left + v * (W - left - right);
+      txt(s, W / 2, 14, m.name, 't-strong', 'middle');
+      [0, 0.5, 1].forEach(t => { el('line', { x1: x(t), x2: x(t), y1: top - 4, y2: H - 22, class: t === 0 ? 'axis' : 'grid' }, s); txt(s, x(t), H - 8, t.toFixed(1), 't-muted', 'middle'); });
+      sels.forEach((sel, i) => {
+        const y = top + i * rowH;
+        txt(s, left - 8, y + rowH / 2 + 4, sel, sel === 'S-dream' ? 't-strong' : '', 'end');
+        [['@k4', 'var(--s1-light)', 4, 0], ['@k8', 'var(--s1)', 8, 1]].forEach(([suf, col, k, j]) => {
+          const v = m.gen_correct[sel + suf]; if (!v) return;
+          const y0 = y + 5 + j * 12, x1 = x(v[0]);
+          el('path', { d: `M${x(0)},${y0} H${Math.max(x(0), x1 - 3)} Q${x1},${y0} ${x1},${y0 + 3} V${y0 + 7} Q${x1},${y0 + 10} ${Math.max(x(0), x1 - 3)},${y0 + 10} H${x(0)} Z`, fill: col }, s);
+          txt(s, x1 + 5, y0 + 9, v[0].toFixed(2), 't-muted');
+          const h = el('rect', { x: 0, y: y0 - 1, width: W, height: 12, class: 'hit' }, s);
+          bindTip(h, fig, `<b>${m.name} · ${sel} · k = ${k}</b><br>judged correct ${v[0].toFixed(2)} [${v[1].toFixed(2)}, ${v[2].toFixed(2)}], N ${v[3]}`);
+        });
+      });
+      const rf = m.gen_correct['R-full'][0];
+      el('line', { x1: x(rf), x2: x(rf), y1: top - 4, y2: H - 22, stroke: 'var(--ref)', 'stroke-width': 1.5, 'stroke-dasharray': '4 3' }, s);
+      txt(s, x(rf) - 4, top - 10, 'whole turn ' + rf.toFixed(2), 't-muted', 'end');
+    });
+  })();
+
+  // gen table
+  (function () {
+    const t = document.getElementById('t-gen');
+    const conds = ['nomem', 'ctx', 'R-full', 'gold', 'S-dream@k4', 'S-attn@k4', 'S-recon@k4', 'S-loo@k4', 'random@k4', 'gold@k@k4', 'S-dream@k8', 'S-attn@k8', 'S-recon@k8', 'S-loo@k8', 'random@k8', 'gold@k@k8'];
+    t.innerHTML = '<thead><tr><th>condition</th>' + MK.map(mk => `<th class="num">${M[mk].name}<br>correct · refusal</th>`).join('') + '</tr></thead><tbody>' +
+      conds.map(c => `<tr${c.startsWith('S-dream') ? ' class="hl"' : ''}><td>${c}</td>` + MK.map(mk => { const a = M[mk].gen_correct[c], r = M[mk].gen_refusal[c]; return `<td class="num">${a ? a[0].toFixed(2) : '–'} · ${r ? r[0].toFixed(2) : '–'}</td>`; }).join('') + '</tr>').join('') + '</tbody>';
+  })();
+
+  // ---- TF vs gen for gold ----
+  (function () {
+    const host = document.getElementById('c-tfgen'), fig = host.closest('figure');
+    const W = 400, rowH = 46, top = 10, left = 100, right = 44, H = top + MK.length * rowH + 26;
+    const s = svgIn(host, W, H, 'Gold slice: teacher-forced vs generated gap closed');
+    const x = v => left + v / 1.2 * (W - left - right);
+    [0, 0.5, 1].forEach(t => { el('line', { x1: x(t), x2: x(t), y1: top, y2: H - 22, class: t === 0 ? 'axis' : 'grid' }, s); txt(s, x(t), H - 8, t.toFixed(1), 't-muted', 'middle'); });
+    MK.forEach((mk, i) => {
+      const m = M[mk], y = top + i * rowH;
+      const tf = m.gap['gold|own'][0];
+      const g = m.gen_correct, gen = (g.gold[0] - g.nomem[0]) / (g['R-full'][0] - g.nomem[0]);
+      txt(s, left - 8, y + rowH / 2 + 4, m.name, '', 'end');
+      [[tf, 'var(--neutral)', 0, 'teacher-forced'], [gen, 'var(--s1)', 1, 'generated, judged']].forEach(([v, col, j, nm]) => {
+        const y0 = y + 6 + j * 16, x1 = x(Math.max(0, v));
+        el('path', { d: `M${x(0)},${y0} H${Math.max(x(0), x1 - 3)} Q${x1},${y0} ${x1},${y0 + 3} V${y0 + 9} Q${x1},${y0 + 12} ${Math.max(x(0), x1 - 3)},${y0 + 12} H${x(0)} Z`, fill: col }, s);
+        txt(s, x1 + 5, y0 + 10, v.toFixed(2), 't-muted');
+        const h = el('rect', { x: 0, y: y0 - 2, width: W, height: 16, class: 'hit' }, s);
+        bindTip(h, fig, `<b>${m.name} · gold slice</b><br>${nm}: gap closed ${v.toFixed(2)}`);
+      });
+    });
+  })();
+  (function () {
+    const host = document.getElementById('c-ref'), fig = host.closest('figure');
+    const W = 400, rowH = 54, top = 10, left = 100, right = 44, H = top + MK.length * rowH + 26;
+    const s = svgIn(host, W, H, 'Refusal rates in generated answers');
+    const x = v => left + v * (W - left - right);
+    [0, 0.5, 1].forEach(t => { el('line', { x1: x(t), x2: x(t), y1: top, y2: H - 22, class: t === 0 ? 'axis' : 'grid' }, s); txt(s, x(t), H - 8, t.toFixed(1), 't-muted', 'middle'); });
+    MK.forEach((mk, i) => {
+      const m = M[mk], y = top + i * rowH;
+      txt(s, left - 8, y + rowH / 2 + 4, m.name, '', 'end');
+      [['nomem', 'var(--neutral)', 'no memory'], ['gold', 'var(--s2)', 'gold slice'], ['R-full', 'var(--s1)', 'whole turn']].forEach(([c, col, nm], j) => {
+        const v = m.gen_refusal[c][0], y0 = y + 4 + j * 15, x1 = x(v);
+        el('path', { d: `M${x(0)},${y0} H${Math.max(x(0), x1 - 3)} Q${x1},${y0} ${x1},${y0 + 3} V${y0 + 8} Q${x1},${y0 + 11} ${Math.max(x(0), x1 - 3)},${y0 + 11} H${x(0)} Z`, fill: col }, s);
+        txt(s, x1 + 5, y0 + 10, v.toFixed(2), 't-muted');
+        const h = el('rect', { x: 0, y: y0 - 2, width: W, height: 15, class: 'hit' }, s);
+        bindTip(h, fig, `<b>${m.name} · ${nm}</b><br>refusal ${v.toFixed(2)}`);
+      });
+    });
+  })();
+
+  // gap table
+  (function () {
+    const t = document.getElementById('t-gap');
+    const sels = ['S-dream', 'S-attn', 'S-recon', 'S-loo', 'random', 'gold@k'];
+    let h = '<thead><tr><th>selector</th>' + MK.map(mk => `<th class="num">${M[mk].name}<br>k2 · k4 · k8</th>`).join('') + '</tr></thead><tbody>';
+    sels.forEach(sel => { h += `<tr${sel === 'S-dream' ? ' class="hl"' : ''}><td>${sel}</td>` + MK.map(mk => `<td class="num">${['k2', 'k4', 'k8'].map(b => { const g = M[mk].gap[sel + '|' + b]; return g ? fmt(g[0]) : '–'; }).join(' · ')}</td>`).join('') + '</tr>'; });
+    h += '<tr><td>gold (own size)</td>' + MK.map(mk => `<td class="num">${fmt(M[mk].gap['gold|own'][0])}</td>`).join('') + '</tr>';
+    t.innerHTML = h + '</tbody>';
+  })();
+})();
+</script>
+</body>
+</html>
