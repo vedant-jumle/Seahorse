@@ -506,11 +506,18 @@ oracle and s120 as two jobs. Stage B uses 48 queue slots (9 per model, 10 for th
 
 | model | smoke | gens | judge | gpt-oss | Gemma-4 | analyze |
 |---|---|---|---|---|---|---|
-| qwen25_15b (V100) | 1217731 | 1217732-35 | 1217736 | 1217737 | 1217738 | 1217739 |
-| llama32_3b (V100) | 1217740 | 1217741-44 | 1217745 | 1217746 | 1217747 | 1217748 |
+| qwen25_15b (V100) | 1218150 | 1218151-54 | 1218155 | 1218156 | 1218157 | 1218158 |
+| llama32_3b (V100) | 1218159 | 1218160-63 | 1218164 | 1218165 | 1218166 | 1218167 |
 | qwen25_7b (A100) | 1217750 | 1217751-54 | 1217755 | 1217756 | 1217757 | 1217758 |
 | gemma4_26b_a4b (2 x A100) | 1217759 | 1217760-64 | 1217765 | 1217766 | 1217767 | 1217768 |
 | granite42_30b (2 x A100) | 1217769 | 1217770-74 | 1217775 | 1217776 | 1217777 | 1217778 |
 
-  Summary 1217779 (after every analyze). Gens order per model: LongMemEval (one job; Gemma / Granite: oracle, s120),
+  Summary 1217779 (after every analyze; its dependency list updated with `scontrol`).
+  First smokes, both on V100, failed after passing pytest and the identity checks on every split they reached
+  (P3-all vs text 1.5e-4 to 8.7e-4, ragged == per-row 4 / 4): Llama 1217740 ran out of memory on LoCoMo's P1 row
+  (four copies of the 24k-token history alive at once), the 1.5B 1217731 on BEAM's one-pass 16k-token session
+  encoding (fp32 SDPA with a mask takes the math path on V100: T x T scores per head). Fixed (df98948, 6739282: P1
+  rows use views of the shared history, the ragged cache is built layer by layer, session encoding and long
+  prompts run in 2,048-token chunks with an attention-memory budget; tested chunked == one pass) and both chains
+  resubmitted (the rows above); no science changed. Gens order per model: LongMemEval (one job; Gemma / Granite: oracle, s120),
   LoCoMo, PersonaMem, BEAM.
