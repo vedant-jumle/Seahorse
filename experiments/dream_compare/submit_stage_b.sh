@@ -60,19 +60,35 @@ flags() {
     granite42_30b)  echo "--gb-per-gpu 70 --p1-kv-gb 12 --batch-kv-gb 8 --mask-gb 3";;
   esac
 }
-gate() {
+gate() {  # the Stage 0 smoke a model waits for; none if it already completed (Slurm rejects afterok on finished jobs)
+  local j
   case $1 in
-    qwen25_7b) echo "$G_Q7";; gemma4_26b_a4b) echo "$G_G4";; granite42_30b) echo "$G_GR";; *) echo "";;
+    qwen25_7b) j=$G_Q7;; gemma4_26b_a4b) j=$G_G4;; granite42_30b) j=$G_GR;; *) j="";;
   esac
+  [ -z "$j" ] && { echo ""; return; }
+  local st
+  st=$(sacct -j "$j" -X -n -o State | head -1 | tr -d ' ')
+  case $st in
+    COMPLETED) echo "";;
+    PENDING|RUNNING|REQUEUED|CONFIGURING) echo "$j";;
+    *) echo "FAILED:$st";;
+  esac
+}
+judge_dep() {  # afterok on the judge smoke unless it already completed
+  local st
+  st=$(sacct -j "$G_JS" -X -n -o State | head -1 | tr -d ' ')
+  [ "$st" = COMPLETED ] && echo "" || echo ",afterok:$G_JS"
 }
 GEN_T=23:59:00
 MAXH=22.5
 
 {
   echo "dream_compare Stage B $RUN, submitted $(date -Is) at commit $(git rev-parse HEAD)"
-  ans=""
+  ans="${EXTRA_ANS:-}"
+  JS=$(judge_dep)
   for M in $MODELS; do
     R=$(res $M); F=$(flags $M); g=$(gate $M)
+    case $g in FAILED:*) echo "$M: Stage 0 smoke ${g#FAILED:}: not submitted"; continue;; esac
     D=$RUN/$M; G=$D/gen; JD=$D/judge
     mkdir -p "$G" "$JD"
     dep=${g:+--dependency=afterok:$g}
@@ -89,12 +105,12 @@ MAXH=22.5
     g3=$(sub $GPU b_${M}_pm $R --time=$GEN_T --dependency=afterok:$sm "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench personamem:32k --max-hours $MAXH $F")
     g4=$(sub $GPU b_${M}_beam $R --time=$GEN_T --dependency=afterok:$sm "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench beam:100K --max-hours $MAXH $F")
     gens="$g1:$g2:$g3:$g4"
-    jo=$(sub $GPU b_${M}_judge $A100J --time=12:00:00 --dependency=afterany:$gens,afterok:$G_JS "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-tasks|$JD|--from $G;b-judge-local|$JD|")
-    pa=$(sub $PANEL b_${M}_gptoss $A100J --time=23:00:00 --dependency=afterany:$jo,afterok:$G_JS "JDIR=$JD,JUDGES=gptoss")
+    jo=$(sub $GPU b_${M}_judge $A100J --time=12:00:00 --dependency=afterany:$gens$JS "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-tasks|$JD|--from $G;b-judge-local|$JD|")
+    pa=$(sub $PANEL b_${M}_gptoss $A100J --time=23:00:00 --dependency=afterany:$jo$JS "JDIR=$JD,JUDGES=gptoss")
     pb=$(sub $PANEL b_${M}_gemma4 $A100J --time=16:00:00 --dependency=afterany:$pa "JDIR=$JD,JUDGES=gemma4")
     an=$(sub $CPU b_${M}_analyze $CPUR --time=02:00:00 --dependency=afterany:$jo:$pa:$pb "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-analyze|$D|--from $G --judge-dir $JD")
     ans="$ans:$an"
-    echo "$M: smoke $sm${g:+ (afterok $g)}; gens lme $g1 loc $g2 pm $g3 beam $g4 (afterok $sm); judge $jo (afterany gens, afterok $G_JS); gptoss $pa; gemma4 $pb; analyze $an"
+    echo "$M: smoke $sm${g:+ (afterok $g)}; gens lme $g1 loc $g2 pm $g3 beam $g4 (afterok $sm); judge $jo (afterany gens$JS); gptoss $pa; gemma4 $pb; analyze $an"
   done
   su=$(sub $CPU b_summary $CPUR --time=01:00:00 --dependency=afterany$ans "MODEL=qwen25_7b,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-summary|$RUN|")
   echo "summary $su (afterany$ans)"
