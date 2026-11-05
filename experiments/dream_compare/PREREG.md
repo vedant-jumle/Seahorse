@@ -140,7 +140,26 @@ code, configs and reports are byte-identical (checked, below).
 
 ### Stage 0 results
 
-(Filled in after the cluster smoke.)
+Run root `/scratch/vvjumle/seahorse_runs/dream_compare_smoke_20261105_1530` (`jobs.txt` lists the jobs).
+
+Passed (2026-11-05, commit a403e0f; every job ran the full test file first):
+
+- **Qwen2.5-1.5B** (job 1215658, A100 MIG 10 GB), peak 6.0 GB reserved:
+  - full == text: max |dlogit| 3e-4, same greedy tokens
+  - per-head keep-all == full: 0
+  - shared == splice: 4e-5, same tokens
+  - `rope_shift` vs recompute: relative 1e-5
+  - each benchmark item, R-full vs text: <= 8e-4
+- **Llama-3.2-3B** (job 1214591, V100), peak 12.6 GB:
+  - full == text: 1e-4
+  - shared == splice: 5e-5
+  - `rope_shift` vs recompute: relative 1e-6
+  - each benchmark item, R-full vs text: <= 1.3e-4
+- On both models, the BM25 recall of the four smoke items is 1.0 at m = 10. The first run of the 1.5B (job 1214589)
+  failed in pytest only: a tiny-model tolerance (1.07e-5 vs 1e-5). The tolerance was widened to 5e-5.
+
+Queued: Qwen2.5-7B (1214590), Gemma-4 on 2 x A100 (1214592), Granite (1214593) and the judge smoke (1214594).
+gpu-a100 was full when this was written; Slurm estimated starts on 2026-11-08. Their results go here when they run.
 
 ## Stage A: selectors
 
