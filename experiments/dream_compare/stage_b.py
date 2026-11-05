@@ -406,7 +406,7 @@ def materialize(C, r, x, mem, store, picks, P1full, opts, seed):
         ids = list(mem.H) + Q
     elif fam == "P1":
         n = mem.nh + sum(mem.turns[i].n for i in x.vis)
-        prefix = M.index_prefix(P1full, list(range(n)), start=n)
+        prefix = Pm.prefix_head(P1full, n)
         ids = Q
     elif fam == "P2":
         ids = Pm.layout_text(mem, x.ret[m])[0] + Q

@@ -413,6 +413,13 @@ def prefill_text(C, ids, chunk=P1_CHUNK):
     return M.Prefix(kv, torch.arange(n), n)
 
 
+def prefix_head(P, n):
+    """The first n entries of a Prefix as views (no copy); the next turn starts at n."""
+    if n == P.n:
+        return M.Prefix(P.kv, P.pos, n, dict(P.meta))
+    return M.Prefix([(K[:, :, :n], V[:, :, :n]) for K, V in P.kv], P.pos[:n], n, dict(P.meta))
+
+
 def bytes_per_position(C):
     return M.kv_numbers_per_position(C.layout) * 4
 
@@ -463,22 +470,23 @@ class Ragged:
 
     def prefill(self):
         C, B, S, T = self.C, self.B, self.S, self.T
-        cache_kv = []
-        for l, L in enumerate(C.layout):
-            dev = layer_device(C, l)
-            K = torch.zeros(B, L.n_kv, S, L.head_dim, device=dev)
-            V = torch.zeros(B, L.n_kv, S, L.head_dim, device=dev)
-            for b, r in enumerate(self.rows):
-                p = r.get("prefix")
-                if p is not None and p.n:
-                    K[b, :, S - p.n:] = p.kv[l][0][0].to(dev)
-                    V[b, :, S - p.n:] = p.kv[l][1][0].to(dev)
-            cache_kv.append((K, V))
         from transformers import DynamicCache
         cache = DynamicCache()
-        for l, (K, V) in enumerate(cache_kv):
+        for l, L in enumerate(C.layout):          # layer by layer: at most one layer's batch buffer is duplicated
+            dev = layer_device(C, l)
+            p0 = self.rows[0].get("prefix")
+            if B == 1 and p0 is not None and p0.n == S:
+                K, V = p0.kv[l][0].to(dev), p0.kv[l][1].to(dev)       # one row, no padding: no extra buffer
+            else:
+                K = torch.zeros(B, L.n_kv, S, L.head_dim, device=dev)
+                V = torch.zeros(B, L.n_kv, S, L.head_dim, device=dev)
+                for b, r in enumerate(self.rows):
+                    p = r.get("prefix")
+                    if p is not None and p.n:
+                        K[b, :, S - p.n:] = p.kv[l][0][0].to(dev)
+                        V[b, :, S - p.n:] = p.kv[l][1][0].to(dev)
             cache.update(K, V, l)
-        del cache_kv
+            del K, V
         kpos = torch.zeros(B, S, dtype=torch.long)
         kvalid = torch.zeros(B, S, dtype=torch.bool)
         x = torch.full((B, T), _pad_id(C), dtype=torch.long)
