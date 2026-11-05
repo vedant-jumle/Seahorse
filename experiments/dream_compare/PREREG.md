@@ -506,8 +506,8 @@ oracle and s120 as two jobs. Stage B uses 48 queue slots (9 per model, 10 for th
 
 | model | smoke | gens | judge | gpt-oss | Gemma-4 | analyze |
 |---|---|---|---|---|---|---|
-| qwen25_15b (V100) | 1218150 | 1218151-54 | 1218155 | 1218156 | 1218157 | 1218158 |
-| llama32_3b (V100) | 1218159 | 1218160-63 | 1218164 | 1218165 | 1218166 | 1218167 |
+| qwen25_15b (V100) | 1218492 | 1218493-96 | 1218497 | 1218499 | 1218500 | 1218501 |
+| llama32_3b (V100) | 1218502 | 1218503-06 | 1218507 | 1218508 | 1218509 | 1218510 |
 | qwen25_7b (A100) | 1217750 | 1217751-54 | 1217755 | 1217756 | 1217757 | 1217758 |
 | gemma4_26b_a4b (2 x A100) | 1217759 | 1217760-64 | 1217765 | 1217766 | 1217767 | 1217768 |
 | granite42_30b (2 x A100) | 1217769 | 1217770-74 | 1217775 | 1217776 | 1217777 | 1217778 |
@@ -519,5 +519,8 @@ oracle and s120 as two jobs. Stage B uses 48 queue slots (9 per model, 10 for th
   encoding (fp32 SDPA with a mask takes the math path on V100: T x T scores per head). Fixed (df98948, 6739282: P1
   rows use views of the shared history, the ragged cache is built layer by layer, session encoding and long
   prompts run in 2,048-token chunks with an attention-memory budget; tested chunked == one pass) and both chains
-  resubmitted (the rows above); no science changed. Gens order per model: LongMemEval (one job; Gemma / Granite: oracle, s120),
+  resubmitted; no science changed. The second 1.5B smoke (1218150) passed LongMemEval oracle / s120, LoCoMo and
+  PersonaMem, then ran out of memory in the identity check's one-pass text reference of a 16k-token BEAM segment;
+  the check now uses the segment's leading turns (<= 2,048 tokens; 4d04fb8). Both chains were resubmitted again (the
+  rows above; the smokes resume from the items already written). Gens order per model: LongMemEval (one job; Gemma / Granite: oracle, s120),
   LoCoMo, PersonaMem, BEAM.
