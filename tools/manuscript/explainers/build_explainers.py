@@ -2,7 +2,7 @@
 """Build the three Seahorse explainer pages (vedantjumle.com/seahorse/<page>/) from the result files.
 
     python3 tools/manuscript/explainers/build_explainers.py --results results \
-        --out ../personal-website/seahorse
+        --out ../../personal-website/seahorse
 
 Writes <out>/binding/index.html, <out>/subject-position/index.html and <out>/automatic-selection/index.html.
 Each data page has a template.html with JSON placeholders (__DATA__, and __STATS__ on the subject-position page)

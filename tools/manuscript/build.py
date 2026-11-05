@@ -8,7 +8,7 @@ run's report.md (the generation reports of dream_bind, the G-key retrieval repor
 dream_refs phase A); those are parsed from the report's tables, never retyped (see `md_tables`).
 
     python3 tools/manuscript/build.py --results results \
-        --out ../personal-website/seahorse/index.html
+        --out ../../personal-website/seahorse/index.html
 
 Runs used (all local, under results/):
   core_v1_20261007_1820           paper 1: the pushed vector on Qwen3.5-2B and 9B (claims C1-C6, judge panel)
