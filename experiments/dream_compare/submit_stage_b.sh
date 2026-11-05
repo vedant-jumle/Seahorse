@@ -7,7 +7,8 @@
 #   gptoss  the Ollama panel judge gpt-oss on the same tasks                         (afterany: gens; afterok: judge smoke)
 #   gemma4  the Ollama panel judge Gemma-4                                            (afterany: gptoss)
 #   analyze b-analyze -> <model>/report_b.md, verdict_b.json (CPU)                     (afterany: judge, gptoss, gemma4)
-# then one cross-model b-summary (CPU, afterany: every analyze). 9 jobs per model, 5 models + 1 = 46 jobs.
+# then one cross-model b-summary (CPU, afterany: every analyze). 9 jobs per model (10 for Gemma-4 and Granite, whose
+# LongMemEval oracle and s120 run as two jobs) + 1 = 48 jobs.
 # Gating (Stage 0 smokes, PREREG): qwen25_7b afterok 1214590, gemma4_26b_a4b afterok 1214592, granite42_30b afterok
 # 1214593; every judge job afterok the judge smoke 1214594. Qwen2.5-1.5B and Llama-3.2-3B are ungated.
 # No caches go to disk: every context's stored K,V live in the job's CPU RAM (sized per model below) and are freed
@@ -76,7 +77,14 @@ MAXH=22.5
     mkdir -p "$G" "$JD"
     dep=${g:+--dependency=afterok:$g}
     sm=$(sub $GPU b_${M}_smoke $R --time=04:00:00 $dep "MODEL=$M,TESTS=$TESTS_B,SPECS=b-smoke|$D/smoke|$F")
-    g1=$(sub $GPU b_${M}_lme $R --time=$GEN_T --dependency=afterok:$sm "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench longmemeval:oracle+longmemeval:s120 --max-hours $MAXH $F")
+    case $M in   # the two 2-GPU models (slower per token): LongMemEval oracle and s120 in separate jobs
+      gemma4_26b_a4b|granite42_30b)
+        g1a=$(sub $GPU b_${M}_lmeo $R --time=$GEN_T --dependency=afterok:$sm "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench longmemeval:oracle --max-hours $MAXH $F")
+        g1b=$(sub $GPU b_${M}_lmes $R --time=$GEN_T --dependency=afterok:$sm "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench longmemeval:s120 --max-hours $MAXH $F")
+        g1="$g1a:$g1b";;
+      *)
+        g1=$(sub $GPU b_${M}_lme $R --time=$GEN_T --dependency=afterok:$sm "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench longmemeval:oracle+longmemeval:s120 --max-hours $MAXH $F");;
+    esac
     g2=$(sub $GPU b_${M}_loc $R --time=$GEN_T --dependency=afterok:$sm "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench locomo:locomo10 --max-hours $MAXH $F")
     g3=$(sub $GPU b_${M}_pm $R --time=$GEN_T --dependency=afterok:$sm "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench personamem:32k --max-hours $MAXH $F")
     g4=$(sub $GPU b_${M}_beam $R --time=$GEN_T --dependency=afterok:$sm "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench beam:100K --max-hours $MAXH $F")

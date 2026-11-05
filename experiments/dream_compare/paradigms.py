@@ -70,7 +70,7 @@ SEG_MAX_TOKENS = 16384          # a longer session is encoded in segments of who
 K_SLICE = 8                     # P4: kept content positions per turn
 M_TURNS = (3, 10)               # retrieved turns (P2-P4)
 M_SESSIONS = (1, 3)             # PersonaMem: retrieved sessions
-LOO_MAX_CONTENT = 1024          # S-loo beyond this many content tokens: S-dream's picks (counted)
+LOO_MAX_CONTENT = 200           # dream_select's cap: S-loo beyond it takes S-dream's picks (counted)
 LOO_BATCH = 16
 GEN_MAX_NEW = {"longmemeval": 128, "locomo": 48, "beam": 256, "personamem": 0}
 SUBSET_N, SUBSET_SEED, N_SAMPLES = 100, 7, 4
@@ -549,7 +549,7 @@ def ragged_gen(C, rows, max_new, timing=None):
     ar = torch.arange(B, device=dev)
     steps = []
     sync = (lambda: torch.cuda.synchronize()) if torch.cuda.is_available() else (lambda: None)
-    t0 = time.time()
+    t0 = time.perf_counter()
     try:
         with torch.no_grad():
             h = rb.prefill()[:, -1]
@@ -572,14 +572,14 @@ def ragged_gen(C, rows, max_new, timing=None):
                 done = done | (active & torch.isin(nxt, eos_t))
                 if t == 0 and timing is not None:
                     sync()
-                    timing["first_token_s"] = time.time() - t0
-                    t1 = time.time()
+                    timing["first_token_s"] = time.perf_counter() - t0
+                    t1 = time.perf_counter()
                 if bool(done.all()) or t == max_new - 1:
                     break
                 h = rb.step(nxt)
         if timing is not None:
             sync()
-            timing["decode_s"] = time.time() - t1
+            timing["decode_s"] = time.perf_counter() - t1
             timing["decode_steps"] = len(steps) - 1
             if rb.hook is not None:
                 timing["p5_select_s"] = rb.hook.seconds
@@ -806,6 +806,118 @@ def select_turn(C, H, turn, k=K_SLICE):
     rec["seconds"] = time.time() - t0
     del st
     return rec
+
+
+def _parse_dream(D, S, text):
+    qs, strict, lines = S.parse_dreams(text, D.N_DREAM)
+    return {"raw": text, "questions": qs, "strict_ok": strict, "lines": lines}
+
+
+def _finish_dream(D, attempts):
+    out = {"attempts": attempts}
+    best = max(attempts, key=lambda a: len(a["questions"]))
+    qs = best["questions"]
+    out["fallback"] = len(qs) < D.N_DREAM
+    if not qs:
+        qs = best["lines"][:D.N_DREAM]
+    if not qs:
+        qs = ["What did I say?"]
+        out["empty"] = True
+    out["questions"] = qs
+    out["retried"] = len(attempts) > 1
+    return out
+
+
+def select_turns(C, H, turns, loo=(), k=K_SLICE, chunk=24, loo_rows=48, log=None):
+    """P4's picks for many turns at once (query-free), batched with the ragged machinery; per turn the same result as
+    select_turn up to batching numerics: dreams (dream_select's prompts, retry with the strict prompt) for every turn
+    with > k content tokens -> S-dream picks; for the turns whose index is in `loo` (and <= LOO_MAX_CONTENT content
+    tokens) S-loo: own answers (greedy, <= 24 tokens) and the leave-one-out drops, each drop a ragged row (the stored
+    turn minus one slot, positions kept). -> {index: record}."""
+    import numpy as np
+    D, S = DSR(), SEL()
+    out = {}
+    idx = list(range(len(turns)))
+    for c0 in range(0, len(idx), chunk):
+        part = idx[c0:c0 + chunk]
+        t0 = time.time()
+        st = {i: turn_store(C, H, turns[i].piece, turns[i].content) for i in part}
+        todo = [i for i in part if len(st[i].content) > k]
+        for i in part:
+            if i not in todo:
+                c = list(st[i].content)
+                out[i] = dict(n_content=len(c), content_fallback=st[i].content_fallback, dream=c, loo=c,
+                              loo_fallback=False, dreams=None)
+        # dreams
+        att = {i: [] for i in todo}
+        for prompt in (D.DREAM_PROMPT, D.DREAM_PROMPT_STRICT):
+            need = [i for i in todo if not att[i] or len(att[i][-1]["questions"]) < D.N_DREAM]
+            if prompt is D.DREAM_PROMPT_STRICT:
+                need = [i for i in need if att[i]]
+            rows = [dict(prefix=None, ids=D.DB.render_ids(C.tok, D.dream_messages(prompt, st[i].turn))[1]) for i in need]
+            for b in range(0, len(rows), B_DREAM):
+                gg = ragged_gen(C, rows[b:b + B_DREAM], D.DREAM_MAX_NEW)
+                for i, g in zip(need[b:b + B_DREAM], gg):
+                    att[i].append(_parse_dream(D, S, C.tok.decode(g["ids"], skip_special_tokens=True)))
+        dreams = {i: _finish_dream(D, att[i]) for i in todo}
+        for i in todo:
+            sd = sel_dream_b(C, st[i], dreams[i])
+            c = st[i].content
+            out[i] = dict(n_content=len(c), content_fallback=st[i].content_fallback, dream=S.topk(sd, c, k),
+                          dreams=dreams[i]["questions"], loo=None, loo_fallback=None)
+        # S-loo
+        lo = [i for i in todo if i in loo]
+        for i in lo:
+            if len(st[i].content) > LOO_MAX_CONTENT:
+                out[i].update(loo=list(out[i]["dream"]), loo_fallback=True)
+        lo = [i for i in lo if len(st[i].content) <= LOO_MAX_CONTENT]
+        pairs = [(i, q) for i in lo for q in dreams[i]["questions"]]
+        qids = {(i, q): D.DB.qt_ids(C, q).tolist() for i, q in pairs}
+        owns = {}
+        for b in range(0, len(pairs), B_DREAM):
+            pp = pairs[b:b + B_DREAM]
+            gg = ragged_gen(C, [dict(prefix=st[i].prefix, ids=qids[(i, q)]) for i, q in pp], D.OWN_MAX_NEW)
+            for p, g in zip(pp, gg):
+                owns[p] = g["ids"]
+        specs = []                                  # (turn, q, drop slot or None)
+        for i, q in pairs:
+            if not owns[(i, q)]:
+                continue
+            specs.append((i, q, None))
+            specs += [(i, q, st[i].nh + c) for c in st[i].content]
+        lp = {}
+        for b in range(0, len(specs), loo_rows):
+            sp = specs[b:b + loo_rows]
+            rows = []
+            for i, q, j in sp:
+                pf = st[i].prefix
+                if j is not None:
+                    pf = M.index_prefix(pf, [s for s in range(pf.n) if s != j])
+                own = owns[(i, q)]
+                rows.append(dict(prefix=pf, ids=qids[(i, q)] + own, n_score=len(own)))
+            for s_, (v, _) in zip(sp, ragged_score(C, rows)):
+                lp[s_] = v
+            del rows
+        for i in lo:
+            tot = np.zeros(len(st[i].content))
+            for q in dreams[i]["questions"]:
+                if (i, q, None) not in lp:
+                    continue
+                base = lp[(i, q, None)]
+                tot += np.array([base - lp[(i, q, st[i].nh + c)] for c in st[i].content])
+            out[i].update(loo=S.topk(tot.tolist(), st[i].content, k), loo_fallback=False,
+                          own_answers=[C.tok.decode(owns[(i, q)], skip_special_tokens=True) for q in dreams[i]["questions"]])
+        dt = time.time() - t0
+        for i in part:
+            out[i]["seconds_chunk"] = dt
+            out[i]["chunk_size"] = len(part)
+        del st
+        if log:
+            log(f"  picks: {c0 + len(part)}/{len(idx)} turns ({len(lo)} with S-loo) in {dt:.0f}s")
+    return out
+
+
+B_DREAM = 16
 
 
 def turn_key(t):

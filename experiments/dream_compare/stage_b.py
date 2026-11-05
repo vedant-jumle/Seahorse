@@ -177,17 +177,21 @@ class SelCache:
                     continue
                 self.d[r["key"]] = r
 
-    def get(self, C, H, turn):
+    def get_many(self, C, mem, idx, loo):
+        """Records for the memory turns `idx` (computing the missing ones in batches); turns in `loo` need S-loo
+        (a cached record without it is recomputed)."""
         Pm = P()
-        k = Pm.turn_key(turn)
-        if k not in self.d:
-            r = Pm.select_turn(C, H, turn)
-            r["key"] = k
-            r["turn_id"] = turn.turn_id
-            self.d[k] = r
+        keys = {i: Pm.turn_key(mem.turns[i]) for i in idx}
+        miss = [i for i in idx if keys[i] not in self.d or (i in loo and self.d[keys[i]].get("loo") is None)]
+        if miss:
+            recs = Pm.select_turns(C, mem.H, [mem.turns[i] for i in miss], loo={j for j, i in enumerate(miss) if i in loo},
+                                   log=log)
             with open(self.path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(r) + "\n")
-        return self.d[k]
+                for j, i in enumerate(miss):
+                    r = dict(recs[j], key=keys[i], turn_id=mem.turns[i].turn_id)
+                    self.d[keys[i]] = r
+                    f.write(json.dumps(r) + "\n")
+        return {i: self.d[keys[i]] for i in idx}, len(miss)
 
 
 def row_len(r):
@@ -216,7 +220,7 @@ def batches(rows, C, A, max_new):
     return out
 
 
-def run_context(C, A, b, ctx_id, items, outdir, selc, subset, lat, p1cap, first_context):
+def run_context(C, A, b, ctx_id, items, outdir, selc, subset, lat, p1cap, first_context, loo_items):
     import torch
     Pm = P()
     M = Pm.M
@@ -244,13 +248,9 @@ def run_context(C, A, b, ctx_id, items, outdir, selc, subset, lat, p1cap, first_
         assert ident["ok"], f"identity checks failed: {ident}"
     # P4 picks (query-free, per turn) for every retrieved turn
     need = sorted({i for x in info.values() for m in ms for i in x.ret[m]})
+    loo_need = {i for x in info.values() if x.it.item_id in loo_items for m in ms for i in x.ret[m]}
     ts = time.time()
-    picks = {}
-    n_new = 0
-    for i in need:
-        t = mem.turns[i]
-        n_new += Pm.turn_key(t) not in selc.d
-        picks[i] = selc.get(C, mem.H, t)
+    picks, n_new = selc.get_many(C, mem, need, loo_need)
     sel_s = time.time() - ts
     if need:
         log(f"{ctx_id}: P4 picks for {len(need)} turns ({n_new} new) in {sel_s:.0f}s")
@@ -285,10 +285,13 @@ def run_context(C, A, b, ctx_id, items, outdir, selc, subset, lat, p1cap, first_
             elif fam == "P3":
                 spec.update(S=mem.nh + sum(mem.turns[i].n for i in x.ret[m]), T=len(x.Q), group=0)
             elif fam == "P4":
+                if var == "loo" and it.item_id not in loo_items:
+                    x.__dict__.setdefault("skipped", {})[cond] = "not in the S-loo subset"
+                    continue
                 spec.update(S=mem.nh + sum(len(picks[i][var]) for i in x.ret[m]), T=len(x.Q), group=0)
             elif fam == "P5":
                 if var == "s":
-                    budget = sum(len(picks[i]["loo"]) for i in x.ret[m])
+                    budget = sum(len(picks[i]["dream"]) for i in x.ret[m])
                 else:
                     budget = sum(mem.turns[i].n for i in x.ret[m])
                 nb = Pm.MA.n_blocks_for(budget)
@@ -302,7 +305,9 @@ def run_context(C, A, b, ctx_id, items, outdir, selc, subset, lat, p1cap, first_
                     rows.append(r)
     outs = {}
     tb = time.time()
-    for bt in batches(rows, C, A, 0 if mc else max_new):
+    bl = batches(rows, C, A, 0 if mc else max_new)
+    for bk, bt in enumerate(bl):
+        tbk = time.time()
         mat = [materialize(C, r, info[r["item"]], mem, store, picks, P1full, opts_of(C, info[r["item"]].it) if mc else None,
                            seed_of(r["item"], r["cond"], r["sample"])) for r in bt]
         if mc:
@@ -314,6 +319,9 @@ def run_context(C, A, b, ctx_id, items, outdir, selc, subset, lat, p1cap, first_
             for r, g in zip(bt, gg):
                 outs[(r["item"], r["cond"], None, r["sample"])] = dict(g, text=C.tok.decode(g["ids"], skip_special_tokens=True).strip())
         del mat
+        if first_context or bk % 50 == 0:
+            log(f"  batch {bk + 1}/{len(bl)}: {len(bt)} rows ({bt[0]['cond']}...), S {max(r['S'] for r in bt)}, "
+                f"T {max(r['T'] for r in bt)}: {time.time() - tbk:.1f}s; peak {M.peak_gb()}")
     gen_s = time.time() - tb
     # latency (B = 1)
     lat_res = {}
@@ -334,6 +342,8 @@ def run_context(C, A, b, ctx_id, items, outdir, selc, subset, lat, p1cap, first_
                "skipped": getattr(x, "skipped", {}), "storage": Pm.storage(C, mem, upto=len(x.vis)),
                "conds": {}, "latency": lat_res.get(it.item_id)}
         for cond in Pm.conds_for(name):
+            if cond in getattr(x, "skipped", {}):
+                continue
             fam, var, m = Pm.parse_cond(cond)
             c = {"prefill_tokens": prefill_tokens(fam, mem, x, m, picks, var),
                  "restored_entries": restored(fam, mem, x, m, picks, var)}
@@ -466,7 +476,7 @@ def restored(fam, mem, x, m, picks, var):
     if fam == "P4":
         return mem.nh + sum(len(picks[i][var]) for i in x.ret[m])
     MA = P().MA
-    budget = (sum(len(picks[i]["loo"]) for i in x.ret[m]) if var == "s" else sum(mem.turns[i].n for i in x.ret[m]))
+    budget = (sum(len(picks[i]["dream"]) for i in x.ret[m]) if var == "s" else sum(mem.turns[i].n for i in x.ret[m]))
     return mem.nh + MA.BLOCK * MA.n_blocks_for(budget)
 
 
@@ -483,7 +493,7 @@ def latency(C, x, mem, store, picks, p1cap):
     for cond in Pm.conds_for(name):
         fam, var, m = Pm.parse_cond(cond)
         sync()
-        t0 = time.time()
+        t0 = time.perf_counter()
         if fam == "P1":
             n_hist = sum(mem.turns[i].n for i in x.vis)
             if mem.nh + n_hist + len(x.Q) > p1cap:
@@ -491,13 +501,15 @@ def latency(C, x, mem, store, picks, p1cap):
             Pf = Pm.prefill_text(C, list(mem.H) + [y for i in x.vis for y in mem.turns[i].piece])
             row = dict(prefix=Pf, ids=list(x.Q))
         else:
+            if fam == "P4" and any(picks[i].get(var) is None for i in x.ret[m]):
+                continue
             r = dict(fam=fam, var=var, m=m, greedy=True, n_blocks=None, opt=None)
             if fam == "P5":
-                budget = (sum(len(picks[i]["loo"]) for i in x.ret[m]) if var == "s"
+                budget = (sum(len(picks[i]["dream"]) for i in x.ret[m]) if var == "s"
                           else sum(mem.turns[i].n for i in x.ret[m]))
                 r["n_blocks"] = Pm.MA.n_blocks_for(budget)
             row = materialize(C, r, x, mem, store, picks, None, None, 0)
-        build = time.time() - t0
+        build = time.perf_counter() - t0
         tm = {}
         Pm.ragged_gen(C, [row], Pm.LAT_DECODE, timing=tm)
         out[cond] = {"build_s": build, "first_token_s": build + tm["first_token_s"],
@@ -543,7 +555,7 @@ def run_bench(C, A, name, split, root, t_start):
             log(f"--max-hours {A.max_hours} reached: stopping before {cid} (resubmit to continue)")
             return False
         # run every item of the context (shared memory; already-done items are rewritten identically)
-        crec = run_context(C, A, b, cid, its, outdir, selc, subset, lat, p1cap, first)
+        crec = run_context(C, A, b, cid, its, outdir, selc, subset, lat, p1cap, first, subset)
         if first:
             json.dump(crec["identity"], open(outdir / "identity.json", "w"), indent=1)
             first = False

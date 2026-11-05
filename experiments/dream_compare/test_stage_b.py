@@ -452,3 +452,20 @@ def test_jobs_runner_env(monkeypatch):
     assert JB.runner_path() == HERE / "run.py"
     monkeypatch.setenv("DC_RUNNER", "stage_b")
     assert JB.runner_path() == HERE / "stage_b.py"
+
+
+def test_select_turns_batched_equals_single():
+    """select_turns (batched dreams, own answers and leave-one-out rows) == select_turn per turn."""
+    C = ctx("qwen25_15b")
+    _, mem = toy_memory(C)
+    idx = [0, 1, 4]
+    with torch.no_grad():
+        got = P.select_turns(C, mem.H, [mem.turns[i] for i in idx], loo={0, 2}, chunk=2)
+        for j, i in enumerate(idx):
+            ref = P.select_turn(C, mem.H, mem.turns[i])
+            assert got[j]["dream"] == ref["dream"], i
+            assert got[j]["dreams"] == ref["dreams"]
+            if j in (0, 2):
+                assert got[j]["loo"] == ref["loo"], i
+            else:
+                assert got[j]["loo"] is None or got[j]["loo"] == got[j]["dream"]
