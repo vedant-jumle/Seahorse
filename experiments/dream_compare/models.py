@@ -254,6 +254,66 @@ def kv_numbers_per_position(spec_or_layout, dedup_k_eq_v=False):
     return sum(l.n_kv * l.head_dim * (1 if (dedup_k_eq_v and l.k_eq_v) else 2) for l in L)
 
 
+# ----------------------------------------------------------------------------------------------- identity tolerance
+
+TF_TOL = 0.01           # dream_select's identity tolerance (max |logit| difference, fp32): every dense model
+
+
+def tf_tol(C):
+    """The identity tolerance of a model's restored-vs-text checks (max |logit| difference): TF_TOL, or the spec's
+    tf_tol (Gemma 4's MoE routing; PREREG "Stage 0 results")."""
+    return float(getattr(C, "spec", {}).get("tf_tol", TF_TOL))
+
+
+class MoERouting:
+    """Record / replay of an MoE model's expert routing (Gemma 4: every decoder layer's router returns (probs, top-k
+    weights, top-k index)). "record" keeps each token's top-k experts in call order per layer; "replay" makes a second
+    pass over the same tokens (in any split into calls) use the recorded experts on the tokens whose expert SET differs,
+    their weights recomputed from that pass's own router probabilities as the router does. With routing fixed, a
+    restored path must equal the one-pass reference at TF_TOL (the smoke's structural identity check)."""
+
+    def __init__(self, C):
+        self.routers = {l: blk.router for l, blk in enumerate(C.blocks) if getattr(blk, "router", None) is not None}
+        self._orig = {}
+        for l, r in self.routers.items():
+            self._orig[l] = r.forward
+            r.forward = self._wrap(l, r, r.forward)
+        self.reset()
+
+    def reset(self, mode=None, src=None):
+        self.mode, self.src = mode, src
+        self.ptr, self.rec = {}, {}
+        self.n_tok = self.n_flip = 0
+
+    def recorded(self):
+        return {l: torch.cat(v) for l, v in self.rec.items()}
+
+    def close(self):
+        for l, r in self.routers.items():
+            r.forward = self._orig[l]
+
+    def _wrap(self, l, router, orig):
+        def fwd(hs):
+            probs, w, idx = orig(hs)
+            if self.mode == "record":
+                self.rec.setdefault(l, []).append(idx.detach().cpu())
+            elif self.mode == "replay":
+                n, p = idx.shape[0], self.ptr.get(l, 0)
+                assert p + n <= self.src[l].shape[0], f"layer {l}: more rows than the recorded pass"
+                ridx = self.src[l][p:p + n].to(idx.device)
+                self.ptr[l] = p + n
+                diff = (torch.sort(idx, -1).values != torch.sort(ridx, -1).values).any(-1)
+                self.n_tok += n
+                self.n_flip += int(diff.sum())
+                if bool(diff.any()):
+                    rw = probs.gather(-1, ridx)
+                    rw = rw / rw.sum(-1, keepdim=True) * router.per_expert_scale[ridx]
+                    w = torch.where(diff[:, None], rw.to(w.dtype), w)
+                    idx = torch.where(diff[:, None], ridx, idx)
+            return probs, w, idx
+        return fwd
+
+
 # ----------------------------------------------------------------------------------------------- loading
 
 

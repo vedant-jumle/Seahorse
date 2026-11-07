@@ -59,7 +59,7 @@ DSR = M.DS()                 # dream_select's run.py (its dreamer prompt, select
 DB = M.DB()
 S = DSR.S                    # dream_select's selectors_ds (topk, content_positions, gold, ...)
 
-TF_TOL = 0.01
+TF_TOL = 0.01                # dense models; the asserts use models.tf_tol(C) (Gemma 4: PREREG "Stage 0 results")
 N_ITEMS = 133
 LOO_MAX_CONTENT = DSR.LOO_MAX_CONTENT          # 200
 LOO_BATCH = DSR.LOO_BATCH                      # 16
@@ -630,16 +630,16 @@ def tf_item(C, it, budgets, reuse):
         pf = store.P if c == "R-full" else (splice(store, content) if c == "R-content" else None)
         res[c] = measure(C, store, c, it["question"], ans, pf)
     d_id = DB.maxdiff(res["R-full"][1], res["T-full"][1])
-    assert d_id <= TF_TOL, f"{it['question_id']}: R-full TF != T-full ({d_id})"
+    assert d_id <= M.tf_tol(C), f"{it['question_id']}: R-full TF != T-full ({d_id})"
     m_all, lg_all = measure(C, store, "slice", it["question"], ans, store.P, HM.keep_all(C, store.n))
     d_keep = DB.maxdiff(lg_all, res["R-full"][1])
-    assert d_keep <= TF_TOL, f"{it['question_id']}: per-head keep-all != R-full ({d_keep})"
+    assert d_keep <= M.tf_tol(C), f"{it['question_id']}: per-head keep-all != R-full ({d_keep})"
     ref_sel = sels[("StreamingLLM", budgets[0])]
     same = {l: [list(ref_sel)] * C.layout[l].n_kv for l in range(len(C.blocks))}
     _, lg_m = measure(C, store, "slice", it["question"], ans, store.P, keep_of(C, store, same))
     _, lg_s = measure(C, store, "slice", it["question"], ans, splice(store, ref_sel))
     d_same = DB.maxdiff(lg_m, lg_s)
-    assert d_same <= TF_TOL, f"{it['question_id']}: the same picks in every head != the splice ({d_same})"
+    assert d_same <= M.tf_tol(C), f"{it['question_id']}: the same picks in every head != the splice ({d_same})"
     rows = [{"item": it["question_id"], "cond": c, "budget": None, "k": None, "entries": None, **res[c][0]}
             for c in ANCHORS_TF]
     nkv = n_kv_list(C)
@@ -779,11 +779,11 @@ def gen_item(C, it, rec, budgets):
     h, _ = M.forward(C, qt, store.P)
     h2, _ = M.forward(C, prompt_ids(C, store, "T-full", q))
     d_id = DB.maxdiff(M.logits(C, h[-1:]), M.logits(C, h2[-1:]))
-    assert d_id <= TF_TOL, f"{it['question_id']}: R-full != T-full at the last prompt row ({d_id})"
+    assert d_id <= M.tf_tol(C), f"{it['question_id']}: R-full != T-full at the last prompt row ({d_id})"
     with HM.HeadMask(C, HM.keep_all(C, store.n), store.n):
         h3, _ = M.forward(C, qt, store.P)
     d_keep = DB.maxdiff(M.logits(C, h3[-1:]), M.logits(C, h[-1:]))
-    assert d_keep <= TF_TOL, f"{it['question_id']}: keep-all != R-full ({d_keep})"
+    assert d_keep <= M.tf_tol(C), f"{it['question_id']}: keep-all != R-full ({d_keep})"
     conds = gen_conditions(it, sels, budgets)
     streams = {1: (DB.cv1.seed_of(GEN_TAG, q, 0), GEN_SAMPLES + 1)}
     lay = [(True, None)] + [(False, (1, j)) for j in range(1, GEN_SAMPLES + 1)]

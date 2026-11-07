@@ -55,7 +55,7 @@ def _load(name, path):
 J = _load("dream_compare_judges", HERE / "judges.py")
 PC = _load("dream_compare_prep_common", HERE / "benchmarks" / "prep_common.py")
 
-TF_TOL = 0.01
+TF_TOL = 0.01                # dense models; identity_checks uses models.tf_tol(C)
 BENCHES = {"longmemeval": ("oracle", "s120"), "locomo": ("locomo10",), "personamem": ("32k",), "beam": ("100K",)}
 SUBSET_SPLITS = {("longmemeval", "oracle"), ("locomo", "locomo10"), ("beam", "100K")}
 LAT_SPLITS = {("longmemeval", "oracle"), ("locomo", "locomo10"), ("beam", "100K"), ("personamem", "32k")}
@@ -162,7 +162,7 @@ def identity_checks(C, store, mem, Q):
         rg = Pm.ragged_gen(C, rows, 12)
         ref = [Pm.gen1(C, r["ids"], prefix=r["prefix"], max_new=12)["ids"] for r in rows]
         res["ragged_vs_gen_batch_equal"] = [x["ids"] == y for x, y in zip(rg, ref)]
-    res["ok"] = (res["p3_all_vs_text"] <= TF_TOL and res["p3_all_vs_text_tokens_equal"]
+    res["ok"] = (res["p3_all_vs_text"] <= M.tf_tol(C) and res["p3_all_vs_text_tokens_equal"]
                  and all(res["ragged_vs_gen_batch_equal"]))
     return res
 

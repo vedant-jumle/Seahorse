@@ -57,7 +57,7 @@ BENCH_SPLITS = {"longmemeval": "oracle", "locomo": "locomo10", "personamem": "32
 SMOKE_PICK = {"longmemeval": "single-session-user", "locomo": "single-hop", "personamem": "recall_user_shared_facts",
               "beam": "information_extraction"}
 MEM_MAX_TOKENS = 1200
-TF_TOL = 0.01                 # dream_select's identity tolerance (max |logit| difference, fp32)
+TF_TOL = 0.01                 # dream_select's identity tolerance (max |logit| difference, fp32); per model: models.tf_tol
 ROPE_RTOL = 1e-4              # rope_shift vs recompute: max |diff| / max |K|
 GEN_MAX_NEW = 48
 SANITY_N = 8
@@ -66,6 +66,24 @@ NEG = "I'm sorry, I don't remember that."
 
 def log(m):
     print(f"[{time.strftime('%H:%M:%S')}] {m}", flush=True)
+
+
+def replayed(C, M, ref_fn, alt_fn):
+    """MoE models (Gemma 4): (max |logit diff| of alt_fn's pass vs ref_fn's with ref_fn's expert routing replayed,
+    tokens whose routing was replayed). None on dense models. Both fns return logits; ref_fn runs first (recorded)."""
+    if not (getattr(C, "spec", {}).get("moe") and any(getattr(b, "router", None) is not None for b in C.blocks)):
+        return None
+    DB = M.DB()
+    rt = M.MoERouting(C)
+    try:
+        rt.reset("record")
+        a = ref_fn()
+        rec = rt.recorded()
+        rt.reset("replay", rec)
+        b = alt_fn()
+        return {"diff": DB.maxdiff(a, b), "replayed_tokens": rt.n_flip, "tokens": rt.n_tok}
+    finally:
+        rt.close()
 
 
 # ----------------------------------------------------------------------------------------------- identity (short turn)
@@ -87,6 +105,10 @@ def smoke_identity(C, M, HM):
         h, _ = M.forward(C, qt, store)
         ht, _ = M.forward(C, torch.tensor(tids))
         res["full_vs_text"] = DB.maxdiff(M.logits(C, h), M.logits(C, ht[-len(qt):]))
+        rp = replayed(C, M, lambda: M.logits(C, M.forward(C, torch.tensor(tids))[0][-len(qt):]),
+                      lambda: M.logits(C, M.forward(C, qt, M.harvest_kv(C, P.H + P.Seg)[0])[0]))
+        if rp is not None:
+            res["full_vs_text_routing_replayed"] = rp
         a = M.gen_batch(C, qt, [(True, None)], prefix=store, max_new=12)[0]["ids"]
         b = M.gen_batch(C, torch.tensor(tids), [(True, None)], max_new=12)[0]["ids"]
         res["full_vs_text_tokens_equal"] = a == b
@@ -111,10 +133,13 @@ def smoke_identity(C, M, HM):
             s = M.rope_shift(C, K0, d, l)
             per[C.layout[l].kind] = max(per[C.layout[l].kind], DB.maxdiff(s, K1) / max(float(K1.abs().max()), 1e-6))
         res["rope_shift_rel_by_type"] = dict(per)
-    res["ok"] = (res["full_vs_text"] <= TF_TOL and res["full_vs_text_tokens_equal"]
-                 and res["headmask_keep_all_vs_full"] <= TF_TOL and res["headmask_shared_vs_splice"] <= TF_TOL
+    tol = M.tf_tol(C)
+    res["tf_tol"] = tol
+    res["ok"] = (res["full_vs_text"] <= tol and res["full_vs_text_tokens_equal"]
+                 and res["headmask_keep_all_vs_full"] <= tol and res["headmask_shared_vs_splice"] <= tol
                  and res["headmask_shared_vs_splice_tokens_equal"]
-                 and all(v <= ROPE_RTOL for v in res["rope_shift_rel_by_type"].values()))
+                 and all(v <= ROPE_RTOL for v in res["rope_shift_rel_by_type"].values())
+                 and res.get("full_vs_text_routing_replayed", {}).get("diff", 0.0) <= TF_TOL)
     return res
 
 
@@ -135,6 +160,10 @@ def smoke_sliding(C, M):
         h, _ = M.forward(C, ids[n - 20:], st)
         own = C.body(input_ids=ids[None].to(M.input_device(C))).last_hidden_state[0, n - 20:]
         res["contiguous_vs_own"] = DB.maxdiff(M.logits(C, h), M.logits(C, own))
+        rp = replayed(C, M, lambda: M.logits(C, C.body(input_ids=ids[None].to(M.input_device(C))).last_hidden_state[0, n - 20:]),
+                      lambda: M.logits(C, M.forward(C, ids[n - 20:], M.harvest_kv(C, ids[:n - 20])[0])[0]))
+        if rp is not None:
+            res["contiguous_vs_own_routing_replayed"] = rp
         # sparse: keep the head (first 3) and the last 200 slots; the far ones are > W away from the question
         keep = list(range(3)) + list(range(n - 220, n - 20))
         sp = M.index_prefix(st, keep, start=n - 20)
@@ -148,11 +177,19 @@ def smoke_sliding(C, M):
             Rm[k][0, 0, n - 20:, drop.to(Rm[k].device)] = torch.finfo(torch.float32).min
         ref = C.body(input_ids=ids[None].to(M.input_device(C)), attention_mask=Rm).last_hidden_state[0, n - 20:]
         res["sparse_vs_masked_reference"] = DB.maxdiff(M.logits(C, hs), M.logits(C, ref))
+        rp = replayed(C, M, lambda: M.logits(C, C.body(input_ids=ids[None].to(M.input_device(C)), attention_mask=Rm).last_hidden_state[0, n - 20:]),
+                      lambda: M.logits(C, M.forward(C, ids[n - 20:], M.index_prefix(M.harvest_kv(C, ids[:n - 20])[0], keep, start=n - 20))[0]))
+        if rp is not None:
+            res["sparse_vs_masked_reference_routing_replayed"] = rp
         slot = C.body(input_ids=ids[None, n - 20:].to(M.input_device(C)), past_key_values=M.make_cache(sp.kv),
                       position_ids=torch.arange(n - 20, n)[None].to(M.input_device(C)), use_cache=True).last_hidden_state[0]
         res["sparse_slot_masks_vs_reference (expected large)"] = DB.maxdiff(M.logits(C, slot), M.logits(C, ref))
-    res["ok"] = (res["kept_entries_min"] == n - 20 and res["contiguous_vs_own"] <= TF_TOL
-                 and res["sparse_vs_masked_reference"] <= TF_TOL)
+    tol = M.tf_tol(C)
+    res["tf_tol"] = tol
+    res["ok"] = (res["kept_entries_min"] == n - 20 and res["contiguous_vs_own"] <= tol
+                 and res["sparse_vs_masked_reference"] <= tol
+                 and res.get("contiguous_vs_own_routing_replayed", {}).get("diff", 0.0) <= TF_TOL
+                 and res.get("sparse_vs_masked_reference_routing_replayed", {}).get("diff", 0.0) <= TF_TOL)
     return res
 
 
@@ -218,6 +255,10 @@ def smoke_bench(C, M, name):
         hR, _ = M.forward(C, torch.cat([Qt, a_ids]), store)
         hT, _ = M.forward(C, torch.cat([text_ids, a_ids]))
         out["rfull_vs_text"] = DB.maxdiff(M.logits(C, hR), M.logits(C, hT[len(mem):]))
+        rp = replayed(C, M, lambda: M.logits(C, M.forward(C, torch.cat([text_ids, a_ids]))[0][len(mem):]),
+                      lambda: M.logits(C, M.forward(C, torch.cat([Qt, a_ids]), M.harvest_kv(C, mem)[0])[0]))
+        if rp is not None:
+            out["rfull_vs_text_routing_replayed"] = rp
         # slices: head + the evidence turn's slots; the evidence turn harvested alone, shifted into place
         off = len(H) + sum(len(x) for x in T[:ev_i])
         ev_slots = list(range(len(H))) + list(range(off, off + len(T[ev_i])))
@@ -249,7 +290,9 @@ def smoke_bench(C, M, name):
         gt = M.gen_batch(C, text_ids, [(True, None)], max_new=GEN_MAX_NEW)[0]
         out["answer_text_tokens_equal"] = g["ids"] == gt["ids"]
     out["recall"] = {m: R.item_recall(b, it, R.retrieve(b, it, m)) for m in (3, 10)}
-    out["ok"] = out["rfull_vs_text"] <= TF_TOL and out["answer_text_tokens_equal"]
+    out["tf_tol"] = M.tf_tol(C)
+    out["ok"] = (out["rfull_vs_text"] <= out["tf_tol"] and out["answer_text_tokens_equal"]
+                 and out.get("rfull_vs_text_routing_replayed", {}).get("diff", 0.0) <= TF_TOL)
     tasks = judge_tasks_for(b, it, out["answer_R_full"], source=f"{C.key}|{name}")
     return out, tasks
 
