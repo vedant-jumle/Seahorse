@@ -527,3 +527,27 @@ oracle and s120 as two jobs. Stage B uses 48 queue slots (9 per model, 10 for th
   LongMemEval, LoCoMo and PersonaMem's answers, then ran out of memory in PersonaMem's latency pass (P1's own prefill
   while the shared history was still on the GPU); fixed (34cfa50) and its chain resubmitted. Gens order per model: LongMemEval (one job; Gemma / Granite: oracle, s120),
   LoCoMo, PersonaMem, BEAM.
+- **Repair, 2026-11-07 (infrastructure only; no rule, condition or measure changed).** Three gen jobs ran out of GPU
+  memory after writing part of their output:
+  - Llama 1219646 (PersonaMem, V100; 22 of 37 contexts, 341 items written) in a P5 batch's block scoring, with the
+    shared P1 history (up to `--p1-kv-gb` 8) still on the GPU;
+  - Llama 1219647 (BEAM, V100; 4 of 20 contexts, 64 items) and Granite 1217774 (BEAM, A100; nothing written) in the
+    P4 selection's dream batch: 16 long BEAM dream prompts at once, unbudgeted, next to a chunk of 24 turn stores.
+
+  Fixes: the P1 history is prefilled just before the first P1 batch and freed after the last (same computation);
+  the dream / own-answer batches are length-sorted and cut under the answer batches' KV / mask / attention budgets
+  (`budget_batches`), and the turn stores held together are capped at `--batch-kv-gb`; a prefill chunk's MLP
+  activations are capped at `--mlp-gb` (4 GB; narrows the chunk only for Granite's 32,768-wide MLP); MemArt's
+  [query rows x memory tokens] score matrix is built in query-token chunks above 0.5 GB (identical below). These
+  change batch composition / chunking only (float-rounding level; tested: same picks and tokens with tiny budgets).
+  A b-run whose splits are all written now exits before loading the model (continuation jobs).
+  `analyze_b.read_votes` takes each prompt's keys from the current `tasks.jsonl`: a resumed judge run reuses a
+  judgement for an identical prompt of a new item instead of losing that key.
+
+  Resubmitted (`resubmit_b_20261107.sh`, ids in `jobs.txt`): Llama PersonaMem and BEAM on the V100 again (same flags;
+  written contexts are skipped, as b-run resumes per context), then its judge chain (the original judge resumes by
+  prompt hash; its pending gpt-oss / Gemma-4 / analyze 1219649-51 cancelled and resubmitted after the new gens).
+  Granite BEAM with smaller batch budgets (`--batch-kv-gb 6 --mask-gb 2 --attn-gb 3 --mlp-gb 3`; nothing of the split
+  existed), and afterany continuation jobs for every Granite split (LongMemEval oracle, PersonaMem and BEAM need
+  2-3 more 22.5 h jobs at the measured 342 s per oracle item and 1.8 h per PersonaMem context); the Granite judge
+  1217775 waits for all of them.

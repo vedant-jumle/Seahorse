@@ -105,6 +105,23 @@ MAXH=22.5
     g3=$(sub $GPU b_${M}_pm $R --time=$GEN_T --dependency=afterok:$sm "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench personamem:32k --max-hours $MAXH $F")
     g4=$(sub $GPU b_${M}_beam $R --time=$GEN_T --dependency=afterok:$sm "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench beam:100K --max-hours $MAXH $F")
     gens="$g1:$g2:$g3:$g4"
+    # NCONT continuation jobs per gen job (afterany on the previous link; b-run resumes per context and exits before
+    # loading the model when the split is complete), for the 2-GPU models whose splits exceed one 22.5 h job
+    if [ "${NCONT:-0}" -gt 0 ]; then
+      conts=""
+      for pair in "lmeo:longmemeval:oracle" "lmes:longmemeval:s120" "lme:longmemeval:oracle+longmemeval:s120" \
+                  "loc:locomo:locomo10" "pm:personamem:32k" "beam:beam:100K"; do
+        tag=${pair%%:*}; bench=${pair#*:}
+        case $M in gemma4_26b_a4b|granite42_30b) [ "$tag" = lme ] && continue;; *) [[ "$tag" == lme? ]] && continue;; esac
+        case $tag in lmeo) prev=$g1a;; lmes) prev=$g1b;; lme) prev=$g1;; loc) prev=$g2;; pm) prev=$g3;; beam) prev=$g4;; esac
+        for c in $(seq 1 "$NCONT"); do
+          prev=$(sub $GPU b_${M}_${tag}_c$c $R --time=$GEN_T --dependency=afterany:$prev "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-run|$G|--bench $bench --max-hours $MAXH $F")
+          conts="$conts:$prev"
+        done
+      done
+      echo "$M: continuations ($NCONT per gen job, afterany chains) ${conts#:}"
+      gens="$gens$conts"
+    fi
     jo=$(sub $GPU b_${M}_judge $A100J --time=12:00:00 --dependency=afterany:$gens$JS "MODEL=$M,TESTS=experiments/dream_compare/test_stage_b.py,SPECS=b-tasks|$JD|--from $G;b-judge-local|$JD|")
     pa=$(sub $PANEL b_${M}_gptoss $A100J --time=23:00:00 --dependency=afterany:$jo$JS "JDIR=$JD,JUDGES=gptoss")
     pb=$(sub $PANEL b_${M}_gemma4 $A100J --time=16:00:00 --dependency=afterany:$pa "JDIR=$JD,JUDGES=gemma4")

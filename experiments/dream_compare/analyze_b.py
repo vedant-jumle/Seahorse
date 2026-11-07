@@ -94,6 +94,18 @@ def read_votes(judge_dir):
     votes = defaultdict(dict)
     if not judge_dir:
         return votes
+    # the keys of each prompt come from the current tasks.jsonl when it exists: a judge record keeps the keys its
+    # prompt had when it was judged, and a resumed judge run (new items after a resubmitted gen job) can add keys to
+    # a prompt already judged (an identical prompt from another item); its judgement is reused, not repeated
+    tkeys = {}
+    tp = Path(judge_dir) / "tasks.jsonl"
+    if tp.exists():
+        for l in open(tp, encoding="utf-8"):
+            try:
+                t = json.loads(l)
+            except ValueError:
+                continue
+            tkeys[t["h"]] = t["keys"]
     for j in JUDGES:
         p = Path(judge_dir) / f"{j}.jsonl"
         if not p.exists():
@@ -104,7 +116,7 @@ def read_votes(judge_dir):
             except ValueError:
                 continue
             v = (r.get("score") if r.get("kind") == "beam" else r.get("label")) if r.get("ok") else None
-            for k in r.get("keys", []):
+            for k in tkeys.get(r.get("h"), r.get("keys", [])):
                 votes[k][j] = v
     return votes
 

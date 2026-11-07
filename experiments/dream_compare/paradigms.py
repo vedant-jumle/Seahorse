@@ -78,6 +78,12 @@ LAT_N, LAT_DECODE = 20, 16
 P1_CHUNK = 4096
 PREFILL_CHUNK = 2048            # every long pass (session encoding, ragged prompts) runs in chunks of this many tokens
 ATTN_GB = 3.0                   # text prefills shrink their chunk so that one layer's attention scores stay below this
+# Memory budgets of the P4 selection batches (dreams, own answers; stage_b sets them from --batch-kv-gb / --mask-gb,
+# as its answer batches) and of one prefill chunk's MLP activations (added 2026-11-07 after the out-of-memory failures
+# of Llama 1219647 and Granite 1217774 in a dream batch: 16 long BEAM prompts at once; infrastructure only).
+BATCH_KV_GB = 6.0
+MASK_GB = 2.0
+MLP_GB = 4.0
 NOT_MENTIONED = "Not mentioned in the conversation"
 REFUSAL_EXTRA = re.compile(r"\bnot mentioned\b|\bno information\b|\bnot (?:specified|stated|provided)\b", re.I)
 
@@ -428,6 +434,42 @@ def bytes_per_position(C):
     return M.kv_numbers_per_position(C.layout) * 4
 
 
+def mlp_width(C):
+    """The widest per-token MLP activation of a layer (intermediate size; MoE: the dense MLP's or the experts'), for
+    the prefill chunk's activation budget; 0 if unknown."""
+    cfg = getattr(C.model, "config", None)
+    w = [getattr(cfg, k, None) for k in ("intermediate_size", "moe_intermediate_size")] if cfg is not None else []
+    w = [int(x) for x in w if isinstance(x, int)]
+    return max(w) if w else 0
+
+
+def budget_batches(C, lens, max_new, cap):
+    """Index batches (<= cap rows) of rows with lengths lens = [(S prefix entries, T prompt tokens)], sorted by length,
+    each under the KV, mask and attention budgets of stage_b's answer batches (BATCH_KV_GB, MASK_GB, ATTN_GB); a row
+    alone always forms a batch. Used for the P4 selection rows (dreams, own answers)."""
+    bpp = bytes_per_position(C)
+    hq = int(getattr(C, "spec", {}).get("n_q_heads", 32))
+    order = sorted(range(len(lens)), key=lambda i: (lens[i][0] + lens[i][1], lens[i][1], i))
+
+    def fits(cur):
+        S = max(lens[i][0] for i in cur)
+        T = max(lens[i][1] for i in cur)
+        ch = min(T, PREFILL_CHUNK)
+        kv = len(cur) * (S + T + max_new) * bpp
+        mask = len(cur) * ch * (S + T) * 4 * (3 if C.sliding else 2)
+        attn = len(cur) * hq * ch * (S + T) * 4
+        return kv <= BATCH_KV_GB * 2 ** 30 and mask <= MASK_GB * 2 ** 30 and attn <= ATTN_GB * 2 ** 30
+    out, cur = [], []
+    for i in order:
+        if cur and (len(cur) >= cap or not fits(cur + [i])):
+            out.append(cur)
+            cur = []
+        cur.append(i)
+    if cur:
+        out.append(cur)
+    return out
+
+
 # ----------------------------------------------------------------------------------------------- ragged batches
 
 
@@ -515,8 +557,12 @@ class Ragged:
                 p5rows[b] = dict(r["p5"], slot0=S - n + r["p5"]["nh"], q_cols=(T - Tb, T - Tb + ql))
         kp_all, kv_all = torch.cat([kpos, qpos], 1), torch.cat([kvalid, qvalid], 1)
         ch = PREFILL_CHUNK
+        mw = mlp_width(C)
+        if mw:          # one chunk's MLP activations (gate, up, their product: ~3 x B x chunk x width fp32) <= MLP_GB
+            ch = max(64, min(ch, int(MLP_GB * 2 ** 30 // (3 * B * mw * 4))))
         if p5rows:
-            assert T <= ch, f"a P5 batch with a {T}-token prompt (> {ch}): MemArt selects in one prefill pass"
+            assert T <= PREFILL_CHUNK, f"a P5 batch with a {T}-token prompt (> {PREFILL_CHUNK}): MemArt selects in one prefill pass"
+            ch = max(ch, T)
             self.hook = MA.MemArtHook(C, p5rows, M.kv_list, rope_rotate, S)
             self.hook.__enter__()
         dev = M.input_device(C)
@@ -859,8 +905,19 @@ def select_turns(C, H, turns, loo=(), k=K_SLICE, chunk=24, loo_rows=48, log=None
     D, S = DSR(), SEL()
     out = {}
     idx = list(range(len(turns)))
-    for c0 in range(0, len(idx), chunk):
-        part = idx[c0:c0 + chunk]
+    bpp = bytes_per_position(C)
+    parts, cur, used = [], [], 0        # <= chunk turns whose stores (on the GPU together) fit BATCH_KV_GB
+    for i in idx:
+        nb = (len(H) + len(turns[i].piece)) * bpp
+        if cur and (len(cur) >= chunk or used + nb > BATCH_KV_GB * 2 ** 30):
+            parts.append(cur)
+            cur, used = [], 0
+        cur.append(i)
+        used += nb
+    if cur:
+        parts.append(cur)
+    n_done = 0
+    for part in parts:
         t0 = time.time()
         st = {i: turn_store(C, H, turns[i].piece, turns[i].content) for i in part}
         todo = [i for i in part if len(st[i].content) > k]
@@ -876,10 +933,10 @@ def select_turns(C, H, turns, loo=(), k=K_SLICE, chunk=24, loo_rows=48, log=None
             if prompt is D.DREAM_PROMPT_STRICT:
                 need = [i for i in need if att[i]]
             rows = [dict(prefix=None, ids=D.DB.render_ids(C.tok, D.dream_messages(prompt, st[i].turn))[1]) for i in need]
-            for b in range(0, len(rows), B_DREAM):
-                gg = ragged_gen(C, rows[b:b + B_DREAM], D.DREAM_MAX_NEW)
-                for i, g in zip(need[b:b + B_DREAM], gg):
-                    att[i].append(_parse_dream(D, S, C.tok.decode(g["ids"], skip_special_tokens=True)))
+            for bi in budget_batches(C, [(0, len(r["ids"])) for r in rows], D.DREAM_MAX_NEW, B_DREAM):
+                gg = ragged_gen(C, [rows[j] for j in bi], D.DREAM_MAX_NEW)
+                for j, g in zip(bi, gg):
+                    att[need[j]].append(_parse_dream(D, S, C.tok.decode(g["ids"], skip_special_tokens=True)))
         dreams = {i: _finish_dream(D, att[i]) for i in todo}
         for i in todo:
             sd = sel_dream_b(C, st[i], dreams[i])
@@ -895,8 +952,8 @@ def select_turns(C, H, turns, loo=(), k=K_SLICE, chunk=24, loo_rows=48, log=None
         pairs = [(i, q) for i in lo for q in dreams[i]["questions"]]
         qids = {(i, q): D.DB.qt_ids(C, q).tolist() for i, q in pairs}
         owns = {}
-        for b in range(0, len(pairs), B_DREAM):
-            pp = pairs[b:b + B_DREAM]
+        for bi in budget_batches(C, [(st[i].prefix.n, len(qids[(i, q)])) for i, q in pairs], D.OWN_MAX_NEW, B_DREAM):
+            pp = [pairs[j] for j in bi]
             gg = ragged_gen(C, [dict(prefix=st[i].prefix, ids=qids[(i, q)]) for i, q in pp], D.OWN_MAX_NEW)
             for p, g in zip(pp, gg):
                 owns[p] = g["ids"]
@@ -933,8 +990,9 @@ def select_turns(C, H, turns, loo=(), k=K_SLICE, chunk=24, loo_rows=48, log=None
             out[i]["seconds_chunk"] = dt
             out[i]["chunk_size"] = len(part)
         del st
+        n_done += len(part)
         if log:
-            log(f"  picks: {c0 + len(part)}/{len(idx)} turns ({len(lo)} with S-loo) in {dt:.0f}s")
+            log(f"  picks: {n_done}/{len(idx)} turns ({len(lo)} with S-loo) in {dt:.0f}s")
     return out
 
 

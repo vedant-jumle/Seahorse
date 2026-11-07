@@ -38,6 +38,7 @@ import torch
 
 BLOCK = 16
 RR_C = 60.0
+SCORE_GB = 0.5          # block_scores' [query rows, memory tokens] matrix is built in chunks above this (memory only)
 
 
 # ----------------------------------------------------------------------------------------------- blocks
@@ -71,13 +72,24 @@ def block_scores(q, k_raw, t2b, n_blocks, n_kv):
     -inf where a block has no token)."""
     Hq, Tq, d = q.shape
     g = Hq // n_kv
-    qg = q.reshape(n_kv, g, Tq, d)
-    s = torch.einsum("hgtd,hnd->hgtn", qg.float(), k_raw.float()).reshape(Hq * Tq, -1)   # [R, N]
+    qg = q.reshape(n_kv, g, Tq, d).float()
+    kf = k_raw.float()
     keep = t2b >= 0
-    s = s[:, keep.to(s.device)]
-    idx = t2b[keep].to(s.device)[None].expand(s.shape[0], -1)
-    out = torch.full((s.shape[0], n_blocks), -math.inf, device=s.device, dtype=s.dtype)
-    return out.scatter_reduce(1, idx, s, reduce="amax", include_self=True)
+    N = kf.shape[1]
+    # the [rows, N] score matrix in query-token chunks when it would exceed SCORE_GB (the same numbers below it)
+    tc = Tq if Hq * Tq * N * 4 <= SCORE_GB * 2 ** 30 else max(1, int(SCORE_GB * 2 ** 30 // (Hq * N * 4)))
+    out = torch.full((n_kv, g, Tq, n_blocks), -math.inf, device=q.device, dtype=torch.float32)
+    kd = keep.to(q.device)
+    bidx = t2b[keep].to(q.device)
+    for a in range(0, Tq, tc):
+        b = min(Tq, a + tc)
+        s = torch.einsum("hgtd,hnd->hgtn", qg[:, :, a:b], kf).reshape(Hq * (b - a), -1)   # [R, N]
+        s = s[:, kd]
+        o = torch.full((s.shape[0], n_blocks), -math.inf, device=s.device, dtype=s.dtype)
+        o = o.scatter_reduce(1, bidx[None].expand(s.shape[0], -1), s, reduce="amax", include_self=True)
+        out[:, :, a:b] = o.reshape(n_kv, g, b - a, n_blocks)
+        del s, o
+    return out.reshape(Hq * Tq, n_blocks)
 
 
 def rr_max(scores, cand=None, c=RR_C):

@@ -491,3 +491,48 @@ def test_chunked_prefill_equals_one_pass(key, monkeypatch):
     assert [a["ids"] for a in g1] == [b["ids"] for b in g2]
     assert all(abs(a[0] - b[0]) <= 1e-3 for a, b in zip(s1, s2))
     assert all(md(a, b) <= TOL for a, b in zip(st1.K, st2.K))
+
+
+def test_memory_budgets_2026_11_07(monkeypatch):
+    """The 2026-11-07 memory fixes change memory only: chunked MemArt scores == one matrix (to float rounding); budgeted selection batches
+    respect the KV budget (a row alone always fits) and keep every row once; tiny selection budgets (one turn store
+    per chunk, one row per batch) and a narrow MLP chunk give the same picks / tokens."""
+    torch.manual_seed(0)
+    Hq, Hkv, Tq, N, d = 4, 2, 7, 50, 8
+    q, k = torch.randn(Hq, Tq, d), torch.randn(Hkv, N, d)
+    t2b = torch.tensor([-1] * 3 + [i // 16 for i in range(N - 3)])
+    nb = int(t2b.max()) + 1
+    full = MA.block_scores(q, k, t2b, nb, Hkv)
+    monkeypatch.setattr(MA, "SCORE_GB", 3 * Hq * N * 4 / 2 ** 30)          # 3 query tokens per chunk
+    assert md(MA.block_scores(q, k, t2b, nb, Hkv), full) <= 1e-5
+    C = ctx("qwen25_15b")
+    bpp = P.bytes_per_position(C)
+    lens = [(0, 30), (5, 10), (0, 200), (40, 3), (0, 1)]
+    monkeypatch.setattr(P, "BATCH_KV_GB", 60 * bpp / 2 ** 30)
+    bb = P.budget_batches(C, lens, 4, 16)
+    assert sorted(i for b in bb for i in b) == list(range(len(lens)))
+    assert all(len(b) == 1 or len(b) * max(sum(lens[i]) for i in b) <= 60 for b in bb)
+    _, mem = toy_memory(C)
+    idx = [0, 1, 4]
+    Q = P.question_ids(C, "What is my dog's name?")
+    with torch.no_grad():
+        monkeypatch.setattr(P, "BATCH_KV_GB", 6.0)
+        ref = P.select_turns(C, mem.H, [mem.turns[i] for i in idx], loo={0, 2})
+        g1 = P.ragged_gen(C, [dict(prefix=None, ids=P.layout_text(mem, [1, 2])[0] + Q), dict(prefix=None, ids=Q)], 6)
+        monkeypatch.setattr(P, "BATCH_KV_GB", 1e-9)
+        monkeypatch.setattr(P, "MLP_GB", 1e-9)                                 # 64-column chunks
+        got = P.select_turns(C, mem.H, [mem.turns[i] for i in idx], loo={0, 2})
+        g2 = P.ragged_gen(C, [dict(prefix=None, ids=P.layout_text(mem, [1, 2])[0] + Q), dict(prefix=None, ids=Q)], 6)
+    for j in range(len(idx)):
+        assert got[j]["dream"] == ref[j]["dream"] and got[j]["dreams"] == ref[j]["dreams"]
+        assert got[j]["loo"] == ref[j]["loo"]
+    assert [a["ids"] for a in g1] == [b["ids"] for b in g2]
+
+
+def test_read_votes_keys_from_tasks(tmp_path):
+    """A judge record's prompt that later gained keys (a resumed run) gives its vote to every key in tasks.jsonl."""
+    (tmp_path / "tasks.jsonl").write_text(json.dumps({"h": "a", "kind": "lme", "keys": ["m|b|i1|P0|0", "m|b|i2|P0|0"]}) + "\n")
+    (tmp_path / "orig.jsonl").write_text(json.dumps({"h": "a", "kind": "lme", "keys": ["m|b|i1|P0|0"], "ok": True,
+                                                     "label": True}) + "\n")
+    v = AB.read_votes(tmp_path)
+    assert v["m|b|i1|P0|0"]["orig"] is True and v["m|b|i2|P0|0"]["orig"] is True

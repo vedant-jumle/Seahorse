@@ -22,7 +22,13 @@ set -euo pipefail
 RUN=${1:-/scratch/$USER/seahorse_runs/dream_compare_a_$(date +%Y%m%d_%H%M)}
 REUSE=${REUSE:-/scratch/$USER/seahorse_runs/dream_select_cluster_20261104_0129}
 SKIP=${SKIP:-}
-GATE_Q7=1214590; GATE_G4=1214592; GATE_GR=1214593; GATE_JUDGE=1214594
+GATE_Q7=${GATE_Q7:-1214590}; GATE_G4=${GATE_G4:-1214592}; GATE_GR=${GATE_GR:-1214593}; GATE_JUDGE=${GATE_JUDGE:-1214594}
+# 2026-11-07 (resubmission of a model): NCONT = afterany continuation jobs per tf / gen part (each part resumes per
+# item; downstream jobs wait afterok for the last link of every chain); EXTRA_ANS = ":id:id" more analyze jobs the
+# summary waits for. A gate that already COMPLETED is dropped (Slurm rejects afterok on a finished job).
+NCONT=${NCONT:-0}
+done_ok() { [ "$(sacct -j "$1" -X -n -o State | head -1 | tr -d ' ')" = COMPLETED ]; }
+JG=":$GATE_JUDGE"; done_ok "$GATE_JUDGE" && JG=""
 S=$RUN/smoke
 [ -f data/external/longmemeval/processed/oracle.json ] || { echo "LongMemEval oracle not prepared"; exit 1; }
 for m in qwen25_15b qwen25_7b llama32_3b; do
@@ -57,7 +63,7 @@ skip() { [[ " $SKIP " == *" $1 "* ]]; }
 
 {
   echo "dream_compare Stage A run $RUN, submitted $(date -Is) at commit $(git rev-parse HEAD); reuse $REUSE; skip '$SKIP'"
-  ans=""
+  ans="${EXTRA_ANS:-}"
   for M in qwen25_15b llama32_3b qwen25_7b gemma4_26b_a4b granite42_30b; do
     if skip $M; then echo "$M: skipped (SKIP)"; continue; fi
     D=$RUN/$M
@@ -73,20 +79,27 @@ skip() { [[ " $SKIP " == *" $1 "* ]]; }
       granite42_30b)  tag=gr;  R=$A100x2; gate="--dependency=afterok:$GATE_GR"; fit=""; ex="--gb-per-gpu 70"; ru=""
                       t_sm=04:00:00; t_tf=20:00:00; t_gen=22:00:00; ntf=2; ngen=3 ;;
     esac
+    case $gate in --dependency=afterok:*) done_ok "${gate#--dependency=afterok:}" && gate="";; esac
     sm=$(sub $GPU dca_${tag}_smoke $R --time=$t_sm $gate "MODEL=$M,TESTS=$T_SMOKE,SPECS=a-tf|$S/$M|--tiny $ru $fit $ex;a-gen|$S/$M|--tiny $fit $ex;a-judge-tasks|$S/$M|;a-analyze|$S/$M|")
     tfs=""
     for p in $(seq 0 $((ntf - 1))); do
       j=$(sub $GPU dca_${tag}_tf$p $R --time=$t_tf --dependency=afterok:$sm "MODEL=$M,TESTS=$T_A,SPECS=a-tf|$D|--part $p --nparts $ntf $ru $fit $ex")
+      for c in $(seq 1 "$NCONT"); do
+        j=$(sub $GPU dca_${tag}_tf${p}_c$c $R --time=$t_tf --dependency=afterany:$j "MODEL=$M,TESTS=$T_A,SPECS=a-tf|$D|--part $p --nparts $ntf $ru $fit $ex")
+      done
       tfs="$tfs:$j"
     done
     gens=""
     for p in $(seq 0 $((ngen - 1))); do
       j=$(sub $GPU dca_${tag}_gen$p $R --time=$t_gen --dependency=afterok$tfs "MODEL=$M,TESTS=$T_A,SPECS=a-gen|$D|--part $p --nparts $ngen $fit $ex")
+      for c in $(seq 1 "$NCONT"); do
+        j=$(sub $GPU dca_${tag}_gen${p}_c$c $R --time=$t_gen --dependency=afterany:$j "MODEL=$M,TESTS=$T_A,SPECS=a-gen|$D|--part $p --nparts $ngen $fit $ex")
+      done
       gens="$gens:$j"
     done
-    jo=$(sub $GPU dca_${tag}_judge $A100J --time=08:00:00 --dependency=afterok$gens:$GATE_JUDGE "MODEL=$M,TESTS=$T_A,SPECS=a-judge-tasks|$D|;judge-local|$D/judge|")
-    pa=$(sub $PANEL dca_${tag}_gptoss $A100J --time=16:00:00 --dependency=afterok$gens:$GATE_JUDGE "MODEL=$M,TESTS=$T_A,JDIR=$D/judge,JUDGES=gptoss,PRE_SPECS=a-judge-tasks|$D|")
-    pb=$(sub $PANEL dca_${tag}_gemma4 $A100J --time=16:00:00 --dependency=afterok$gens:$GATE_JUDGE,afterany:$pa "MODEL=$M,TESTS=$T_A,JDIR=$D/judge,JUDGES=gemma4,PRE_SPECS=a-judge-tasks|$D|")
+    jo=$(sub $GPU dca_${tag}_judge $A100J --time=08:00:00 --dependency=afterok$gens$JG "MODEL=$M,TESTS=$T_A,SPECS=a-judge-tasks|$D|;judge-local|$D/judge|")
+    pa=$(sub $PANEL dca_${tag}_gptoss $A100J --time=16:00:00 --dependency=afterok$gens$JG "MODEL=$M,TESTS=$T_A,JDIR=$D/judge,JUDGES=gptoss,PRE_SPECS=a-judge-tasks|$D|")
+    pb=$(sub $PANEL dca_${tag}_gemma4 $A100J --time=16:00:00 --dependency=afterok$gens$JG,afterany:$pa "MODEL=$M,TESTS=$T_A,JDIR=$D/judge,JUDGES=gemma4,PRE_SPECS=a-judge-tasks|$D|")
     an=$(sub $ANA dca_${tag}_analyze $CPU --time=01:00:00 --dependency=afterok:$jo:$pa:$pb "MODEL=$M,TESTS=$T_A,SPECS=a-analyze|$D|")
     ans="$ans:$an"
     echo "$M: smoke $sm ($t_sm${gate:+, $gate}) -> tf${tfs//:/ } ($ntf x $t_tf) -> gen${gens//:/ } ($ngen x $t_gen) -> judge $jo (8:00) + gptoss $pa (16:00) -> gemma4 $pb (16:00, after gptoss); judges also wait for $GATE_JUDGE -> analyze $an"

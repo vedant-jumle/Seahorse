@@ -263,15 +263,14 @@ def run_context(C, A, b, ctx_id, items, outdir, selc, subset, lat, p1cap, first_
     sel_s = time.time() - ts
     if need:
         log(f"{ctx_id}: P4 picks for {len(need)} turns ({n_new} new) in {sel_s:.0f}s")
-    # P1: the longest visible history that fits, prefilled once
+    # P1: the longest visible history that fits, prefilled once, just before the first P1 batch, and freed after the
+    # last one (P1 rows form their own group of batches; 2026-11-07: Llama 1219646 ran out of memory in a P5 batch
+    # while the shared history was still on the GPU)
     p1_need = [x for x in info.values() if mem.nh + sum(mem.turns[i].n for i in x.vis) + len(x.Q) <= p1cap]
-    P1full, p1_s = None, 0.0
+    P1full, p1_s, ids_full = None, 0.0, None
     if p1_need:
         nvis = max(len(x.vis) for x in p1_need)
         ids_full = list(mem.H) + [y for i in range(nvis) for y in mem.turns[i].piece]
-        tp = time.time()
-        P1full = Pm.prefill_text(C, ids_full)
-        p1_s = time.time() - tp
     # rows
     rows = []
     for x in info.values():
@@ -315,8 +314,13 @@ def run_context(C, A, b, ctx_id, items, outdir, selc, subset, lat, p1cap, first_
     outs = {}
     tb = time.time()
     bl = batches(rows, C, A, 0 if mc else max_new)
+    last_p1 = max((bk for bk, bt in enumerate(bl) if bt[0]["fam"] == "P1"), default=None)
     for bk, bt in enumerate(bl):
         tbk = time.time()
+        if bt[0]["fam"] == "P1" and P1full is None:
+            tp = time.time()
+            P1full = Pm.prefill_text(C, ids_full)
+            p1_s = time.time() - tp
         mat = [materialize(C, r, info[r["item"]], mem, store, picks, P1full, opts_of(C, info[r["item"]].it) if mc else None,
                            seed_of(r["item"], r["cond"], r["sample"])) for r in bt]
         if mc:
@@ -328,6 +332,10 @@ def run_context(C, A, b, ctx_id, items, outdir, selc, subset, lat, p1cap, first_
             for r, g in zip(bt, gg):
                 outs[(r["item"], r["cond"], None, r["sample"])] = dict(g, text=C.tok.decode(g["ids"], skip_special_tokens=True).strip())
         del mat
+        if bk == last_p1:
+            P1full = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         if first_context or bk % 50 == 0:
             log(f"  batch {bk + 1}/{len(bl)}: {len(bt)} rows ({bt[0]['cond']}...), S {max(r['S'] for r in bt)}, "
                 f"T {max(r['T'] for r in bt)}: {time.time() - tbk:.1f}s; peak {M.peak_gb()}")
@@ -576,15 +584,39 @@ def run_bench(C, A, name, split, root, t_start):
     return True
 
 
-def stage_run(A):
-    t0 = time.time()
-    P().ATTN_GB = A.attn_gb
-    C = model_setup(A)
-    Pm = P()
-    complete = True
+def bench_list(A):
+    out = []
     for bs in [x for x in A.bench.replace("+", ",").split(",") if x]:
         name, split = (bs.split(":") + [None])[:2]
-        split = split or BENCHES[name][0]
+        out.append((name, split or BENCHES[name][0]))
+    return out
+
+
+def all_done(A):
+    """True when every item of every requested split already has its record (a continuation job then exits before
+    loading the model). Without --limit / --contexts only."""
+    if A.limit or A.contexts:
+        return False
+    for name, split in bench_list(A):
+        b = PC.load_split(name, split)
+        d = Path(A.out) / f"{name}_{split}" / "items"
+        done = {p.name[:-len(".json.gz")] for p in d.glob("*.json.gz")} if d.is_dir() else set()
+        if any(safe(it.item_id) not in done for it in b.items):
+            return False
+    return True
+
+
+def stage_run(A):
+    t0 = time.time()
+    Pm = P()
+    Pm.ATTN_GB = A.attn_gb
+    Pm.BATCH_KV_GB, Pm.MASK_GB, Pm.MLP_GB = A.batch_kv_gb, A.mask_gb, A.mlp_gb
+    if all_done(A):
+        log(f"b-run: every item of {A.bench} is already written in {A.out}: nothing to do")
+        return
+    C = model_setup(A)
+    complete = True
+    for name, split in bench_list(A):
         complete &= run_bench(C, A, name, split, A.out, t0)
     log(f"b-run {'complete' if complete else 'STOPPED (time)'}: peak {Pm.M.peak_gb()}, {(time.time() - t0) / 60:.1f} min")
 
@@ -805,6 +837,7 @@ def main(argv=None):
     ap.add_argument("--mask-gb", type=float, default=2.0)
     ap.add_argument("--raw-gpu-gb", type=float, default=4.0)
     ap.add_argument("--attn-gb", type=float, default=4.0, help="batch budget for one layer's attention matrix")
+    ap.add_argument("--mlp-gb", type=float, default=4.0, help="one prefill chunk's MLP activations (sets its width)")
     ap.add_argument("--max-hours", type=float, default=None)
     ap.add_argument("--from", dest="from_dir", default=None)
     ap.add_argument("--judge-dir", default=None)
