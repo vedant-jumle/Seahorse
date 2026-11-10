@@ -1,0 +1,12 @@
+{
+ "turns": 5,
+ "p3_all_vs_text": 0.00021004676818847656,
+ "p3_all_vs_text_tokens_equal": true,
+ "ragged_vs_gen_batch_equal": [
+  true,
+  true,
+  true,
+  true
+ ],
+ "ok": true
+}

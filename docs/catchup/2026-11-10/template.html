@@ -1,0 +1,1073 @@
+<title>Seahorse Catch-up</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,500;7..72,650&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a lab notebook. One reading column (~68ch); figures may run wider; each run is a dated entry with a plain
+   account first and a folded technical block beside it. Colour: sea-tinted neutrals, one teal accent for structure,
+   chart hues only for data. */
+:root {
+  --bg: #f5f8f8; --surface: #fdfefe; --fg: #10191b; --fg2: #43535a; --muted: #6f7f84;
+  --rule: #d6e0e1; --accent: #0c6a74; --accent-soft: #e0eeef;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --grey: #98a4a7; --grid: #e2e9ea; --axis: #b3bfc1;
+  --good: #0f7a36; --warn: #a65a00; --bad: #b8322f; --band: rgba(12,106,116,0.08);
+  --f-display: "Literata", Georgia, "Times New Roman", serif;
+  --f-body: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0d1415; --surface: #141d1f; --fg: #e7eeee; --fg2: #b3c2c4; --muted: #84948f;
+  --rule: #26343a; --accent: #5dbec8; --accent-soft: #17313a;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --grey: #6e7c7f; --grid: #213033; --axis: #3b4b4f;
+  --good: #3dbb6a; --warn: #e2a33c; --bad: #e66767; --band: rgba(93,190,200,0.10); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0d1415; --surface: #141d1f; --fg: #e7eeee; --fg2: #b3c2c4; --muted: #84948f;
+  --rule: #26343a; --accent: #5dbec8; --accent-soft: #17313a;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --grey: #6e7c7f; --grid: #213033; --axis: #3b4b4f;
+  --good: #3dbb6a; --warn: #e2a33c; --bad: #e66767; --band: rgba(93,190,200,0.10); color-scheme: dark; }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 17px; line-height: 1.6; }
+.page { max-width: 1040px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 80px; }
+.col { max-width: 70ch; }
+h1, h2, h3 { font-family: var(--f-display); font-weight: 650; text-wrap: balance; line-height: 1.2; }
+h1 { font-size: clamp(2rem, 5vw, 2.9rem); margin: 0.2em 0 0.3em; letter-spacing: -0.01em; }
+h2 { font-size: 1.65rem; margin: 2.6em 0 0.5em; padding-top: 0.8em; border-top: 1px solid var(--rule); }
+h3 { font-size: 1.22rem; margin: 1.6em 0 0.4em; }
+h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin: 1.2em 0 0.2em; font-weight: 600; }
+p, li { max-width: 70ch; }
+a { color: var(--accent); text-underline-offset: 2px; }
+code, .mono { font-family: var(--f-mono); font-size: 0.84em; }
+code { background: var(--accent-soft); padding: 0.05em 0.3em; border-radius: 3px; overflow-wrap: anywhere; }
+.eyebrow { font-family: var(--f-mono); font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 1.15rem; color: var(--fg2); max-width: 66ch; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 1.2em 0 0; padding: 0; list-style: none; font-size: 0.95rem; }
+.toc a { text-decoration: none; }
+.toc a:hover, .toc a:focus-visible { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* summary */
+.findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; margin: 1.2em 0; }
+.finding { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; min-width: 0; }
+.finding .n { font-family: var(--f-mono); font-size: 0.75rem; color: var(--accent); letter-spacing: 0.06em; }
+.finding p { margin: 0.3em 0 0; font-size: 0.97rem; }
+.finding strong { display: block; font-family: var(--f-display); font-size: 1.06rem; line-height: 1.3; margin-top: 0.2em; }
+.status { display: grid; gap: 8px; margin: 1em 0; padding: 0; list-style: none; }
+.status li { display: grid; grid-template-columns: 7.2em 1fr; gap: 10px; align-items: baseline; max-width: none; }
+.pill { font-family: var(--f-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px;
+  border-radius: 999px; border: 1px solid currentColor; text-align: center; white-space: nowrap; }
+.pill.run { color: var(--accent); } .pill.broken { color: var(--bad); } .pill.done { color: var(--good); } .pill.wait { color: var(--warn); }
+
+/* timeline */
+.timeline { list-style: none; padding: 0; margin: 1.5em 0; border-left: 2px solid var(--rule); }
+.timeline > li { position: relative; padding: 0 0 0.6em 22px; max-width: none; }
+.timeline > li::before { content: ""; position: absolute; left: -7px; top: 0.55em; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--bg); border: 2px solid var(--accent); }
+.timeline .date { font-family: var(--f-mono); font-size: 0.8rem; color: var(--muted); }
+.timeline .what { font-weight: 600; }
+.entry { margin-top: 1em; }
+.qa { display: grid; grid-template-columns: 6.5em 1fr; gap: 4px 14px; margin: 0.8em 0; }
+.qa dt { font-family: var(--f-mono); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); padding-top: 0.35em; }
+.qa dd { margin: 0; min-width: 0; max-width: 64ch; }
+@media (max-width: 560px) { .qa { grid-template-columns: 1fr; } .qa dt { padding-top: 0.6em; } .status li { grid-template-columns: 1fr; } }
+details.tech { margin: 0.8em 0 1.2em; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+details.tech > summary { cursor: pointer; padding: 8px 14px; font-family: var(--f-mono); font-size: 0.8rem; color: var(--fg2); }
+details.tech > div { padding: 0 16px 10px; font-size: 0.95rem; min-width: 0; }
+details.tech[open] > summary { border-bottom: 1px solid var(--rule); margin-bottom: 8px; }
+
+/* figures */
+figure { margin: 1.4em 0 1.8em; }
+figcaption { font-size: 0.92rem; color: var(--fg2); max-width: 70ch; margin-top: 0.6em; }
+figcaption b { color: var(--fg); }
+.fig-title { font-family: var(--f-display); font-weight: 650; font-size: 1.02rem; margin-bottom: 0.2em; }
+.fig-sub { font-size: 0.88rem; color: var(--muted); margin-bottom: 0.6em; }
+.chart, .diagram { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 10px; overflow-x: auto; }
+.chart svg, .diagram svg { display: block; width: 100%; height: auto; }
+.diagram svg { min-width: 680px; }
+.multi { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 10px 18px; }
+.multi > div { min-width: 0; }
+.panel-title { font-family: var(--f-mono); font-size: 0.78rem; color: var(--fg2); margin: 4px 0 0 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.85rem; color: var(--fg2); margin: 0 0 6px 4px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+.sw.hollow { background: transparent !important; border: 2px solid var(--grey); }
+.sw.line { width: 18px; height: 0; border-radius: 0; border-top: 2px dashed var(--fg2); }
+svg text { font-family: var(--f-body); fill: var(--fg2); font-size: 12px; }
+svg .t-label { fill: var(--fg); font-size: 12.5px; }
+svg .t-mono { font-family: var(--f-mono); font-size: 11px; }
+svg .t-muted { fill: var(--muted); }
+svg .grid { stroke: var(--grid); stroke-width: 1; }
+svg .axis { stroke: var(--axis); stroke-width: 1; }
+svg .hit { fill: transparent; }
+svg [data-tip]:focus { outline: none; }
+svg [data-tip]:focus .hit, svg [data-tip]:hover .hit { fill: var(--band); }
+#tip { position: fixed; z-index: 30; pointer-events: none; opacity: 0; transition: opacity 0.12s; max-width: 300px;
+  background: var(--fg); color: var(--bg); font-size: 0.82rem; line-height: 1.4; padding: 6px 9px; border-radius: 4px; white-space: pre-line; }
+@media (prefers-reduced-motion: reduce) { #tip { transition: none; } }
+
+.seg { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px 4px; }
+.seg button { font: 600 0.82rem var(--f-body); color: var(--fg2); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+/* tables */
+.tablewrap { overflow-x: auto; margin: 0.6em 0; }
+table { border-collapse: collapse; font-size: 0.86rem; font-variant-numeric: tabular-nums; min-width: 100%; }
+th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; color: var(--fg2); font-size: 0.8rem; white-space: nowrap; }
+td.num { font-family: var(--f-mono); font-size: 0.8rem; white-space: nowrap; }
+.verdict-hold { color: var(--good); font-weight: 600; } .verdict-fail { color: var(--bad); font-weight: 600; } .verdict-mid { color: var(--warn); font-weight: 600; }
+.callout { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; margin: 1em 0; color: var(--fg2); max-width: 68ch; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.two > div { min-width: 0; }
+.claim-list { list-style: none; padding: 0; display: grid; gap: 10px; }
+.claim-list li { padding-left: 1.4em; position: relative; }
+.claim-list li::before { position: absolute; left: 0; font-family: var(--f-mono); font-weight: 600; }
+.claim-list.keep li::before { content: "+"; color: var(--good); }
+.claim-list.drop li::before { content: "−"; color: var(--bad); }
+.claim-list.open li::before { content: "?"; color: var(--accent); }
+.gloss { display: grid; grid-template-columns: minmax(8em, 13em) 1fr; gap: 6px 16px; }
+.gloss dt { font-family: var(--f-mono); font-size: 0.82rem; font-weight: 600; padding-top: 0.15em; overflow-wrap: anywhere; }
+.gloss dd { margin: 0; font-size: 0.95rem; min-width: 0; }
+@media (max-width: 560px) { .gloss { grid-template-columns: 1fr; } .gloss dd { margin-bottom: 0.6em; } }
+.paths li { font-size: 0.93rem; }
+footer { margin-top: 4em; color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--rule); padding-top: 1em; }
+</style>
+
+<div class="page">
+<header class="col">
+  <div class="eyebrow">Seahorse · catch-up · 22 Oct – 10 Nov 2026</div>
+  <h1>Where Seahorse stands</h1>
+  <p class="lede">What we ran over the last three weeks, what came out, why each run was started, and what it means for what
+  comes next. Plain account first; the technical detail folds open beside it. Every chart is drawn from the run outputs
+  in <code>results/</code> by <code>extract.py</code>.</p>
+  <ul class="toc">
+    <li><a href="#summary">Summary</a></li><li><a href="#background">Background</a></li>
+    <li><a href="#thread">The thread</a></li><li><a href="#core">dream_compare</a></li><li><a href="#timeline">Earlier runs</a></li><li><a href="#ahead">Looking ahead</a></li>
+    <li><a href="#glossary">Glossary</a></li><li><a href="#where">Where things live</a></li>
+  </ul>
+</header>
+
+<!-- ============================================================ SUMMARY -->
+<section id="summary">
+<h2>The short version</h2>
+<div class="col">
+<p>The mechanism we built still works: a stored slice of the model's own keys and values (K,V), restored in a later
+session, brings a fact back, and the whole stored turn is exactly the same as the turn given as text. What changed in
+the last three weeks is the picture around it. We moved from hand-written facts to real memory benchmarks and
+compared our selectors and our memory format against published methods. The comparison mostly went against us as a
+<em>system</em>: published KV compression (KVzip) picks positions as well as or better than our best selector, and
+storing cache instead of text buys no accuracy at much higher storage. It went for us as <em>understanding</em>: the
+gap between "the content is there" and "the model is willing to use it" (the licence) shows up for every per-head
+selector we tested, and one method nearly closes it, which gives us a concrete thing to explain. On 7 Nov we split
+the work into a training-free understanding branch (this one) and a trained-parts branch.</p>
+</div>
+
+<div class="findings">
+  <div class="finding"><div class="n">1 · dream_subj · 22 Oct</div>
+    <strong>The subject's position decides whether the model answers.</strong>
+    <p>Adding "dog" to the 2-position slice raises the answer score by 1.31 nats [1.01, 1.63] and cuts first-token
+    refusal from 0.15 to 0.02. The stored value's probability does not change. Teacher-forced, Qwen2.5-1.5B.</p></div>
+  <div class="finding"><div class="n">2 · dream_select · 4 Nov</div>
+    <strong>Automatic selection beats random, but recovers little.</strong>
+    <p>S-dream beats random on all 3 models teacher-forced and on 2 of 3 in judged generation. At k = 4 it is judged
+    correct 0.07 / 0.11 / 0.15 of the time against 0.62 / 0.87 / 0.77 for the whole turn.</p></div>
+  <div class="finding"><div class="n">3 · licence gap · 4 Nov</div>
+    <strong>Teacher forcing hides refusals.</strong>
+    <p>Keeping just the answer's tokens closes 0.99 / 0.88 / 0.67 of the gap teacher-forced, but is judged correct
+    only 0.17 / 0.49 / 0.24 of the time, mostly because the model refuses or asks for details.</p></div>
+  <div class="finding"><div class="n">4 · literature · 5 Nov</div>
+    <strong>Cross-session KV memory and query-free selection are prior work.</strong>
+    <p>MemArt, KVzip, Expected Attention and others. Still ours: 2–8 positions, slice vs the same text, storage-order
+    swaps, the hybrid split, and content vs licence measured on the same items.</p></div>
+  <div class="finding"><div class="n">5 · Stage A · 9 Nov</div>
+    <strong>KVzip-g is the best selector on 3 of 4 models; S-loo no longer leads.</strong>
+    <p>Judged correct at k = 8: KVzip-g 0.42 / 0.41 / 0.63 on 7B / Llama / Granite. S-loo is level on the 1.5B and 7B,
+    worse on Llama (−0.17) and Granite (−0.24). The licence gap holds on 4 of 4 models for per-head baselines.</p></div>
+  <div class="finding"><div class="n">6 · Stage B (partial) · 8–10 Nov</div>
+    <strong>Stored cache does not beat text, at equal retrieval.</strong>
+    <p>Text RAG beats KV RAG by 0.01–0.05 judged correctness (pooled, 3 models). Sparse slices lose 0.10–0.29 for
+    7–58× less storage than full cache (still far more than text) and refuse more (+0.05 to +0.26).</p></div>
+</div>
+
+<h3>Still running, or broken</h3>
+<ul class="status">
+  <li><span class="pill run">running</span><span>Granite-4.2-30B, Stage B PersonaMem continuation <code>1250454</code> (at 23:11 of a 23:59 limit when checked; 505 of 589 items written). The next continuation <code>1250455</code> is queued behind it.</span></li>
+  <li><span class="pill wait">waiting</span><span>Granite judges and analysis <code>1217775–78</code>, then the Stage B cross-model summary <code>1217779</code>. They start when the PersonaMem chain ends; Granite's BEAM split will be partial.</span></li>
+  <li><span class="pill broken">broken</span><span>Granite BEAM ran out of GPU memory 4 times (<code>1217774</code>, <code>1250456–58</code>; the last three with smaller batch budgets). 64 of 320 items (4 of 20 conversations) are written.</span></li>
+  <li><span class="pill broken">broken</span><span>Gemma-4-26B-A4B never ran. Its Stage 0 smoke failed the identity tolerance (MoE routing); a diagnostic job ran out of memory and the repair agent stopped. Missing from Stage A and B. Its Stage B judge and analysis jobs ran on no data; those empty outputs were deleted on 7 Nov.</span></li>
+  <li><span class="pill done">done</span><span>Stage A on 4 models; Stage B analysed for Qwen2.5-1.5B, Qwen2.5-7B and Llama-3.2-3B (all five benchmark splits each).</span></li>
+</ul>
+</section>
+
+<!-- ============================================================ THREAD -->
+<section id="thread">
+<h2>The thread through the runs</h2>
+<div class="col"><p>Four runs, one question carried forward: when a memory holds the answer, what makes the model use it?</p></div>
+<figure>
+  <div class="diagram"><svg viewBox="0 0 1000 300" role="img" aria-label="Thread: dream_subj shows the subject position licenses answering; dream_select shows the answer span holds content but is not used; Stage A shows the licence gap is general except for KVzip-g; Stage B shows cache does not beat text end to end and sparse slices refuse more.">
+    <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--fg2)"/></marker></defs>
+    <g id="thread-boxes"></g>
+  </svg></div>
+  <figcaption><b>From one fact to whole histories.</b> dream_subj found the piece of a slice that turns content into an
+  answer; dream_select found that automatic selectors (and even the answer span) keep content but not that piece;
+  Stage A found the same for every per-head published selector, with one exception; Stage B found that, end to end,
+  cache memory does not beat text and the sparse version refuses more. All numbers are from the run reports.</figcaption>
+</figure>
+</section>
+
+<!-- ============================================================ BACKGROUND -->
+<section id="background">
+<h2>Background: the pieces you need for the rest</h2>
+<div class="col">
+<p><b>Seahorse</b> is a training-free memory for a frozen LLM. It has had two channels. The <b>steer</b> channel adds a
+stored vector to the residual stream; paper 1 showed it carries a push (a leaning, a word to say), not a statement.
+The <b>slice</b> channel keeps the K,V the model itself computed for a few positions of an earlier turn and puts them
+back, at their stored positions, before a later question. Everything below is about slices.</p>
+</div>
+
+<figure>
+  <div class="fig-title">A stored slice, from one session to the next</div>
+  <div class="diagram">
+  <svg viewBox="0 0 900 330" role="img" aria-label="Diagram: in session 1 one forward pass over the turn 'My dog's name is Pepper.' computes K,V at every layer; a few positions are kept; in session 2 they are restored before the question and the model answers Pepper.">
+    <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+    <g style="color: var(--fg2)">
+      <text x="20" y="24" class="t-label" style="font-weight:600">Session 1: the user says something</text>
+      <g class="t-mono">
+        <rect x="20" y="38" width="62" height="28" rx="3" fill="var(--accent-soft)" stroke="var(--axis)"/><text x="51" y="57" text-anchor="middle" class="t-mono">head</text>
+        <rect x="88" y="38" width="44" height="28" rx="3" fill="var(--surface)" stroke="var(--axis)"/><text x="110" y="57" text-anchor="middle" class="t-mono">My</text>
+        <rect x="138" y="38" width="50" height="28" rx="3" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/><text x="163" y="57" text-anchor="middle" class="t-mono">dog</text>
+        <rect x="194" y="38" width="36" height="28" rx="3" fill="var(--surface)" stroke="var(--axis)"/><text x="212" y="57" text-anchor="middle" class="t-mono">'s</text>
+        <rect x="236" y="38" width="54" height="28" rx="3" fill="var(--surface)" stroke="var(--axis)"/><text x="263" y="57" text-anchor="middle" class="t-mono">name</text>
+        <rect x="296" y="38" width="36" height="28" rx="3" fill="var(--surface)" stroke="var(--axis)"/><text x="314" y="57" text-anchor="middle" class="t-mono">is</text>
+        <rect x="338" y="38" width="70" height="28" rx="3" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/><text x="373" y="57" text-anchor="middle" class="t-mono">Pepper</text>
+        <rect x="414" y="38" width="30" height="28" rx="3" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/><text x="429" y="57" text-anchor="middle" class="t-mono">.</text>
+      </g>
+      <line x1="232" y1="72" x2="232" y2="100" stroke="currentColor" marker-end="url(#ar)"/>
+      <text x="242" y="92">one forward pass, every layer</text>
+      <!-- KV grid -->
+      <g>
+        <text x="20" y="122" class="t-muted">K,V per layer</text>
+        <g id="kvgrid"></g>
+      </g>
+      <line x1="460" y1="170" x2="540" y2="170" stroke="currentColor" marker-end="url(#ar)"/>
+      <text x="500" y="160" text-anchor="middle">keep k positions</text>
+      <text x="500" y="190" text-anchor="middle" class="t-muted">same positions</text>
+      <text x="560" y="24" class="t-label" style="font-weight:600">Session 2, days later</text>
+      <g class="t-mono">
+        <rect x="560" y="38" width="62" height="28" rx="3" fill="var(--accent-soft)" stroke="var(--axis)"/><text x="591" y="57" text-anchor="middle" class="t-mono">head</text>
+        <rect x="628" y="38" width="44" height="28" rx="3" fill="var(--surface)" stroke="var(--s2)" stroke-width="2" stroke-dasharray="4 2"/><text x="650" y="57" text-anchor="middle" class="t-mono">dog</text>
+        <rect x="678" y="38" width="62" height="28" rx="3" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/><text x="709" y="57" text-anchor="middle" class="t-mono">Pepper</text>
+        <rect x="746" y="38" width="28" height="28" rx="3" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/><text x="760" y="57" text-anchor="middle" class="t-mono">.</text>
+      </g>
+      <text x="628" y="86" class="t-muted">restored entries (no tokens re-read)</text>
+      <rect x="560" y="100" width="320" height="30" rx="3" fill="var(--surface)" stroke="var(--axis)"/>
+      <text x="572" y="120" class="t-mono">user: What's my dog's name?</text>
+      <line x1="720" y1="134" x2="720" y2="160" stroke="currentColor" marker-end="url(#ar)"/>
+      <rect x="560" y="164" width="320" height="30" rx="3" fill="var(--accent-soft)" stroke="var(--accent)"/>
+      <text x="572" y="184" class="t-mono" style="fill: var(--fg)">assistant: Your dog's name is Pepper.</text>
+      <g transform="translate(560,222)">
+        <text x="0" y="0" class="t-label" style="font-weight:600">Named slices</text>
+        <text x="0" y="22"><tspan class="t-mono" style="fill:var(--fg)">R-full</tspan>  every position of the turn (= the turn as text)</text>
+        <text x="0" y="42"><tspan class="t-mono" style="fill:var(--fg)">R-min</tspan>  value + next token (blue, 2 positions)</text>
+        <text x="0" y="62"><tspan class="t-mono" style="fill:var(--fg)">R+subj</tspan>  R-min + the subject's last token (orange)</text>
+        <text x="0" y="82"><tspan class="t-mono" style="fill:var(--fg)">T-min</tspan>  the same tokens as plain text instead</text>
+      </g>
+      <g transform="translate(20,262)">
+        <text x="0" y="0" class="t-muted">On the hybrid Qwen3.5-2B only 6 of 24 blocks have K,V;</text>
+        <text x="0" y="18" class="t-muted">the other 18 carry a recurrent (DeltaNet) state, stored whole.</text>
+        <text x="0" y="40" class="t-muted">State = recognition ("was this said?"); attention entries = recall.</text>
+      </g>
+    </g>
+  </svg>
+  </div>
+  <figcaption><b>The slice channel.</b> The model's own cache for a few positions is kept and put back before a later
+  question. Which positions are kept is the selector's job, and it is the subject of every run on this page. The full
+  turn restored is prompt caching across sessions (identical to the text to ~1e-4 in logits).</figcaption>
+</figure>
+
+<div class="col">
+<h3>Four ideas the results depend on</h3>
+<h4>Teacher-forced vs judged generation</h4>
+<p><b>Teacher-forced (TF)</b> scoring feeds the gold answer and reads how likely the model finds it: log P(answer). It
+is cheap and measures whether the content is reachable. <b>Generation</b> lets the model write its own answer, which
+three judges (Qwen3.5-9B, gpt-oss, Gemma-4) label against the benchmark's official prompt; the majority wins. It
+measures whether the model actually uses the memory.</p>
+<h4>Gap closed</h4>
+<p>One scale for every condition: (condition − no memory) / (whole turn − no memory). 0 = no better than no memory,
+1 = as good as restoring the whole turn. It is computed both ways: on the TF answer score, and on judged correctness.</p>
+<h4>The licence</h4>
+<p>A slice can hold the value and the model can still refuse ("I don't have access to your personal information").
+We call the missing piece the licence to answer. In dream_bind it was first read as a missing "told" signal, then
+(addendum 8) mostly a generic "answer personal questions" direction. The <b>licence gap</b> is the TF gap closed
+minus the judged gap closed for the same items: content looks present, use does not follow.</p>
+<h4>Storage order and binding</h4>
+<p>Two facts stored apart and restored together swap partners (wrong person's name 0.19–0.37 of the time), because
+every separately stored slice was encoded as "the first pair". Storing the k-th memory as the k-th fact fixes most of
+it at N = 3 and halves it at N = 5 (addenda 8–9). The binding sits at the subject's positions and is written only
+when facts are encoded together.</p>
+</div>
+
+<figure>
+  <div class="fig-title">The licence gap in one item</div>
+  <div class="fig-sub">dream_subj, Qwen2.5-1.5B, fact "My sister's name is Petra.", question "Do you remember my sister's name?"</div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>slice</th><th>TF: gain on "Petra" (nats)</th><th>greedy answer (40 tokens, read only)</th></tr></thead>
+    <tbody>
+      <tr><td class="num">R-min</td><td class="num">10.88</td><td>I'm sorry, but I don't have any information about your sister's name. I don't have the ability to remember personal information…</td></tr>
+      <tr><td class="num">R+subj</td><td class="num">10.88</td><td>Yes, I remember. Your sister's name is Petra.</td></tr>
+      <tr><td class="num">R-full</td><td class="num">10.88</td><td>Yes, I remember your sister's name is Petra.</td></tr>
+    </tbody></table></div>
+  <figcaption>The value is equally reachable with all three slices (same teacher-forced gain), but only the slices with
+  the subject's position produce an answer. Source: <code>results/dream_subj_20261022_1755/report.md</code>, example facts.</figcaption>
+</figure>
+</section>
+
+<!-- ============================================================ CORE -->
+<section id="core">
+<h2>The core: dream_compare</h2>
+<div class="col"><p>dream_compare is the run that decided where the project stands. Stage A compares 18 ways of choosing
+which positions to keep, on one stored turn per question, against the whole turn. Stage B puts whole conversation
+histories into memory and compares text, full cache, our sparse slices and MemArt-style blocks on four benchmarks. Both
+are read against the licence story from dream_subj and dream_select (see the thread above).</p></div>
+<!-- dream_compare plan -->
+<article class="entry" id="t-plan">
+<h3>The design (planned and submitted 5 Nov)</h3>
+<dl class="qa">
+  <dt>Question</dt><dd>(A) At matched storage, which way of choosing positions works best: ours or the published selectors? Is the licence gap general? (B) End to end on real benchmarks, does a stored-cache memory beat text memory on anything that matters?</dd>
+  <dt>Why</dt><dd>MemArt was rejected mainly for storage cost against text memory, and our own data said R-full = T-full. Two things decided the direction: is our selector competitive, and is cache memory worth having at all.</dd>
+  <dt>Setup</dt><dd>Stage 0: a model adapter (incl. Gemma-4 MoE on 2 A100s, sliding windows masked by position), per-head masks, 4 benchmark adapters (LongMemEval, LoCoMo, PersonaMem-32k, BEAM-100K), judges, BM25. Stage A: 133 LongMemEval items with one evidence turn (106 primary), 18 selections per budget. Stage B: whole histories as memory, paradigms P0–P5. Each stage pre-registered before its jobs.</dd>
+</dl>
+<div class="tablewrap"><table>
+  <thead><tr><th>Stage B</th><th>stored</th><th>read at question time</th></tr></thead>
+  <tbody>
+    <tr><td class="num">P0</td><td>nothing</td><td>question only</td></tr>
+    <tr><td class="num">P1</td><td>text</td><td>whole history as text (where it fits)</td></tr>
+    <tr><td class="num">P2-m</td><td>text</td><td>BM25 top-m turns as text (text RAG)</td></tr>
+    <tr><td class="num">P3-m</td><td>full K,V per turn</td><td>the same top-m turns restored from cache (KV RAG); same tokens and positions as P2</td></tr>
+    <tr><td class="num">P4loo / P4dream</td><td>8 positions per turn</td><td>P3's turns, only the kept positions (Seahorse sparse; S-loo on 100-item subsets)</td></tr>
+    <tr><td class="num">P5 / P5s</td><td>full K,V in 16-token blocks</td><td>MemArt-style: top blocks by the question's attention, re-encoded; P5s matched to P4's entries</td></tr>
+  </tbody></table></div>
+<details class="tech"><summary>Technical detail</summary><div>
+<p>Plan <code>/home/vedantjumle/.claude/plans/replicated-wondering-hoare.md</code>; PREREG <code>experiments/dream_compare/PREREG.md</code> (Stage 0 96633c6…a403e0f; Stage A 9eb0474, code 56af7f1; Stage B 385c47f + amendment bdd8453). Stage A budgets are matched in stored K,V entries (k × layers × KV heads; 56 per position on the 1.5B, 112 on the 7B, 224 on Llama, 512 on Granite). Stage B fixed P4's selectors in advance (S-loo, S-dream) because Stage A ran in parallel; P4-kvzip is not included. LoCoMo turns are framed as a log the user provides, asked by a third party.</p></div></details>
+</article>
+
+<!-- Stage A -->
+<article class="entry" id="t-stagea">
+<h3>Stage A (9 Nov): our selectors against the published ones</h3>
+<p class="callout">Context: dream_select showed that a slice can hold the answer and still not be used. Stage A asks whether that is our selectors' problem or every selector's.</p>
+<dl class="qa">
+  <dt>Question</dt><dd>H1: does the real KVzip beat our S-recon? H2: do per-head positions beat one shared set? H3: is the licence gap general? H4: how does S-loo compare with the best baseline?</dd>
+  <dt>Setup</dt><dd>133 LongMemEval oracle items whose evidence is one user turn (106 primary). Budgets matched in stored K,V entries. Rules at k = 8, generation, 3-judge majority. Qwen2.5-1.5B, Qwen2.5-7B, Llama-3.2-3B, Granite-4.2-30B (Gemma missing).</dd>
+  <dt>Result</dt><dd><b>KVzip-g</b> (KVzip's official global budget over layers × heads) is the best selector on 7B, Llama and Granite. H1 holds on 3 of 4, H2 on 2 of 4, <b>H3 on 4 of 4</b>. S-loo is indistinguishable from the best baseline on the 1.5B and 7B and worse on Llama (−0.17) and Granite (−0.24).</dd>
+</dl>
+<figure>
+  <div class="fig-title">Judged correctness at k = 8, primary set</div>
+  <div class="fig-sub">Mean and 95% CI over items, 3-judge majority. Dashed line: the whole turn restored (R-full). Rows ordered by the mean over models.</div>
+  <div class="legend"><span><i class="sw" style="background:var(--s2)"></i>KVzip-g</span><span><i class="sw" style="background:var(--s1)"></i>ours (S-*)</span><span><i class="sw" style="background:var(--grey)"></i>published baselines</span><span><i class="sw hollow"></i>uses the question or the label</span><span><i class="sw line"></i>R-full</span></div>
+  <div class="multi" id="fig-stagea"></div>
+  <figcaption><b>The real KVzip, with a global budget, is the selector to beat.</b> On Granite it reaches 0.63 against
+  0.67 for the whole turn at a fraction of the entries. Our attention selectors sit with the published per-head ones;
+  S-loo is the best of ours but no longer the best overall.</figcaption>
+  <details class="tech"><summary>Numbers behind this chart, and the rule outcomes</summary><div id="tab-stagea"></div></details>
+</figure>
+
+<figure>
+  <div class="fig-title">The licence gap per method</div>
+  <div class="fig-sub">Gap closed at k = 8: teacher-forced (x) vs judged generation (y), means over items. Points below the diagonal look better teacher-forced than they are.</div>
+  <div class="legend"><span><i class="sw" style="background:var(--s2)"></i>KVzip-g</span><span><i class="sw" style="background:var(--s1)"></i>S-loo</span><span><i class="sw" style="background:var(--grey)"></i>H3 methods (KVzip-ph, SnapKV-dream-ph, H2O-ph, VATP-ph)</span><span><i class="sw hollow"></i>others</span></div>
+  <div class="multi" id="fig-licence"></div>
+  <figcaption><b>The gap is general for per-head selectors, but not inevitable.</b> KVzip-g sits on the diagonal on the
+  7B (0.63 TF vs 0.62 judged) and nearly on it on Llama (0.73 vs 0.69). On the 1.5B it does not (0.59 vs 0.21).
+  Granite's TF means exceed 1 because per-item ratios are noisy; read its x-axis as "high".</figcaption>
+</figure>
+<figure>
+  <div class="fig-title">Rule contrasts: per-head vs shared (H2), S-loo vs the best baseline (H4), S-loo vs the answer span</div>
+  <div class="fig-sub">Paired differences in judged correctness at k = 8, 95% CI over items. Right of zero = the first condition is better.</div>
+  <div class="chart" id="fig-rules"></div>
+  <figcaption><b>Per-head positions help on the 7B and Granite, barely on the 1.5B and Llama; S-loo never beats the
+  best baseline.</b> The paired S-loo − gold@k contrast is positive only on the 7B. Not shown as a contrast (no paired
+  test exists): KVzip-g's mean is above SnapKV-oracle-ph, the baseline that sees the real question, on the 7B
+  (0.42 vs 0.34), Llama (0.41 vs 0.32) and Granite (0.63 vs 0.58); on the 1.5B it is below (0.10 vs 0.12).</figcaption>
+</figure>
+<div class="callout"><b>Why might a global budget matter? (literature, not tested here)</b> Three papers name
+non-uniform per-head budgets as the biggest single factor in KV compaction. Attention Matching's leave-one-out ablation
+(Zweiger et al. 2026, Fig. 5) ranks non-uniform head budgets as the most important component and self-study queries as
+the least. The Gating Mechanism paper (Gu et al., arXiv 2611.07605) moves RULER from 44.86 with a fixed shared gate mass
+and 58.86 with KL to the dense model to 67.60 with per-head budgets set by retained attention mass (dense 70.01). KVzip
+itself keeps the top r% of entries across all heads. KVzip-g is our only condition with a non-uniform budget over
+layers × heads, so "the licence lives in a few layers or heads that a uniform budget starves" is a candidate
+explanation. A caution: in Compression-Aware Abstention a real KVzip-compressed cache let Qwen2.5-7B answer only 4 of 97
+items whose evidence survived, so KVzip is not a licence guarantee in every setting.</div>
+<dl class="qa"><dt>Means</dt><dd>As a selector, ours is not the contribution any more. The useful new fact is that one method keeps whatever carries the licence on the larger models. What it keeps is the open question that ties Stage A back to dream_subj.</dd></dl>
+<details class="tech"><summary>Technical detail</summary><div>
+<p>H3 per model: d = gap_tf − gap_gen per item, for KVzip-ph, SnapKV-dream-ph, H2O-ph, VATP-ph; a model passes if ≥ 3 of 4 have a lower bound > 0. 1.5B passes 3 of 4 (H2O-ph fails); the others 4 of 4. KVzip-g was <em>not</em> one of the H3 methods. Paired S-loo − gold@k: better only on the 7B at k = 8 (+0.15 [0.03, 0.27]); indistinguishable at k = 4 and on every other model.</p>
+<p>KVzip here is a faithful reimplementation in fp32 (the official code needs flash-attn / fp16); the repeat request is a new user turn. Expected Attention follows KVPress without AdaKV. Summary <code>results/dream_compare_a_20261105_1822/summary_a.md</code>; per model <code>report_a.md</code>, <code>verdict_a.json</code>. 26,300 judged answers per model.</p></div></details>
+</article>
+
+<!-- Stage B -->
+<article class="entry" id="t-stageb">
+<h3>Stage B (8–10 Nov, partial): memory paradigms end to end</h3>
+<p class="callout">Context: Stage A measured one stored turn at a time. Stage B asks whether any of it matters when the whole history is the memory and retrieval decides what comes back. Partial: Qwen2.5-1.5B, Qwen2.5-7B and Llama-3.2-3B are analysed. Granite is still generating; Gemma-4 never ran. The cross-model summary has not run.</p>
+<dl class="qa">
+  <dt>Question</dt><dd>With retrieval held fixed, does restoring cache (P3) beat inserting the same turns as text (P2)? What do sparse slices (P4) lose against full cache, and how do they compare with MemArt-style blocks at the same budget?</dd>
+  <dt>Setup</dt><dd>Whole histories as memory; every session encoded once. BM25 top-m turns (m = 3, 10; PersonaMem m = 1, 3 sessions). Benchmarks: LongMemEval oracle (500) and S-120, LoCoMo (1,986), PersonaMem-32k (589, multiple choice), BEAM-100K (320). One greedy answer per item; 3 judges.</dd>
+  <dt>Result</dt><dd><b>B1</b>: text RAG beats KV RAG (pooled m = 3: 1.5B −0.025, 7B −0.040, Llama equivalent; m = 10: −0.039 to −0.048 on all three). <b>B2</b>: P4 loses 0.10–0.29 on LongMemEval and LoCoMo for 7–58× less storage than P3. <b>B3</b>: P4 beats MemArt-style blocks at the same budget on most cells. <b>B5</b>: P4 refuses more than P3 (the licence gap, end to end).</dd>
+</dl>
+<figure>
+  <div class="fig-title">Judged correctness by paradigm (m = 3)</div>
+  <div class="fig-sub">Mean and 95% CI over items; PersonaMem = option log-probability. P4loo runs on 100-item subsets only (not on S-120 or PersonaMem).</div>
+  <div class="legend" id="legend-b"></div>
+  <div class="multi" id="fig-stageb"></div>
+  <figcaption><b>Text and full cache are close; sparse slices are far behind.</b> LoCoMo's no-memory floor (~0.22 on the
+  Qwens) comes from the adversarial items, which count as correct when the model says the log does not mention it.</figcaption>
+  <details class="tech"><summary>Numbers behind this chart</summary><div id="tab-stageb"></div></details>
+</figure>
+
+<div class="two">
+<figure>
+  <div class="fig-title">B1: KV RAG minus text RAG</div>
+  <div class="fig-sub">P3 − P2 judged correctness, m = 3, 95% CI. Shaded: the ±0.03 equivalence band.</div>
+  <div class="chart" id="fig-b1"></div>
+  <figcaption>Left of zero = text better. Restoring each turn's cache, computed inside its original session, is
+  slightly worse than re-reading the retrieved turns together as text: pooled −0.025 (1.5B), −0.040 (7B), −0.012
+  (Llama, equivalent). PersonaMem at m = 1 is identical by construction (a whole session restored in its own
+  context), so it is not shown.</figcaption>
+</figure>
+<figure>
+  <div class="fig-title">B5: the licence gap end to end</div>
+  <div class="fig-sub">Refusal-rate differences on greedy answers, m = 3, 95% CI. Filled: P4dream − P3 (sparse minus full cache). Hollow: P3 − P2 (cache minus text).</div>
+  <div class="chart" id="fig-b5"></div>
+  <figcaption>Keeping 8 positions per turn makes every model refuse more than the full cache (+0.05 to +0.26), while
+  full cache and text refuse about equally. <b>LoCoMo caveat:</b> its third-party frame asks for "Not mentioned in the
+  conversation" when the log does not say, and the refusal regex counts that phrase, so LoCoMo's refusal is near 1.0
+  even with no memory on the Qwens (P0: 0.999 / 0.996) and the absolute rates there are not comparable.</figcaption>
+</figure>
+</div>
+<figure>
+  <div class="fig-title">B4: correctness vs storage, per benchmark</div>
+  <div class="fig-sub">At-rest MB per conversation (log scale; "0" = stores nothing) against judged correctness, all conditions (m = 3 and 10). Ringed and joined: the pre-registered storage Pareto frontier. Hover a point for its numbers.</div>
+  <div class="seg" role="group" aria-label="Model" id="pareto-model"></div>
+  <div class="legend"><span><i class="sw" style="background:var(--grey)"></i>no memory</span><span><i class="sw" style="background:var(--s3)"></i>text (P1, P2)</span><span><i class="sw" style="background:var(--s2)"></i>full cache (P3, P5, P5s)</span><span><i class="sw" style="background:var(--s1)"></i>sparse slices (P4)</span></div>
+  <div class="multi" id="fig-pareto"></div>
+  <figcaption><b>Every frontier is text (or nothing).</b> Text sits at 0.03–0.6 MB per conversation; full cache at 0.36–30 GB
+  (11,000–70,000× the text, larger for models with more K,V per token); sparse slices in between. Cache formats pay in storage and get nothing back in accuracy.
+  Their one gain is time to first token (7B LongMemEval: 0.11 s for P3-3 against 0.59 s for P2-3 and 4.2 s for P1),
+  which is why they appear on the latency frontiers in the reports.</figcaption>
+</figure>
+<details class="tech"><summary>B3 and B5 per model and benchmark (m = 3)</summary><div id="tab-b35"></div></details>
+<dl class="qa"><dt>Means</dt><dd>As a memory <em>system</em>, a stored cache does not pay on these benchmarks: MemArt's reviewers were right about storage. The P3 &lt; P2 gap is itself an understanding result: a turn's cache carries its original context's attention, and restoring it without its neighbours costs a little, the same family of effect as storage-order collisions and CacheBlend's missing cross-attention.</dd></dl>
+<details class="tech"><summary>Technical detail</summary><div>
+<p>B1 is a TOST: "equivalent" if the 90% CI of the paired difference lies inside ±0.03. Storage = (head + all turn tokens) × K,V numbers × 4 bytes for P3; P4 = 8 positions per turn plus the text index. LoCoMo's "refusal" counts "not mentioned" and is high for every condition. Per model <code>results/dream_compare_b_20261105_1915/&lt;model&gt;/report_b.md</code>, <code>verdict_b.json</code> (fetched 10 Nov); <code>jobs.txt</code> has every submission.</p></div></details>
+</article>
+</section>
+
+<!-- ============================================================ TIMELINE -->
+<section id="timeline">
+<h2>How we got here: the earlier runs, 22 Oct → 7 Nov</h2>
+<ol class="timeline col">
+  <li><span class="date">22–30 Oct</span> · <span class="what">dream_bind addenda 7–9</span>: lures, the refusal mechanism, storage order with N = 3 / 5. Context for paper 2.</li>
+  <li><span class="date">22 Oct</span> · <span class="what">dream_subj</span>: does a restored slice need the subject's position?</li>
+  <li><span class="date">30 Oct – 3 Nov</span> · <span class="what">Papers</span>: paper 2 drafted and uploaded (awaiting arXiv); paper 1 v2 approved.</li>
+  <li><span class="date">4 Nov</span> · <span class="what">dream_select, local then DelftBlue</span>: choose slice positions automatically on LongMemEval.</li>
+  <li><span class="date">5 Nov</span> · <span class="what">Literature check</span> for automatic selection; MemArt, KVzip and others are prior work.</li>
+  <li><span class="date">5 Nov</span> · <span class="what">dream_compare planned and submitted</span>: Stage 0 (infrastructure), Stage A (selectors), Stage B (paradigms) (<a href="#core">above</a>).</li>
+  <li><span class="date">7 Nov</span> · <span class="what">SLEEP check, Stage B repair, and the fork</span> into a training-free branch and a trained branch.</li>
+  <li><span class="date">9 Nov</span> · <span class="what">Stage A results</span> on 4 models (<a href="#t-stagea">above</a>).</li>
+  <li><span class="date">8–10 Nov</span> · <span class="what">Stage B results</span> for 3 models; Granite still running, Gemma missing (<a href="#t-stageb">above</a>).</li>
+</ol>
+
+<!-- dream_bind addenda -->
+<article class="entry" id="t-addenda">
+<h3>22–30 Oct · dream_bind addenda 7–9 (context)</h3>
+<dl class="qa">
+  <dt>Question</dt><dd>Why does an attention-only slice refuse, does the hybrid's state recognise the specific item, and does storage order cause the partner swaps?</dd>
+  <dt>Why</dt><dd>Paper 2 ("what binds a memory?") needed these before it could be written.</dd>
+  <dt>Result</dt><dd>
+    <ul>
+      <li>The 2B's state does item recognition (rejects look-alike names), but a joint state of two facts does not bind (says yes to both names for either person).</li>
+      <li>The refusal fix ("told" direction) is mostly a generic comply direction: 2B 0.67 with the generic one vs 0.76 with told.</li>
+      <li>Storage order is the collision: storing the new fact second cuts partner confusion 0.33–0.41 → 0.09–0.15 on all three models. N = 3: 0.38–0.47 → 0.04–0.09. N = 5: only down to 0.22–0.30 (fails every rule).</li>
+      <li>Llama-3.2-3B replicates slice > text (1.00 vs 0.24) and the collision.</li>
+    </ul></dd>
+  <dt>Means</dt><dd>The collision with a mechanism became paper 2's headline; the refusal became a secondary, mostly generic finding. That refusal is the "licence" that reappears in everything below.</dd>
+</dl>
+<details class="tech"><summary>Technical detail and sources</summary><div>
+<p>Numbers quoted from <code>docs/dreaming/01-binding.md</code> (addenda 7–9) and <code>HANDOVER.md</code> §1; not re-plotted here. Run roots
+<code>results/dream_bind_add7_20261022_1526</code>, <code>…add8_20261025_1812</code>, <code>…add9_20261030_0107</code>. Addendum 8's 2B report prints
+"told is specific" from a 4e-18 lower bound; the corrected verdict is generic comply. Two-choice yes/no gives the 2B a double dissociation:
+attention entries yes/no 0.50 / two-choice 0.91; state 0.93 / 0.48.</p></div></details>
+</article>
+
+<!-- dream_subj -->
+<article class="entry" id="t-subj">
+<h3>22 Oct · dream_subj: the subject's position supplies the licence</h3>
+<dl class="qa">
+  <dt>Question</dt><dd>When a slice is restored, does answering a direct question need the subject's own position ("dog" in "My dog's name is Pepper."), or does any extra position help?</dd>
+  <dt>Why</dt><dd>R-min (name + full stop) reached 0.86 clean use on use prompts but only 0.66 on direct questions. Entity-tracking work predicts a two-step lookup: find the subject, then follow its tag to the attribute.</dd>
+  <dt>Setup</dt><dd>Qwen2.5-1.5B, local, teacher-forced only, 45 person and pet facts. Slices differ only in which positions are kept. Main measure: log P of the answer prefix ("Your dog's name is"), i.e. answering instead of refusing.</dd>
+  <dt>Result</dt><dd>Only the subject helps: +1.31 nats [1.01, 1.63] over R-min; "is" and "name" add nothing (+0.07, −0.21). Three positions get 81% of the way to the whole turn. Refusal mass 0.15 → 0.02; TF yes/no 0.82 → 1.00. The value's own probability is the same with every slice.</dd>
+</dl>
+<figure>
+  <div class="fig-title">Answer score per slice</div>
+  <div class="fig-sub">log P(answer prefix | direct question), nats; mean and 95% CI over 45 facts. Right: first-token refusal mass P("I") + P("Sorry").</div>
+  <div class="chart" id="fig-subj"></div>
+  <figcaption><b>The subject entry turns a slice that holds the value into one the model answers from.</b> R+subj ≈ R-full ≈ ctx,
+  while the same three tokens as text (T-subj3) stay far lower: a slice carries more than its words.</figcaption>
+  <details class="tech"><summary>Numbers behind this chart</summary><div id="tab-subj"></div></details>
+</figure>
+<dl class="qa"><dt>Means</dt><dd>R-min's weakness on direct questions was a missing subject position, not a missing value. The subject changes the decision to answer. It fits addendum 8's "binding at the subject's positions". It also tells us what a good selector must keep: not just the value.</dd></dl>
+<details class="tech"><summary>Technical detail</summary><div>
+<p>Pre-registered verdict "subject position matters (two-step lookup)": all three of R+subj − R-min / − R+fill / − R+rel have lower bounds > 0. R-subj2 (subject + name, still 2 positions) also beats R-min (+0.51 [0.19, 0.84]). Attention: in layers 3–13 the question's "dog" attends to the restored "dog" (0.07–0.17 of its attention); in layers 23–27 the answer position attends to the name.</p>
+<p>Limits: TF only, no judges; the 7 hand-written facts alone are not significant on the answer score (+0.46 [−0.20, 1.13]; three questions don't fit the prefix). It cannot separate a binding-ID lookup from "this subject was mentioned". Open discriminator: a "dog" entry from an unrelated sentence plus the Pepper slice.</p>
+<p>PREREG <code>experiments/dream_subj/PREREG.md</code>; commits 1cec0e8 / e3c51bd; report <code>results/dream_subj_20261022_1755/report.md</code>.</p></div></details>
+</article>
+
+<!-- dream_select -->
+<article class="entry" id="t-select">
+<h3>4 Nov · dream_select: can the positions be chosen automatically?</h3>
+<dl class="qa">
+  <dt>Question</dt><dd>On real conversation turns, can the model choose which few positions to keep, without seeing the later question?</dd>
+  <dt>Why</dt><dd>Every slice so far was hand-picked. A memory system has to choose by itself, offline (the "dreaming" phase). This was the automatic version of the project.</dd>
+  <dt>Setup</dt><dd>LongMemEval oracle, 64 single-session-user items; the turn holding the answer is given (positions only, no retrieval). Selectors: <b>S-dream</b> (attention from 3 questions the model dreams about the turn; primary), S-attn, S-recon, <b>S-loo</b> (leave-one-out on the model's own answers to its dreams), random, last-k, gold@k. Local TF on Qwen2.5-1.5B first; then DelftBlue: TF + generation + 3 judges on Qwen2.5-1.5B, Qwen2.5-7B, Llama-3.2-3B.</dd>
+  <dt>Result</dt><dd>S-dream beats random: TF on all 3 models (lower bounds 0.35 / 1.49 / 2.33 nats), judged on 7B (+0.08) and Llama (+0.12), not the 1.5B (+0.03): <b>replicates, 2 of 3</b>. But the primary rule (gap closed ≥ 0.5 and beating S-attn) fails everywhere, and absolute use is low. The attention selectors mostly keep punctuation (0.48 of S-dream's picks on the 1.5B; base rate 0.09).</dd>
+</dl>
+<figure>
+  <div class="fig-title">Teacher-forced vs judged, same items</div>
+  <div class="fig-sub">Gap closed at k = 8 (gold: the answer's tokens + 1). Hollow = teacher-forced answer score; filled = judged correctness. Right: refusal rate in generation (regex).</div>
+  <div class="legend"><span><i class="sw hollow"></i>teacher-forced</span><span><i class="sw" style="background:var(--s1)"></i>judged generation</span></div>
+  <div class="multi" id="fig-select"></div>
+  <figcaption><b>Content without licence.</b> Every selector, including the answer span itself, looks much better
+  teacher-forced than in generation. On the 1.5B and Llama most failures are refusals; on the 7B they are mostly
+  "I would need more specific information", which the regex misses.</figcaption>
+  <details class="tech"><summary>Numbers behind this chart (k = 4 and k = 8)</summary><div id="tab-select"></div></details>
+</figure>
+<dl class="qa"><dt>Means</dt><dd>Our cluster threshold (S-dream clearly beats random) was met, so the larger comparison went ahead. The bigger lesson: a TF score is not evidence that a slice will be used. The answer's own tokens are not an oracle for generation.</dd></dl>
+<details class="tech"><summary>Technical detail</summary><div>
+<p>Local: <code>results/dream_select_20261104_0032/report.md</code> (64 usable items, 6 abstention items excluded; R-full = T-full to 3e-4). Cluster:
+<code>results/dream_select_cluster_20261104_0129/summary.md</code>, <code>&lt;model&gt;/report_gen.md</code>, <code>&lt;model&gt;/tf/report.md</code>. 5,320 answers per model,
+1 greedy + 4 samples, ≤ 64 tokens; judge agreement 0.96. PREREG <code>experiments/dream_select/PREREG.md</code> + addendum 1 (7919219).</p>
+<p>k = 8 judged: S-dream 0.16 / 0.32 / 0.34, S-loo 0.23 / 0.56 / 0.37, random ≈ 0.03–0.05. The unpaired "S-loo beats gold@k on the 7B" (0.56 vs 0.41) prompted the paired test in Stage A.</p></div></details>
+</article>
+
+<!-- literature -->
+<article class="entry" id="t-lit">
+<h3>5 Nov · Literature check: what is prior work</h3>
+<dl class="qa">
+  <dt>Question</dt><dd>Are automatic selection and cross-session KV memory already done? (Prompted by another assistant's claims about "KV-cache-centric memory".)</dd>
+  <dt>Result</dt><dd>Yes, at block level and for selection. <b>MemArt</b> (ICLR 2026 submission, rejected) already reuses past sessions' KV blocks training-free, retrieved by attention, positions re-encoded, on LoCoMo and PersonaMem. <b>KVzip</b>, <b>Expected Attention</b>, EpiCache and TaskPress select without the question. Dreamed questions ≈ the known self-study / future-query idea. Punctuation picks = the known sink and separator bias.</dd>
+</dl>
+<div class="tablewrap"><table>
+  <thead><tr><th>finding</th><th>verdict</th><th>closest</th></tr></thead>
+  <tbody>
+    <tr><td>Training-free cross-session KV reuse</td><td class="verdict-fail">known</td><td>MemArt, AgentKVShift, EpiCache</td></tr>
+    <tr><td>Choosing positions without the question</td><td class="verdict-fail">known</td><td>KVzip, Expected Attention, EpiCache, Attention Matching</td></tr>
+    <tr><td>S-dream (dreamed questions as the query)</td><td class="verdict-fail">known idea</td><td>Cartridges / Attention Matching self-study, LORE-KV</td></tr>
+    <tr><td>S-recon</td><td class="verdict-fail">weak KVzip</td><td>KVzip (per-head max; ours mean-pooled, shared)</td></tr>
+    <tr><td>S-loo beats attention</td><td class="verdict-mid">partly known</td><td>ContextCite, LORE-KV</td></tr>
+    <tr><td>Content vs licence on the same items</td><td class="verdict-mid">partly known</td><td>Compression-Aware Abstention, KVzip Table 1</td></tr>
+    <tr><td>2–8 single positions; slice vs the same text</td><td class="verdict-hold">ours</td><td>(MemArt is 2k–8k tokens in blocks)</td></tr>
+    <tr><td>Storage-order swaps</td><td class="verdict-hold">ours</td><td>no cache-reuse paper reports swaps</td></tr>
+  </tbody></table></div>
+<dl class="qa"><dt>Means</dt><dd>The website and paper 2 now cite MemArt; "eviction picks positions for a known question" is out of date. A reviewer would demand the real KVzip, SnapKV, Expected Attention and per-head variants head to head, which is what dream_compare Stage A is.</dd></dl>
+<details class="tech"><summary>Sources</summary><div><p><code>docs/dreaming/literature-select.md</code> (f06b98f; 21 PDFs incl. <code>papers/kv-memory-cross-session/</code>). Of the pasted claims: MemArt mostly right; arXiv 2603.04428 mis-cited; KEEP real but not about RoPE or cross-session; "RoPE gives gibberish" wrong inside the trained window.</p></div></details>
+</article>
+
+<!-- Nov 7 -->
+<article class="entry" id="t-fork">
+<h3>7 Nov · SLEEP check, Stage B repair, and the fork</h3>
+<dl class="qa">
+  <dt>SLEEP</dt><dd>Google's SLEEP (Behrouz et al., arXiv 2606.03979) is weight-based continual learning: new low-rank experts, distillation + RL, LoRA "dreaming" on self-generated data. Not frozen, no KV or activation memory, so no collision with our work. The word "dreaming" and offline consolidation as an idea are taken. Still ours: training-free, between-session consolidation on a frozen model's own KV positions and recurrent state (selection, storage order, joint re-encoding). Avoid "self-learning memory" outward; say "a memory the frozen model maintains itself".</dd>
+  <dt>Repair</dt><dd>Three Stage B jobs had run out of GPU memory (Llama PersonaMem and BEAM, Granite BEAM). Batch budgets were fixed (infrastructure only) and the jobs resubmitted with continuations. Llama then finished; Granite BEAM kept failing.</dd>
+  <dt>Fork</dt><dd>The conversation was split. <b>This branch</b>: training-free, understanding first (what a KV memory needs, why it fails). <b>The sibling branch</b>: small trained parts on a frozen backbone: an amortised S-loo, a licence gate or adapter, a learned key with verification, slice → LoRA consolidation, a trained binding signal. Its literature synthesis is <code>docs/trained/README.md</code>.</dd>
+</dl>
+<details class="tech"><summary>Sources</summary><div><p><code>docs/dreaming/literature-sleep.md</code> (4066774; 21 PDFs in <code>papers/sleep-consolidation/</code>); <code>docs/trained/README.md</code> (c888943). PREREG Stage B "Repair, 2026-11-07". The trained synthesis notes the licence gap is specific to slices (text RAG with sufficient context abstains 1.6–11%) and proposes an untrained β / attention-mass test first.</p></div></details>
+</article>
+
+</section>
+
+<!-- ============================================================ AHEAD -->
+<section id="ahead">
+<h2>What it means looking ahead</h2>
+<div class="two">
+<div>
+<h3>Claims that survive</h3>
+<ul class="claim-list keep">
+  <li>A 2-position slice carries a fact across sessions and beats the same tokens as text (Qwen2.5, the 2B, Llama).</li>
+  <li>The answer reads the value late from its own position; the subject's position decides whether the model answers (dream_subj).</li>
+  <li>Separately stored slices swap partners by storage order; storing in order fixes N = 3 and halves N = 5.</li>
+  <li>On the hybrid, the recurrent state is recognition and the attention entries are recall.</li>
+  <li>Teacher-forced scores overstate generation for every per-head selector (H3, 4 of 4 models), and the failure is mostly refusal.</li>
+  <li>The whole turn restored = the turn as text (to ~1e-4), on every model and benchmark checked.</li>
+</ul>
+</div>
+<div>
+<h3>Claims retracted or weakened</h3>
+<ul class="claim-list drop">
+  <li>"S-loo is the best automatic selector we tested." KVzip-g matches it on the 7B and beats it on Llama and Granite.</li>
+  <li>"S-loo beats the answer span (gold@k)." Paired, only on the 7B at k = 8 (+0.15); nowhere else.</li>
+  <li>"The licence gap is a property of slices." KVzip-g nearly closes it on the 7B and Llama, so it depends on what is kept. (It remains large on the 1.5B.)</li>
+  <li>"Stored cache keeps more than text." True only for tiny slices against their own tokens; at the turn level text RAG is as good or better (B1).</li>
+  <li>Dreamed questions as a new selector; cross-session KV reuse as new; "self-learning memory" as framing.</li>
+</ul>
+</div>
+</div>
+
+<h3>Open questions</h3>
+<ul class="claim-list open col">
+  <li><b>What does KVzip-g keep that carries the licence?</b> Its global budget lets some layers and heads keep many positions and others none. Does it keep the subject span, the entities, or specific early layers? dream_subj predicts the subject.</li>
+  <li><b>Is the licence a matter of attention mass?</b> Attention Matching's β (a per-entry bias so a compact cache keeps the original's mass) is an untrained test; the trained branch lists it as the first thing to try.</li>
+  <li><b>Why does the 1.5B behave differently?</b> KVzip-g's TF and judged gap closed are 0.59 vs 0.21 there; the 1.5B also refuses far more with no memory (0.85).</li>
+  <li><b>Is P3 &lt; P2 the collision effect at scale?</b> A turn encoded inside its session and restored alone lacks its neighbours. Would storing turns in order, or re-encoding the retrieved set jointly, close it?</li>
+  <li><b>Does cache memory pay anywhere?</b> Only time to first token favours it so far. Long histories with many questions per conversation, or the hybrid's fixed-size state, are the places it could.</li>
+</ul>
+
+<h3>Decisions pending</h3>
+<div class="tablewrap col"><table>
+  <thead><tr><th>decision</th><th>state</th></tr></thead>
+  <tbody>
+    <tr><td>Resume the repair: Gemma-4 (smoke tolerance on MoE routing; or drop it) and Granite BEAM (OOM 4×; 64 of 320 items)</td><td>not asked yet; options are smaller budgets, skip P1/P5 on BEAM, or report it partial</td></tr>
+    <tr><td>Let Stage B finish: Granite PersonaMem → judges → analysis → summary</td><td>queued; runs on its own</td></tr>
+    <tr><td>Refresh <code>HANDOVER.md</code> (stale since early November: no dream_select, literature checks or dream_compare)</td><td>to do</td></tr>
+    <tr><td>Paper 2 v2: an offline-consolidation paragraph (SLEEP, Lee et al.) and the MemArt / KVzip positioning</td><td>to do</td></tr>
+    <tr><td>Website: one-line SLEEP citation; stale main-page bullets (refusal = generic comply; storage order)</td><td>needs your go-ahead</td></tr>
+    <tr><td>Venue for paper 2: NAACL 2027 SRW (mentorship request by 16 Nov) or an ICLR 2027 workshop (list on 29 Nov)</td><td>open</td></tr>
+  </tbody></table></div>
+</section>
+
+<!-- ============================================================ GLOSSARY -->
+<section id="glossary">
+<h2>Glossary</h2>
+<h3>Slices and conditions</h3>
+<dl class="gloss">
+  <dt>slice</dt><dd>The cached K,V of some positions of a stored turn, computed in its original context, restored at their stored RoPE positions.</dd>
+  <dt>nomem</dt><dd>No memory: the question alone.</dd>
+  <dt>ctx</dt><dd>The experience sentence in the same user turn as the question.</dd>
+  <dt>R-full</dt><dd>Every position of the stored turn restored. Equals T-full (the turn as text in an earlier turn).</dd>
+  <dt>R-content</dt><dd>R-full without the turn's template tokens.</dd>
+  <dt>R-min</dt><dd>2 positions: the value and the next token.</dd>
+  <dt>R+subj, R+fill, R+rel</dt><dd>R-min plus the subject's last token / the "is" before the value / the token "name".</dd>
+  <dt>R-subj2</dt><dd>Subject + value (2 positions).</dd>
+  <dt>R-orphan</dt><dd>A slice harvested after an unrelated exchange.</dd>
+  <dt>T-min, T-subj3</dt><dd>The same tokens as R-min / R+subj given as plain text.</dd>
+  <dt>R-min-state</dt><dd>On the hybrid 2B: 2 attention positions plus the DeltaNet recurrent state.</dd>
+  <dt>gold</dt><dd>The answer's tokens + 1 (uses the label; verbatim items only).</dd>
+  <dt>gold@k</dt><dd>k tokens around the answer (uses the label).</dd>
+  <dt>k, k10</dt><dd>Positions kept per memory; k10 = 10% of the turn's content tokens (min 2). In Stage A, matched in K,V entries.</dd>
+</dl>
+<h3>Selectors</h3>
+<dl class="gloss">
+  <dt>S-dream</dt><dd>Attention to the turn from 3 questions the model dreams about it (shared positions).</dd>
+  <dt>S-attn</dt><dd>Mean attention a position receives inside the turn (H2O family).</dd>
+  <dt>S-recon</dt><dd>Attention while the model repeats the turn (a mean-pooled, shared form of KVzip's idea).</dd>
+  <dt>S-loo</dt><dd>Leave-one-out: drop each position, measure the drop in log P of the model's own answers to its dreamed questions.</dd>
+  <dt>S-dream-VATP</dt><dd>S-dream's attention × the value norm (exploratory).</dd>
+  <dt>random, last-k</dt><dd>Random positions (seeded) / the last k tokens.</dd>
+  <dt>KVzip-g / -ph / -sh</dt><dd>KVzip (Kim et al. 2025): max attention during a "repeat the context" pass. g = one global budget over all layers and KV heads (official); ph = top-k per head; sh = one shared set.</dd>
+  <dt>SnapKV-dream / -oracle</dt><dd>SnapKV's pooled observation-window vote, with the dreamed questions / the real question (a cheating ceiling).</dd>
+  <dt>H2O</dt><dd>Accumulated attention (heavy hitters) + recent tokens.</dd>
+  <dt>VATP</dt><dd>H2O's score × the value's l1 norm.</dd>
+  <dt>EA (Expected Attention)</dt><dd>Attention from a Gaussian model of future queries, × value norm (KVPress).</dd>
+  <dt>StreamingLLM</dt><dd>The first and last tokens (sink + recent window).</dd>
+  <dt>per-head (ph) vs shared (sh)</dt><dd>Each (layer, KV head) keeps its own positions vs one set for all.</dd>
+</dl>
+<h3>Paradigms and rules</h3>
+<dl class="gloss">
+  <dt>P0 … P5s</dt><dd>Stage B memory paradigms: no memory, full context, text RAG, KV RAG, Seahorse sparse (P4loo / P4dream), MemArt-style blocks (P5; P5s matched to P4's budget). See the table in Stage B.</dd>
+  <dt>m</dt><dd>Turns retrieved by BM25 (3 or 10; PersonaMem sessions, 1 or 3).</dd>
+  <dt>H1–H4</dt><dd>Stage A rules: KVzip > S-recon; per-head > shared; the licence gap is general; S-loo vs the best baseline.</dd>
+  <dt>B1–B5</dt><dd>Stage B rules: text vs KV equivalence; sparse vs full; sparse vs MemArt at equal storage; Pareto frontier; refusal per paradigm.</dd>
+  <dt>gap closed</dt><dd>(condition − nomem) / (R-full − nomem), on the TF answer score or on judged correctness.</dd>
+  <dt>licence</dt><dd>What makes the model answer from a memory rather than refuse; the licence gap = TF gap closed − judged gap closed.</dd>
+  <dt>storage order</dt><dd>The order in which memories are encoded; storing the k-th memory as the k-th fact gives each its own binding tag.</dd>
+  <dt>judges</dt><dd>Qwen3.5-9B (original), gpt-oss, Gemma-4; majority, ties to the original.</dd>
+</dl>
+</section>
+
+<!-- ============================================================ WHERE -->
+<section id="where">
+<h2>Where things live</h2>
+<div class="two">
+<div>
+<h3>Read these to resume</h3>
+<ol class="paths">
+  <li>Memory notes: <code>dream-select-plan.md</code> (the history), <code>training-free-side-fork.md</code>, <code>trained-side-fork.md</code></li>
+  <li>This document: <code>Seahorse/docs/catchup/2026-11-10/</code> (<code>README.md</code>, <code>catchup.md</code>)</li>
+  <li><code>/home/vedantjumle/.claude/plans/replicated-wondering-hoare.md</code> and <code>experiments/dream_compare/PREREG.md</code></li>
+  <li><code>results/dream_compare_a_20261105_1822/summary_a.md</code> + per-model <code>report_a.md</code></li>
+  <li><code>results/dream_compare_b_20261105_1915/&lt;model&gt;/report_b.md</code> (partial)</li>
+  <li><code>docs/dreaming/literature-select.md</code>, <code>literature-sleep.md</code>; <code>docs/trained/README.md</code></li>
+  <li><code>HANDOVER.md</code> §1, §8, §10 (stale for the last two weeks)</li>
+</ol>
+</div>
+<div>
+<h3>Every source used here</h3>
+<ul class="paths">
+  <li><code>results/dream_subj_20261022_1755/report.md</code>; <code>experiments/dream_subj/PREREG.md</code></li>
+  <li><code>results/dream_select_20261104_0032/report.md</code>; <code>experiments/dream_select/PREREG.md</code></li>
+  <li><code>results/dream_select_cluster_20261104_0129/</code>: <code>summary.md|json</code>, <code>&lt;model&gt;/report_gen.md</code>, <code>verdict_gen.json</code>, <code>tf/report.md</code></li>
+  <li><code>results/dream_compare_a_20261105_1822/</code>: <code>summary_a.md|json</code>, <code>&lt;model&gt;/report_a.md</code>, <code>verdict_a.json</code></li>
+  <li><code>results/dream_compare_b_20261105_1915/</code>: <code>&lt;model&gt;/report_b.md</code>, <code>verdict_b.json</code>, <code>jobs.txt</code></li>
+  <li><code>docs/dreaming/01-binding.md</code> (addenda 7–9)</li>
+  <li>Cluster: <code>/scratch/vvjumle/seahorse_runs/dream_compare_b_20261105_1915</code>, logs in <code>/scratch/vvjumle/logs/</code></li>
+</ul>
+</div>
+</div>
+</section>
+
+<footer>Seahorse is an independent side project by Vedant Jumle. Catch-up written 10 Nov 2026 from the run outputs; Stage B numbers will change when Granite finishes.</footer>
+</div>
+
+<script type="application/json" id="data">/*DATA*/{}</script>
+<script>
+(function () {
+  var D = JSON.parse(document.getElementById('data').textContent);
+  var NS = 'http://www.w3.org/2000/svg';
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function fx(v, d) { return v == null || isNaN(v) ? '–' : Number(v).toFixed(d == null ? 2 : d); }
+  function ciTxt(c, d) { return c ? fx(c.mean, d) + ' [' + fx(c.lo, d) + ', ' + fx(c.hi, d) + ']' : '–'; }
+  function scale(d0, d1, r0, r1) { return function (v) { return r0 + (v - d0) / (d1 - d0) * (r1 - r0); }; }
+  function ticksFor(d0, d1, step) { var t = [], v = Math.ceil(d0 / step - 1e-9) * step; for (; v <= d1 + 1e-9; v += step) t.push(+v.toFixed(6)); return t; }
+  function table(head, rows) {
+    return '<div class="tablewrap"><table><thead><tr>' + head.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') +
+      '</tr></thead><tbody>' + rows.map(function (r) { return '<tr>' + r.map(function (c, i) { return '<td' + (i ? ' class="num"' : '') + '>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+  }
+  var COL = { s1: 'var(--s1)', s2: 'var(--s2)', s3: 'var(--s3)', grey: 'var(--grey)' };
+
+  /* KV grid in the mechanism diagram */
+  (function () {
+    var g = document.getElementById('kvgrid'); if (!g) return;
+    var xs = [51, 110, 163, 212, 263, 314, 373, 429], kept = { 2: 's2', 6: 's1', 7: 's1' }, out = '';
+    for (var r = 0; r < 5; r++) for (var c = 0; c < xs.length; c++) {
+      var k = kept[c]; out += '<rect x="' + (xs[c] - 9) + '" y="' + (132 + r * 15) + '" width="18" height="11" rx="2" fill="' +
+        (k ? COL[k] : 'var(--grid)') + '" opacity="' + (k ? 0.9 : 1) + '"/>';
+    }
+    out += '<text x="20" y="225" class="t-muted">rows = layers (5 of 28 drawn), columns = positions</text>';
+    g.innerHTML = out;
+  })();
+
+  /* generic horizontal CI chart: rows [{label, series:[{c:{mean,lo,hi}, color, hollow, tip}] , right}] */
+  function ciChart(opts) {
+    var rows = opts.rows, W = opts.width || 560, L = opts.left || 120, R = opts.right || 20, rowH = opts.rowH || 24, T = 14, B = 34;
+    var H = T + rows.length * rowH + B, x = scale(opts.d0, opts.d1, L, W - R), s = '';
+    s += '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(opts.aria) + '">';
+    ticksFor(opts.d0, opts.d1, opts.step).forEach(function (t) {
+      s += '<line class="grid" x1="' + x(t) + '" x2="' + x(t) + '" y1="' + T + '" y2="' + (H - B) + '"/>';
+      s += '<text x="' + x(t) + '" y="' + (H - B + 16) + '" text-anchor="middle" class="t-mono">' + (opts.tickFmt ? opts.tickFmt(t) : t) + '</text>';
+    });
+    if (opts.xlabel) s += '<text x="' + ((L + W - R) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="t-muted">' + esc(opts.xlabel) + '</text>';
+    if (opts.band) s += '<rect x="' + x(opts.band[0]) + '" y="' + T + '" width="' + (x(opts.band[1]) - x(opts.band[0])) + '" height="' + (H - B - T) + '" fill="var(--band)"/>';
+    if (opts.zero != null) s += '<line class="axis" x1="' + x(opts.zero) + '" x2="' + x(opts.zero) + '" y1="' + T + '" y2="' + (H - B) + '"/>';
+    if (opts.ref != null) s += '<line x1="' + x(opts.ref) + '" x2="' + x(opts.ref) + '" y1="' + T + '" y2="' + (H - B) + '" stroke="var(--fg2)" stroke-dasharray="4 3" stroke-width="1.5"/>';
+    rows.forEach(function (r, i) {
+      var cy = T + i * rowH + rowH / 2, n = r.series.length;
+      s += '<g tabindex="0" data-tip="' + esc(r.tip || '') + '"><rect class="hit" x="0" y="' + (cy - rowH / 2) + '" width="' + W + '" height="' + rowH + '"/>';
+      s += '<text x="' + (L - 8) + '" y="' + (cy + 4) + '" text-anchor="end" class="' + (r.bold ? 't-label' : '') + '" style="' + (r.bold ? 'font-weight:600' : '') + '">' + esc(r.label) + '</text>';
+      r.series.forEach(function (p, j) {
+        if (!p.c || p.c.mean == null) return;
+        var y = cy + (n > 1 ? (j - (n - 1) / 2) * Math.min(6, (rowH - 8) / n) : 0);
+        var lo = p.c.lo != null ? p.c.lo : p.c.mean, hi = p.c.hi != null ? p.c.hi : p.c.mean;
+        s += '<line x1="' + x(Math.max(opts.d0, lo)) + '" x2="' + x(Math.min(opts.d1, hi)) + '" y1="' + y + '" y2="' + y + '" stroke="' + p.color + '" stroke-width="2" stroke-linecap="round"/>';
+        s += '<circle cx="' + x(Math.max(opts.d0, Math.min(opts.d1, p.c.mean))) + '" cy="' + y + '" r="' + (p.r || 4.5) + '" fill="' + (p.hollow ? 'var(--surface)' : p.color) + '" stroke="' + (p.hollow ? p.color : 'var(--surface)') + '" stroke-width="' + (p.hollow ? 2 : 1.5) + '"/>';
+      });
+      if (r.right != null) s += '<text x="' + (W - 4) + '" y="' + (cy + 4) + '" text-anchor="end" class="t-mono">' + esc(r.right) + '</text>';
+      s += '</g>';
+    });
+    if (opts.rightHead) s += '<text x="' + (W - 4) + '" y="' + (T - 2) + '" text-anchor="end" class="t-muted" style="font-size:11px">' + esc(opts.rightHead) + '</text>';
+    return s + '</svg>';
+  }
+
+  /* ---------- dream_subj ---------- */
+  (function () {
+    var order = ['nomem', 'T-min', 'T-subj3', 'R-min', 'R+fill', 'R+rel', 'R-subj2', 'R+subj', 'R-full', 'ctx'];
+    var rows = order.map(function (c) {
+      var r = D.subj[c], col = c === 'R+subj' ? COL.s2 : (c === 'R-min' ? COL.s1 : (c.charAt(0) === 'T' || c === 'nomem' ? COL.grey : 'var(--fg2)'));
+      return { label: c, bold: c === 'R+subj', series: [{ c: r.answer, color: col }], right: fx(r.refusal.mean),
+        tip: c + '\nanswer score ' + ciTxt(r.answer) + ' nats\nrefusal mass ' + ciTxt(r.refusal) + '\nTF yes/no ' + ciTxt(r.yesno) };
+    });
+    document.getElementById('fig-subj').innerHTML = ciChart({ rows: rows, d0: -10, d1: 0, step: 2, left: 80, right: 70, width: 640, rowH: 26,
+      xlabel: 'answer score (nats; higher = answers instead of refusing)', rightHead: 'refusal', aria: 'Answer score per slice condition; R+subj is close to R-full and far above R-min.' });
+    document.getElementById('tab-subj').innerHTML = table(['condition', 'answer score', 'refusal mass', 'TF yes/no', 'target gain (nats)'],
+      order.map(function (c) { var r = D.subj[c]; return [c, ciTxt(r.answer), ciTxt(r.refusal), ciTxt(r.yesno), ciTxt(r.target)]; })) +
+      table(['paired contrast (answer score)', 'mean [95% CI]'], ['R+subj − R-min', 'R+subj − R+fill', 'R+subj − R+rel', 'R+fill − R-min', 'R+rel − R-min', 'R-subj2 − R-min', 'R-full − R+subj', 'R+subj − T-subj3']
+        .map(function (k) { return [k, ciTxt(D.subj_contrasts[k])]; }));
+  })();
+
+  /* ---------- dream_select dumbbells ---------- */
+  (function () {
+    var conds = [['gold', 'gold'], ['gold@k@k8', 'gold@k'], ['S-loo@k8', 'S-loo'], ['S-dream@k8', 'S-dream'], ['S-attn@k8', 'S-attn'], ['S-recon@k8', 'S-recon'], ['random@k8', 'random']];
+    var host = document.getElementById('fig-select'), html = '', trows = [];
+    Object.keys(D.select).forEach(function (m) {
+      var S = D.select[m], rows = conds.map(function (cc) {
+        var r = S.rows[cc[0]], tf = r.tf_gap, gg = r.gen_gap;
+        return { label: cc[1], series: [], tf: tf, gg: gg, ref: r.refusal, cor: r.correct, tip: S.label + ' · ' + cc[1] + '\nTF gap closed ' + ciTxt(tf) + '\njudged gap closed ' + ciTxt(gg) + '\njudged correct ' + ciTxt(r.correct) + '\nrefusal ' + ciTxt(r.refusal) };
+      });
+      var W = 420, L = 70, Rr = 50, rowH = 26, T = 12, B = 34, H = T + rows.length * rowH + B, x = scale(-0.05, 1.05, L, W - Rr), s = '';
+      s += '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(S.label + ': teacher-forced gap closed is higher than judged gap closed for every selector') + '">';
+      [0, 0.25, 0.5, 0.75, 1].forEach(function (t) { s += '<line class="grid" x1="' + x(t) + '" x2="' + x(t) + '" y1="' + T + '" y2="' + (H - B) + '"/><text x="' + x(t) + '" y="' + (H - B + 16) + '" text-anchor="middle" class="t-mono">' + t + '</text>'; });
+      s += '<text x="' + ((L + W - Rr) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="t-muted">gap closed</text>';
+      s += '<text x="' + (W - 4) + '" y="' + (T - 1) + '" text-anchor="end" class="t-muted" style="font-size:11px">refusal</text>';
+      rows.forEach(function (r, i) {
+        var cy = T + i * rowH + rowH / 2;
+        s += '<g tabindex="0" data-tip="' + esc(r.tip) + '"><rect class="hit" x="0" y="' + (cy - rowH / 2) + '" width="' + W + '" height="' + rowH + '"/>';
+        s += '<text x="' + (L - 8) + '" y="' + (cy + 4) + '" text-anchor="end">' + esc(r.label) + '</text>';
+        if (r.tf && r.gg) {
+          s += '<line x1="' + x(r.gg.mean) + '" x2="' + x(Math.min(1.05, r.tf.mean)) + '" y1="' + cy + '" y2="' + cy + '" stroke="var(--axis)" stroke-width="3"/>';
+          s += '<circle cx="' + x(Math.min(1.05, r.tf.mean)) + '" cy="' + cy + '" r="5" fill="var(--surface)" stroke="var(--fg2)" stroke-width="2"/>';
+          s += '<circle cx="' + x(r.gg.mean) + '" cy="' + cy + '" r="5" fill="var(--s1)" stroke="var(--surface)" stroke-width="1.5"/>';
+        }
+        s += '<text x="' + (W - 4) + '" y="' + (cy + 4) + '" text-anchor="end" class="t-mono">' + (r.ref ? fx(r.ref.mean) : '–') + '</text></g>';
+        trows.push([S.label + ' · ' + r.label + (r.label === 'gold' ? '' : ' (k8)'), ciTxt(r.tf), ciTxt(r.gg), ciTxt(r.cor), ciTxt(r.ref)]);
+      });
+      ['S-loo@k4', 'S-dream@k4', 'random@k4', 'gold@k@k4'].forEach(function (k) { var r = S.rows[k]; trows.push([S.label + ' · ' + k.replace('@k@', '@'), ciTxt(r.tf_gap), ciTxt(r.gen_gap), ciTxt(r.correct), ciTxt(r.refusal)]); });
+      var rf = S.rows['R-full']; trows.push([S.label + ' · R-full', ciTxt(rf.tf_gap), ciTxt(rf.gen_gap), ciTxt(rf.correct), ciTxt(rf.refusal)]);
+      html += '<div><div class="panel-title">' + esc(S.label) + ' · whole turn judged ' + fx(S.rows['R-full'].correct.mean) + '</div><div class="chart">' + s + '</svg></div></div>';
+    });
+    host.innerHTML = html;
+    document.getElementById('tab-select').innerHTML = table(['model · condition', 'TF gap closed', 'judged gap closed', 'judged correct', 'refusal (gen)'], trows) +
+      '<p>Rule (generation, k = 4, S-dream − random): ' + Object.keys(D.select).map(function (m) { var r = D.select[m].rule; return esc(D.select[m].label) + ' ' + ciTxt(r.ci, 3) + (r.holds ? ' holds' : ' does not hold'); }).join('; ') + '. Verdict: ' + esc(D.select_summary.verdict) + ' (' + D.select_summary.held + ' of ' + D.select_summary.n_done + ').</p>';
+  })();
+
+  /* ---------- Stage A ---------- */
+  var A = D.stageA, AM = Object.keys(A);
+  var AC = ['KVzip-g', 'KVzip-ph', 'KVzip-sh', 'S-loo', 'S-dream', 'S-attn', 'S-recon', 'S-dream-VATP', 'EA-ph', 'SnapKV-dream-ph', 'SnapKV-dream-sh', 'H2O-ph', 'H2O-sh', 'VATP-ph', 'StreamingLLM', 'random', 'SnapKV-oracle-ph', 'gold@k'];
+  function aColor(c) { if (c === 'KVzip-g') return { color: COL.s2 }; if (/^S-/.test(c)) return { color: COL.s1 }; if (c === 'SnapKV-oracle-ph' || c === 'gold@k') return { color: COL.grey, hollow: true }; return { color: COL.grey }; }
+  (function () {
+    var avg = {}; AC.forEach(function (c) { var s = 0, n = 0; AM.forEach(function (m) { var v = A[m].rows[c].correct; if (v) { s += v.mean; n++; } }); avg[c] = s / n; });
+    var order = AC.slice().sort(function (a, b) { return avg[b] - avg[a]; });
+    var html = '', trows = [];
+    AM.forEach(function (m) {
+      var rows = order.map(function (c) {
+        var r = A[m].rows[c], st = aColor(c);
+        return { label: c, bold: c === 'KVzip-g' || c === 'S-loo', series: [{ c: r.correct, color: st.color, hollow: st.hollow }],
+          tip: A[m].label + ' · ' + c + '\njudged correct ' + ciTxt(r.correct) + '\nrefusal ' + ciTxt(r.refusal) + '\nTF gap closed ' + ciTxt(r.tf_gap) + '\njudged gap closed ' + ciTxt(r.gen_gap) };
+      });
+      html += '<div><div class="panel-title">' + esc(A[m].label) + ' · R-full ' + fx(A[m].rows['R-full'].correct.mean) + ' · no memory ' + fx(A[m].rows['nomem'].correct.mean) + '</div><div class="chart">' +
+        ciChart({ rows: rows, d0: 0, d1: 0.8, step: 0.2, left: 118, right: 12, width: 420, rowH: 19, ref: A[m].rows['R-full'].correct.mean, xlabel: 'judged correct', aria: A[m].label + ' judged correctness per selector at k = 8' }) + '</div></div>';
+    });
+    document.getElementById('fig-stagea').innerHTML = html;
+    order.forEach(function (c) { trows.push([c].concat(AM.map(function (m) { return ciTxt(A[m].rows[c].correct); }))); });
+    ['R-full', 'ctx', 'nomem'].forEach(function (c) { trows.push([c].concat(AM.map(function (m) { return ciTxt(A[m].rows[c].correct); }))); });
+    var rr = AM.map(function (m) {
+      var R = A[m].rules, h3 = R.H3.per_method;
+      return [A[m].label, (R.H1.holds ? 'holds' : 'no') + ' (' + R.H1.kvzip_form + ' − S-recon ' + ciTxt(R.H1.ci, 3) + ')', (R.H2.holds ? 'holds' : 'no') + ' (' + R.H2.n_methods + '/3)',
+        (R.H3.passes ? 'passes' : 'fails') + ' (' + R.H3.n_methods + '/4)', R.H4.direction + ' (S-loo − ' + R.H4.best_baseline + ' ' + ciTxt(R.H4.ci, 3) + ')',
+        R['S-loo vs gold@k'].k8.direction + ' ' + ciTxt(R['S-loo vs gold@k'].k8.ci, 3)];
+    });
+    document.getElementById('tab-stagea').innerHTML = table(['condition (k8)'].concat(AM.map(function (m) { return A[m].label; })), trows) +
+      table(['model', 'H1', 'H2', 'H3', 'H4', 'S-loo − gold@k (k8)'], rr) +
+      '<p>H3 across models: ' + esc(D.stageA_summary.H3) + ' (' + D.stageA_summary.n_pass_H3 + ' of ' + D.stageA_summary.n_done + '). H1 on ' + D.stageA_summary.n_H1 + ', H2 on ' + D.stageA_summary.n_H2 + ' of ' + D.stageA_summary.n_done + '.</p>';
+  })();
+
+  /* licence scatter */
+  (function () {
+    var H3m = ['KVzip-ph', 'SnapKV-dream-ph', 'H2O-ph', 'VATP-ph'], others = ['EA-ph', 'S-dream', 'gold@k', 'KVzip-sh', 'S-recon', 'random'];
+    var html = '';
+    AM.forEach(function (m) {
+      var W = 340, H = 300, L = 44, Rr = 14, T = 12, B = 40, d1 = 1.4, x = scale(0, d1, L, W - Rr), y = scale(0, d1, H - B, T), s = '';
+      s += '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(A[m].label + ': teacher-forced vs judged gap closed per method') + '">';
+      [0, 0.5, 1].forEach(function (t) {
+        s += '<line class="grid" x1="' + x(t) + '" x2="' + x(t) + '" y1="' + T + '" y2="' + (H - B) + '"/><line class="grid" x1="' + L + '" x2="' + (W - Rr) + '" y1="' + y(t) + '" y2="' + y(t) + '"/>';
+        s += '<text x="' + x(t) + '" y="' + (H - B + 15) + '" text-anchor="middle" class="t-mono">' + t + '</text><text x="' + (L - 6) + '" y="' + (y(t) + 4) + '" text-anchor="end" class="t-mono">' + t + '</text>';
+      });
+      s += '<line x1="' + x(0) + '" y1="' + y(0) + '" x2="' + x(d1) + '" y2="' + y(d1) + '" stroke="var(--axis)" stroke-dasharray="4 3"/>';
+      s += '<text x="' + ((L + W - Rr) / 2) + '" y="' + (H - 6) + '" text-anchor="middle" class="t-muted">teacher-forced gap closed</text>';
+      s += '<text transform="translate(12,' + ((T + H - B) / 2) + ') rotate(-90)" text-anchor="middle" class="t-muted">judged gap closed</text>';
+      function pt(c, color, hollow, label) {
+        var r = A[m].rows[c]; if (!r || !r.tf_gap || !r.gen_gap) return '';
+        var px = x(Math.min(d1, r.tf_gap.mean)), py = y(Math.max(0, Math.min(d1, r.gen_gap.mean)));
+        var o = '<g tabindex="0" data-tip="' + esc(A[m].label + ' · ' + c + '\nTF gap closed ' + ciTxt(r.tf_gap) + '\njudged gap closed ' + ciTxt(r.gen_gap) + '\njudged correct ' + ciTxt(r.correct)) + '">';
+        o += '<circle cx="' + px + '" cy="' + py + '" r="11" class="hit"/><circle cx="' + px + '" cy="' + py + '" r="5.5" fill="' + (hollow ? 'var(--surface)' : color) + '" stroke="' + (hollow ? color : 'var(--surface)') + '" stroke-width="' + (hollow ? 2 : 1.5) + '"/>';
+        if (label) o += '<text x="' + (c === 'S-loo' ? px - 9 : px + (px > W - 90 ? -9 : 9)) + '" y="' + (c === 'S-loo' ? py + 17 : py - 8) + '" text-anchor="' + (c === 'S-loo' || px > W - 90 ? 'end' : 'start') + '" class="t-label" style="font-size:11.5px">' + esc(c) + '</text>';
+        return o + '</g>';
+      }
+      others.forEach(function (c) { s += pt(c, COL.grey, true, false); });
+      H3m.forEach(function (c) { s += pt(c, COL.grey, false, false); });
+      s += pt('S-loo', COL.s1, false, true); s += pt('KVzip-g', COL.s2, false, true);
+      html += '<div><div class="panel-title">' + esc(A[m].label) + '</div><div class="chart">' + s + '</svg></div></div>';
+    });
+    document.getElementById('fig-licence').innerHTML = html;
+  })();
+
+  /* ---------- Stage B ---------- */
+  var BM = Object.keys(D.stageB), MCOL = [COL.s1, COL.s2, COL.s3];
+  var BENCH = [['longmemeval_oracle', 'LongMemEval oracle'], ['longmemeval_s120', 'LongMemEval S-120'], ['locomo_locomo10', 'LoCoMo'], ['beam_100K', 'BEAM-100K'], ['personamem_32k', 'PersonaMem-32k']];
+  document.getElementById('legend-b').innerHTML = BM.map(function (m, i) { return '<span><i class="sw" style="background:' + MCOL[i] + '"></i>' + esc(D.stageB[m].label) + '</span>'; }).join('');
+  (function () {
+    var conds = ['P0', 'P1', 'P2-3', 'P3-3', 'P4loo-3', 'P4dream-3', 'P5-3', 'P5s-3'], html = '', trows = [];
+    BENCH.forEach(function (b) {
+      var rows = conds.map(function (c) {
+        var tip = b[1] + ' · ' + c, series = BM.map(function (m, i) {
+          var r = D.stageB[m].benches[b[0]].table[c];
+          if (!r || r.correct == null) { tip += '\n' + D.stageB[m].label + ': not run'; return { c: null }; }
+          tip += '\n' + D.stageB[m].label + ': ' + fx(r.correct, 3) + ' [' + fx(r.lo, 3) + ', ' + fx(r.hi, 3) + '] n=' + r.n + (r.refusal != null ? ', refusal ' + fx(r.refusal) : '');
+          return { c: { mean: r.correct, lo: r.lo, hi: r.hi }, color: MCOL[i], r: 4 };
+        });
+        return { label: c, series: series, tip: tip };
+      });
+      html += '<div><div class="panel-title">' + esc(b[1]) + '</div><div class="chart">' + ciChart({ rows: rows, d0: 0, d1: 0.6, step: 0.1, left: 74, right: 12, width: 400, rowH: 24, xlabel: 'judged correct', aria: b[1] + ': correctness per paradigm and model' }) + '</div></div>';
+      conds.concat(['P2-10', 'P3-10', 'P4dream-10', 'P5-10']).forEach(function (c) {
+        trows.push([b[1] + ' · ' + c].concat(BM.map(function (m) { var r = D.stageB[m].benches[b[0]].table[c]; return r && r.correct != null ? fx(r.correct, 3) + ' [' + fx(r.lo, 3) + ', ' + fx(r.hi, 3) + ']' : '–'; })));
+      });
+    });
+    document.getElementById('fig-stageb').innerHTML = html;
+    document.getElementById('tab-stageb').innerHTML = table(['benchmark · condition'].concat(BM.map(function (m) { return D.stageB[m].label; })), trows);
+  })();
+
+  /* B1 forest */
+  (function () {
+    var rows = [];
+    BM.forEach(function (m, i) {
+      BENCH.forEach(function (b) {
+        var r = D.stageB[m].benches[b[0]].rules.B1_m3; if (!r || r.diff == null) return;
+        rows.push({ label: D.stageB[m].label.replace('Qwen2.5-', 'Q-').replace('Llama-3.2-', 'L-') + ' · ' + b[1].replace('LongMemEval ', 'LME ').replace('PersonaMem-32k', 'PersonaMem').replace('BEAM-100K', 'BEAM'),
+          series: [{ c: { mean: r.diff, lo: r.lo95, hi: r.hi95 }, color: MCOL[i] }], tip: D.stageB[m].label + ' · ' + b[1] + '\nP3 − P2 ' + fx(r.diff, 3) + ' [' + fx(r.lo95, 3) + ', ' + fx(r.hi95, 3) + ']\nverdict: ' + r.verdict });
+      });
+      var p = D.stageB[m].pooled.m3;
+      rows.push({ label: D.stageB[m].label + ' pooled', bold: true, series: [{ c: { mean: p.diff, lo: p.lo95, hi: p.hi95 }, color: MCOL[i], r: 6 }], tip: D.stageB[m].label + ' pooled over ' + p.cells + ' cells\n' + fx(p.diff, 3) + ' [' + fx(p.lo95, 3) + ', ' + fx(p.hi95, 3) + ']\nverdict: ' + p.verdict });
+    });
+    document.getElementById('fig-b1').innerHTML = ciChart({ rows: rows, d0: -0.15, d1: 0.1, step: 0.05, left: 150, right: 12, width: 460, rowH: 20, zero: 0, band: [-0.03, 0.03],
+      tickFmt: function (t) { return t.toFixed(2); }, xlabel: 'P3 − P2 judged correct', aria: 'Forest plot: KV RAG minus text RAG; most intervals lie left of zero' });
+  })();
+
+  /* thread boxes (numbers from data) */
+  (function () {
+    var g = document.getElementById('thread-boxes'); if (!g) return;
+    var sj = D.subj, sel = D.select, A7 = D.stageA.qwen25_7b.rows, AL = D.stageA.llama32_3b.rows;
+    function gm(k) { return Object.keys(sel).map(function (m) { return fx(sel[m].rows.gold[k].mean); }).join(' / '); }
+    var p7 = D.stageB.qwen25_7b ? D.stageB.qwen25_7b.pooled.m3.diff : null;
+    var boxes = [
+      ['dream_subj · 22 Oct', 'A slice needs the subject', ['to be answered from', '+' + fx(D.subj_contrasts['R+subj − R-min'].mean) + ' nats answer score', 'refusal ' + fx(sj['R-min'].refusal.mean) + ' → ' + fx(sj['R+subj'].refusal.mean), 'the value itself unchanged']],
+      ['dream_select · 4 Nov', 'Content is kept, use is not', ['gold (answer span), k = all:', 'TF gap ' + gm('tf_gap'), 'judged ' + Object.keys(sel).map(function (m) { return fx(sel[m].rows.gold.correct.mean); }).join(' / '), 'refusal ' + fx(sel.qwen25_15b.rows.gold.refusal.mean) + ' (1.5B), ' + fx(sel.llama32_3b.rows.gold.refusal.mean) + ' (Llama)']],
+      ['Stage A · 9 Nov', 'The gap is general …', ['H3 holds on ' + D.stageA_summary.n_pass_H3 + ' of ' + D.stageA_summary.n_done + ' models', '… except KVzip-g (global budget)', '7B TF ' + fx(A7['KVzip-g'].tf_gap.mean) + ' vs judged ' + fx(A7['KVzip-g'].gen_gap.mean), 'Llama ' + fx(AL['KVzip-g'].tf_gap.mean) + ' vs ' + fx(AL['KVzip-g'].gen_gap.mean)]],
+      ['Stage B · 8–10 Nov', 'End to end, text wins', ['KV RAG − text RAG ' + fx(p7, 3) + ' (7B)', 'sparse vs full cache −0.10 to −0.29', 'sparse refuses more: +0.05 to +0.26', 'full cache ≈ 1–7 × 10⁴ × text bytes']]
+    ];
+    var asks = ['what keeps the licence?', 'is it our selectors?', 'does it matter end to end?'];
+    var out = '', bw = 214, gap = 38, x0 = 8;
+    boxes.forEach(function (b, i) {
+      var x = x0 + i * (bw + gap);
+      out += '<rect x="' + x + '" y="40" width="' + bw + '" height="190" rx="6" fill="var(--surface)" stroke="' + (i === 2 ? 'var(--s2)' : 'var(--axis)') + '" stroke-width="' + (i === 2 ? 2 : 1) + '"/>';
+      out += '<text x="' + (x + 14) + '" y="64" class="t-mono t-muted">' + esc(b[0]) + '</text>';
+      out += '<text x="' + (x + 14) + '" y="90" class="t-label" style="font-weight:600;font-size:14px">' + esc(b[1]) + '</text>';
+      b[2].forEach(function (l, k) { out += '<text x="' + (x + 14) + '" y="' + (118 + k * 24) + '" style="font-size:12.5px">' + esc(l) + '</text>'; });
+      if (i < 3) {
+        var ax = x + bw + 4;
+        out += '<line x1="' + ax + '" y1="135" x2="' + (ax + gap - 8) + '" y2="135" stroke="var(--fg2)" stroke-width="1.5" marker-end="url(#ar2)"/>';
+        out += '<text x="' + (x + bw + gap / 2) + '" y="262" text-anchor="middle" class="t-muted" style="font-size:11.5px">' + esc(asks[i]) + '</text>';
+        out += '<line x1="' + (x + bw + gap / 2) + '" y1="250" x2="' + (x + bw + gap / 2) + '" y2="150" stroke="var(--axis)" stroke-dasharray="2 3"/>';
+      }
+    });
+    out += '<text x="10" y="22" class="t-muted">one stored fact, teacher-forced</text><text x="990" y="22" text-anchor="end" class="t-muted">whole histories, judged</text>';
+    out += '<line x1="200" y1="18" x2="800" y2="18" stroke="var(--axis)" marker-end="url(#ar2)"/>';
+    g.innerHTML = out;
+  })();
+
+  /* Stage A rule contrasts */
+  (function () {
+    var rows = [], short = { qwen25_15b: '1.5B', qwen25_7b: '7B', llama32_3b: 'Llama', granite42_30b: 'Granite' };
+    var groups = [['KVzip-ph − KVzip-sh', function (R) { return R.H2.per_method['KVzip-ph - KVzip-sh'].ci; }],
+      ['SnapKV-dream ph − sh', function (R) { return R.H2.per_method['SnapKV-dream-ph - SnapKV-dream-sh'].ci; }],
+      ['H2O ph − sh', function (R) { return R.H2.per_method['H2O-ph - H2O-sh'].ci; }],
+      ['S-loo − best baseline', function (R) { return R.H4.ci; }],
+      ['S-loo − gold@k', function (R) { return R['S-loo vs gold@k'].k8.ci; }]];
+    groups.forEach(function (g, gi) {
+      AM.forEach(function (m, mi) {
+        var R = A[m].rules, c = g[1](R);
+        rows.push({ label: (mi === 0 ? g[0] + ' · ' : '') + short[m], bold: mi === 0, series: [{ c: c, color: [COL.s1, COL.s2, COL.s3, 'var(--fg2)'][mi] }],
+          tip: A[m].label + ' · ' + g[0] + (gi === 3 ? ' (' + R.H4.best_baseline + ')' : '') + '\n' + ciTxt(c, 3) + ', n=' + c.n });
+      });
+    });
+    document.getElementById('fig-rules').innerHTML = '<div class="legend">' + AM.map(function (m, i) { return '<span><i class="sw" style="background:' + [COL.s1, COL.s2, COL.s3, 'var(--fg2)'][i] + '"></i>' + esc(A[m].label) + '</span>'; }).join('') + '</div>' +
+      ciChart({ rows: rows, d0: -0.35, d1: 0.35, step: 0.1, left: 190, right: 14, width: 640, rowH: 19, zero: 0, tickFmt: function (t) { return t.toFixed(1); }, xlabel: 'paired difference in judged correct (k = 8)', aria: 'Paired rule contrasts for Stage A per model' });
+  })();
+
+  /* B5 refusal forest */
+  (function () {
+    var rows = [];
+    BM.forEach(function (m, i) {
+      BENCH.forEach(function (b) {
+        if (b[0] === 'personamem_32k') return;
+        var r = D.stageB[m].benches[b[0]].rules.B5_m3; if (!r || !r.P4dream_minus_P3 || r.P4dream_minus_P3.diff == null) return;
+        var a = r.P4dream_minus_P3, c = r.P3_minus_P2;
+        rows.push({ label: D.stageB[m].label.replace('Qwen2.5-', 'Q-').replace('Llama-3.2-', 'L-') + ' · ' + b[1].replace('LongMemEval ', 'LME ').replace('BEAM-100K', 'BEAM'),
+          series: [{ c: { mean: a.diff, lo: a.lo, hi: a.hi }, color: MCOL[i] }, { c: { mean: c.diff, lo: c.lo, hi: c.hi }, color: MCOL[i], hollow: true }],
+          tip: D.stageB[m].label + ' · ' + b[1] + '\nP4dream − P3 refusal ' + fx(a.diff, 3) + ' [' + fx(a.lo, 3) + ', ' + fx(a.hi, 3) + ']\nP3 − P2 refusal ' + fx(c.diff, 3) + ' [' + fx(c.lo, 3) + ', ' + fx(c.hi, 3) + ']' });
+      });
+    });
+    document.getElementById('fig-b5').innerHTML = ciChart({ rows: rows, d0: -0.1, d1: 0.4, step: 0.1, left: 150, right: 12, width: 460, rowH: 22, zero: 0,
+      tickFmt: function (t) { return t.toFixed(1); }, xlabel: 'difference in refusal rate', aria: 'Refusal differences: sparse slices refuse more than full cache on every cell' });
+  })();
+
+  /* B4 Pareto per benchmark, model toggle */
+  (function () {
+    var seg = document.getElementById('pareto-model'), host = document.getElementById('fig-pareto');
+    var cur = BM.indexOf('qwen25_7b') >= 0 ? 'qwen25_7b' : BM[0];
+    function kind(c) { return c === 'P0' ? 'grey' : /^P[12]/.test(c) ? 's3' : /^P4/.test(c) ? 's1' : 's2'; }
+    function draw() {
+      seg.innerHTML = BM.map(function (m) { return '<button type="button" id="pm-' + m + '" aria-pressed="' + (m === cur) + '" data-m="' + m + '">' + esc(D.stageB[m].label) + '</button>'; }).join('');
+      seg.querySelectorAll('button').forEach(function (b) { b.addEventListener('click', function () { cur = b.getAttribute('data-m'); draw(); bindTips(host); }); });
+      var html = '';
+      BENCH.forEach(function (b) {
+        var bench = D.stageB[cur].benches[b[0]], t = bench.table, front = (bench.rules.B4 || {}).storage || [];
+        var W = 420, H = 270, L = 44, Rr = 14, T = 12, B = 38, xmin = -2.6, xmax = 4.6, x = scale(xmin, xmax, L, W - Rr), ymax = 0.6, y = scale(0, ymax, H - B, T), s = '';
+        var X0 = -2.35;
+        s += '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(b[1] + ': correctness against storage for ' + D.stageB[cur].label) + '">';
+        [-1, 0, 1, 2, 3, 4].forEach(function (e) { s += '<line class="grid" x1="' + x(e) + '" x2="' + x(e) + '" y1="' + T + '" y2="' + (H - B) + '"/><text x="' + x(e) + '" y="' + (H - B + 15) + '" text-anchor="middle" class="t-mono">' + (e < 0 ? '0.1' : Math.pow(10, e) >= 1000 ? (Math.pow(10, e) / 1000) + 'k' : Math.pow(10, e)) + '</text>'; });
+        s += '<text x="' + x(X0) + '" y="' + (H - B + 15) + '" text-anchor="middle" class="t-mono">0</text>';
+        s += '<line class="axis" x1="' + x(-1.9) + '" x2="' + x(-1.9) + '" y1="' + T + '" y2="' + (H - B) + '" stroke-dasharray="2 3"/>';
+        [0, 0.2, 0.4, 0.6].forEach(function (v) { s += '<line class="grid" x1="' + L + '" x2="' + (W - Rr) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text x="' + (L - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end" class="t-mono">' + v.toFixed(1) + '</text>'; });
+        s += '<text x="' + ((L + W - Rr) / 2) + '" y="' + (H - 6) + '" text-anchor="middle" class="t-muted">MB per conversation (log)</text>';
+        var pts = [];
+        Object.keys(t).forEach(function (c) {
+          var r = t[c]; if (r.correct == null) return;
+          var mb = r.storage_bytes ? r.storage_bytes / 1e6 : 0, lx = mb > 0 ? Math.log10(mb) : X0;
+          pts.push({ c: c, r: r, px: x(Math.max(xmin, lx)), py: y(Math.min(ymax, r.correct)), mb: mb, front: front.indexOf(c) >= 0 });
+        });
+        var fp = pts.filter(function (q) { return q.front; }).sort(function (a, b2) { return a.px - b2.px; });
+        if (fp.length > 1) s += '<polyline points="' + fp.map(function (q) { return q.px + ',' + q.py; }).join(' ') + '" fill="none" stroke="var(--fg2)" stroke-width="1.5" stroke-dasharray="5 3"/>';
+        pts.sort(function (a, b2) { return (a.front ? 1 : 0) - (b2.front ? 1 : 0); }).forEach(function (q) {
+          var col = COL[kind(q.c)];
+          s += '<g tabindex="0" data-tip="' + esc(b[1] + ' · ' + q.c + '\ncorrect ' + fx(q.r.correct, 3) + ' [' + fx(q.r.lo, 3) + ', ' + fx(q.r.hi, 3) + '], n=' + q.r.n + '\nstorage ' + (q.mb ? fx(q.mb, 2) + ' MB/conv' : 'none') + '\nrefusal ' + fx(q.r.refusal) + '\nTTFT ' + fx(q.r.ttft_s_median, 2) + ' s' + (q.front ? '\non the storage frontier' : '')) + '">';
+          s += '<circle cx="' + q.px + '" cy="' + q.py + '" r="10" class="hit"/>';
+          if (q.front) s += '<circle cx="' + q.px + '" cy="' + q.py + '" r="8" fill="none" stroke="var(--fg)" stroke-width="1.5"/>';
+          s += '<circle cx="' + q.px + '" cy="' + q.py + '" r="4.5" fill="' + col + '" stroke="var(--surface)" stroke-width="1.2"/>';
+          if (q.front || q.c === 'P3-3' || q.c === 'P4dream-3') s += '<text x="' + (q.px + (q.px > W - 70 ? -11 : 11)) + '" y="' + (q.py + 4) + '" text-anchor="' + (q.px > W - 70 ? 'end' : 'start') + '" class="t-label" style="font-size:11px">' + q.c + '</text>';
+          s += '</g>';
+        });
+        html += '<div><div class="panel-title">' + esc(b[1]) + ' · ' + esc(D.stageB[cur].label) + '</div><div class="chart">' + s + '</svg></div></div>';
+      });
+      host.innerHTML = html;
+    }
+    draw();
+  })();
+
+  /* B3 / B5 table */
+  (function () {
+    var rows = [];
+    BM.forEach(function (m) {
+      BENCH.forEach(function (b) {
+        var R = D.stageB[m].benches[b[0]].rules, b5 = R.B5_m3, b3 = R.B3_dream_m3_vs_P5s, b2 = R.B2_dream_m3;
+        function c(o) { return o && o.diff != null ? fx(o.diff, 3) + ' [' + fx(o.lo, 3) + ', ' + fx(o.hi, 3) + ']' : '–'; }
+        rows.push([D.stageB[m].label + ' · ' + b[1], c(b2), b2 ? fx(b2.storage_saving_factor, 1) + '×' : '–', c(b3), b5 ? c(b5.P4dream_minus_P3) : '–', b5 ? c(b5.P3_minus_P2) : '–']);
+      });
+    });
+    document.getElementById('tab-b35').innerHTML = table(['model · benchmark', 'B2: P4dream − P3 correct', 'P3/P4 storage', 'B3: P4dream − P5s correct', 'B5: P4dream − P3 refusal', 'B5: P3 − P2 refusal'], rows) +
+      '<p>PersonaMem has no refusal measure (multiple choice); LoCoMo\'s refusal counts "not mentioned" answers.</p>';
+  })();
+
+  /* tooltips */
+  var tip = document.createElement('div'); tip.id = 'tip'; tip.setAttribute('role', 'tooltip'); document.body.appendChild(tip);
+  function show(el, x, y) { var t = el.getAttribute('data-tip'); if (!t) return; tip.textContent = t; tip.style.opacity = '1';
+    var w = tip.offsetWidth, h = tip.offsetHeight; tip.style.left = Math.max(8, Math.min(x + 14, window.innerWidth - w - 8)) + 'px';
+    tip.style.top = (y + 16 + h > window.innerHeight ? y - h - 12 : y + 16) + 'px'; }
+  function hide() { tip.style.opacity = '0'; }
+  function bindTips(root) {
+    root.querySelectorAll('[data-tip]').forEach(function (el) {
+      el.addEventListener('pointermove', function (e) { show(el, e.clientX, e.clientY); });
+      el.addEventListener('pointerleave', hide);
+      el.addEventListener('focus', function () { var r = el.getBoundingClientRect(); show(el, r.left + r.width / 2, r.top + r.height / 2); });
+      el.addEventListener('blur', hide);
+    });
+  }
+  bindTips(document);
+})();
+</script>

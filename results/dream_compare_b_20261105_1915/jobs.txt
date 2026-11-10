@@ -1,0 +1,27 @@
+dream_compare Stage B /scratch/vvjumle/seahorse_runs/dream_compare_b_20261105_1915, submitted 2026-11-05T19:03:27+01:00 at commit 275444a983dacee533bd824b1a869b49319b3a92
+qwen25_15b: smoke 1217731; gens lme 1217732 loc 1217733 pm 1217734 beam 1217735 (afterok 1217731); judge 1217736 (afterany gens, afterok 1214594); gptoss 1217737; gemma4 1217738; analyze 1217739
+llama32_3b: smoke 1217740; gens lme 1217741 loc 1217742 pm 1217743 beam 1217744 (afterok 1217740); judge 1217745 (afterany gens, afterok 1214594); gptoss 1217746; gemma4 1217747; analyze 1217748
+dream_compare Stage B /scratch/vvjumle/seahorse_runs/dream_compare_b_20261105_1915, submitted 2026-11-05T19:03:55+01:00 at commit 2d9376715e21c7b0e23fff9fd16ee1122f27ab9f
+qwen25_7b: smoke 1217750; gens lme 1217751 loc 1217752 pm 1217753 beam 1217754 (afterok 1217750); judge 1217755 (afterany gens,afterok:1214594); gptoss 1217756; gemma4 1217757; analyze 1217758
+gemma4_26b_a4b: smoke 1217759 (afterok 1214592); gens lme 1217760:1217761 loc 1217762 pm 1217763 beam 1217764 (afterok 1217759); judge 1217765 (afterany gens,afterok:1214594); gptoss 1217766; gemma4 1217767; analyze 1217768
+granite42_30b: smoke 1217769 (afterok 1214593); gens lme 1217770:1217771 loc 1217772 pm 1217773 beam 1217774 (afterok 1217769); judge 1217775 (afterany gens,afterok:1214594); gptoss 1217776; gemma4 1217777; analyze 1217778
+summary 1217779 (afterany:1217739:1217748:1217758:1217768:1217778)
+dream_compare Stage B /scratch/vvjumle/seahorse_runs/dream_compare_b_20261105_1915, submitted 2026-11-05T19:26:05+01:00 at commit df989489ec5bed676236fa8be50678c57569cb11
+llama32_3b: smoke 1218068; gens lme 1218069 loc 1218070 pm 1218071 beam 1218072 (afterok 1218068); judge 1218073 (afterany gens,afterok:1214594); gptoss 1218074; gemma4 1218075; analyze 1218076
+summary 1218077 (afterany:1218076)
+dream_compare Stage B /scratch/vvjumle/seahorse_runs/dream_compare_b_20261105_1915, submitted 2026-11-05T19:31:02+01:00 at commit 67392822e015b221a6b4eff163687ba66247cb46
+qwen25_15b: smoke 1218150; gens lme 1218151 loc 1218152 pm 1218153 beam 1218154 (afterok 1218150); judge 1218155 (afterany gens,afterok:1214594); gptoss 1218156; gemma4 1218157; analyze 1218158
+llama32_3b: smoke 1218159; gens lme 1218160 loc 1218161 pm 1218162 beam 1218163 (afterok 1218159); judge 1218164 (afterany gens,afterok:1214594); gptoss 1218165; gemma4 1218166; analyze 1218167
+summary 1218168 (afterany:1218158:1218167)
+dream_compare Stage B /scratch/vvjumle/seahorse_runs/dream_compare_b_20261105_1915, submitted 2026-11-05T19:57:46+01:00 at commit 4d04fb84b09a4ec6a3679650a387345eb2101191
+qwen25_15b: smoke 1218492; gens lme 1218493 loc 1218494 pm 1218495 beam 1218496 (afterok 1218492); judge 1218497 (afterany gens,afterok:1214594); gptoss 1218499; gemma4 1218500; analyze 1218501
+llama32_3b: smoke 1218502; gens lme 1218503 loc 1218504 pm 1218505 beam 1218506 (afterok 1218502); judge 1218507 (afterany gens,afterok:1214594); gptoss 1218508; gemma4 1218509; analyze 1218510
+summary 1218511 (afterany:1218501:1218510)
+dream_compare Stage B /scratch/vvjumle/seahorse_runs/dream_compare_b_20261105_1915, submitted 2026-11-05T20:22:05+01:00 at commit 34cfa50ddf39b59deca7cebc0186521f49589b70
+llama32_3b: smoke 1219643; gens lme 1219644 loc 1219645 pm 1219646 beam 1219647 (afterok 1219643); judge 1219648 (afterany gens,afterok:1214594); gptoss 1219649; gemma4 1219650; analyze 1219651
+summary 1219652 (afterany:1219651)
+dream_compare Stage B repair /scratch/vvjumle/seahorse_runs/dream_compare_b_20261105_1915, submitted 2026-11-07T17:03:30+01:00 at commit 3d75826b3ede9438c7683e26dcf7b4b7154b8a4e
+llama32_3b: cancelled 1219649 1219650 1219651; gens pm 1250443 beam 1250444 (V100, resume); judge 1250445 (afterany gens; resumes by prompt hash); gptoss 1250446; gemma4 1250447; analyze 1250448
+granite42_30b: continuations lmeo 1250449:1250450, lmes 1250451, loc 1250452, pm 1250453:1250454:1250455; BEAM resubmitted 1250456:1250457:1250458 (budgets --gb-per-gpu 70 --p1-kv-gb 12 --batch-kv-gb 6 --mask-gb 2 --attn-gb 3 --mlp-gb 3); judge 1217775 dependency -> afterany:1217770:1217771:1217772:1217773:1250449:1250450:1250451:1250452:1250453:1250454:1250455:1250456:1250457:1250458 (1217776-78 follow it unchanged)
+gemma4_26b_a4b: void outputs of 1217765-1217768 (run on no data: empty tasks / judge files, empty report_b.md / verdict_b.json) deleted 2026-11-07T17:03:53+01:00
+granite42_30b: lmes 1217771 and loc 1217772 COMPLETED their splits (120 / 1986 items); continuations 1250451 1250452 cancelled 2026-11-08T00:51:05+01:00
