@@ -23,7 +23,10 @@ doesn't matter. No training, and the base model is never modified.
 The same design was later ported to **Qwen3.5-2B** (layers 20, 21, 23 of 24) and **Qwen3.5-9B** (27, 28, 31 of 32). Both models have built-in thinking, which is switched off.
 
 ## Status
-From the pre-registered run on Qwen3.5-2B and 9B, judged for direction *and* coherence ([experiments/core_v1/PREREG.md](experiments/core_v1/PREREG.md); results in HANDOVER §4):
+
+**Now (11 Nov 2026): slices and the licence.** The project's memory is now a *slice*: the model's own keys and values (K,V) for a few positions of an earlier turn, stored and put back in a later session. A slice of two positions (the name and the full stop) carries a fact far better than the same two tokens as text (clean use 0.86 vs 0.27 on Qwen2.5-1.5B). But a slice can hold the fact and the model still won't use it: it refuses or asks for details. We call what is missing the *licence*. In dream_compare (Nov 2026; LongMemEval, four models, against published KV-compression selectors), every per-head selector looks better teacher-forced than it does when the answers are generated and judged. The selector that did best on three of the four models, KVzip with one global budget over layers and heads (KVzip-g), nearly closes that gap on two of them (Qwen2.5-7B, Llama-3.2-3B). So whether the model uses a slice depends on *which* entries are kept, not how many. As a system, stored cache doesn't beat retrieved text at equal retrieval (text is as good or 0.01–0.05 better). The open question is what a slice needs beyond the fact for the model to use it. Catch-up: [docs/catchup/2026-11-10/](docs/catchup/2026-11-10/catchup.md); current state and next steps: [HANDOVER.md](HANDOVER.md).
+
+**Paper 1, the steer channel.** From the pre-registered run on Qwen3.5-2B and 9B, judged for direction *and* coherence ([experiments/core_v1/PREREG.md](experiments/core_v1/PREREG.md); results in HANDOVER §4):
 - ✅ **Selective:** about 98% of unrelated answers are unchanged on both models. Without the gate, only 6–10% are.
 - ✅ **Order-free:** with least-squares writes, each of six memories in one store keeps about half its solo strength, instead of only the last one surviving.
 - ✅ **Direction comes from the opposite:** subtracting a hand-made opposite keeps a dislike a dislike. Every other reference flips dislikes into likes (8 dislikes, both models).
@@ -37,7 +40,7 @@ The paper is on arXiv: *"What Survives When Activation Steering Is Used as Memor
 ## Start here
 Picking up the work? Read **[HANDOVER.md](HANDOVER.md)** first: the current state, what's pending, next steps and conventions.
 
-Then read these three in order. They are plain-language reports and cover the whole project.
+Then read these three in order. They are plain-language reports and cover the project up to mid-October; the first two predate the slice channel (a dated note at the top of each says what is out of date). For anything after that, use [docs/catchup/2026-11-10/](docs/catchup/2026-11-10/catchup.md) and the digests in [docs/catchup/digests-2026-11-10/](docs/catchup/digests-2026-11-10/).
 1. **[Where we are](docs/where-we-are.md):** the question, prior work, the theory, how we test it, the results stage by stage, what it means, limits and next steps, with an appendix of real model outputs.
 2. **[How it works](docs/how-it-works.md):** the current design end to end: calibration, whitened gist keys, shifts, the memory matrix (delta rule and least squares), the threshold, and what happens at every word.
 3. **[Where it fails](docs/where-it-fails.md):** every failure so far, with real examples, the likely cause, the evidence and possible fixes, grouped into four root causes.
