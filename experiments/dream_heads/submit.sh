@@ -22,7 +22,7 @@ mkdir -p "$S" "/scratch/$USER/logs"
 
 A100="--partition=gpu-a100 --cpus-per-task=4 --mem-per-cpu=7900M --gpus-per-task=1"
 V100="--partition=gpu-v100 --cpus-per-task=2 --mem-per-cpu=5300M --gpus-per-task=1"
-CPU="--partition=compute-p1 --cpus-per-task=2 --mem-per-cpu=4G"
+CPU="--partition=compute-p1 --cpus-per-task=4 --mem-per-cpu=3G"
 GPU=slurm/dream_compare.slurm
 ANA=slurm/dream_compare_cpu.slurm
 T_H=experiments/dream_heads/test_dream_heads.py
