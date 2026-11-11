@@ -74,3 +74,8 @@ Source of the changes: `docs/dreaming/literature-select.md` (2026-11-05), sectio
 ## Elsewhere (not done here)
 - `docs/dreaming/literature-exp1.md` line 373 still has the outdated positioning line; `literature-select.md` §5 already flags it.
 - The website page's "the cache can be gated and moved into a new conversation" should cite MemArt (literature-select §5); needs your go-ahead to push.
+
+## Added 2026-11-11 (from the docs refresh; nothing in `main.tex` or `refs.bib` was touched)
+
+- [ ] **Offline-consolidation paragraph.** Suggested related-work paragraph, conclusion clause, `lee2026sleep` beside `afendulev2026hybrid`, and six bib entries: `docs/dreaming/literature-sleep.md` §4 ("What to cite, and where"; the background is in §3.5).
+- [ ] **dream_compare may change the selection and positioning sentences.** Stage A (`results/dream_compare_a_20261105_1822/summary_a.md`): real KVzip with a global budget (KVzip-g) is the best selector on 3 of 4 models, S-loo is not, and the teacher-forced vs judged licence gap holds for every per-head selector on 4 of 4. Stage B (partial): stored cache ≤ text at equal retrieval. Re-read change 5 ("Choosing what to keep") and change 6 (refusals / comply gate) against `docs/dreaming/literature-select.md` (update box of 2026-11-10) before uploading.
