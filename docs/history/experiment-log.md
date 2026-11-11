@@ -1,5 +1,7 @@
 # 4. Experiments and results
 
+> **Out of date (note added 2026-11-11).** This log ends with core_v1 and the judge panel (11 Oct) and has no entries for the slice-channel runs: dream_bind (stage 0 and addenda 1–9), dream_refs, dream_subj, dream_select and dream_compare. Their results live in [dreaming/01-binding.md](../dreaming/01-binding.md), [dreaming/02-scaffold.md](../dreaming/02-scaffold.md), [HANDOVER.md](../../HANDOVER.md) §1 and §5, and [catchup/2026-11-10/catchup.md](../catchup/2026-11-10/catchup.md) (22 Oct – 10 Nov). The numbers below are still correct for the runs they cover.
+
 > **Scope.** This log covers v0, v0.1 and the diagnostics, all on the original v0/v0.1 design.
 > The later stages (the attention test, benchmark v1, the gist-key / threshold / least-squares
 > experiment and the `samples_v2` text run) are not logged here yet. They are summarised in

@@ -19,7 +19,9 @@ Seahorse/
 │   ├── test_memory.py, test_hooks.py        delta-rule properties; hook correctness on a tiny random Qwen2
 │   ├── test_bench.py                        benchmark loader and scoring
 │   ├── test_ref_v1.py, test_xlayer_v1.py    the ref_v1 and xlayer_v1 helpers
-│   └── test_core_v1.py, test_audit.py, test_panel.py   core_v1 machinery, audit tools, judge panel
+│   ├── test_core_v1.py, test_audit.py, test_panel.py   core_v1 machinery, audit tools, judge panel
+│   └── test_dream_bind.py, test_dream_refs.py, test_dream_refs_prefeval.py   dreaming exps 1 and 2
+│                                 (dream_subj, dream_select and dream_compare keep their tests in their own folders)
 ├── experiments/                  one folder per experiment, each with its own run.py
 │   ├── v0/, v0_1/                the original experiments (Qwen2.5-1.5B): can the channel carry memory; specificity, relations, samples
 │   ├── diag_dose/, diag_order/   diagnostics: steer size and selectivity; does write order decide who survives
@@ -30,19 +32,26 @@ Seahorse/
 │   ├── think_v1/                 the Qwen3.5-2B port: layer sweep, multi-layer, injection during thinking
 │   ├── ref_v1/                   which reference a preference shift should subtract (opposite, centroid, ...)
 │   ├── xlayer_v1/                read a fact late, inject it earlier (negative); xl.py has the two-pass gating
-│   └── core_v1/                  the pre-registered run on 2B + 9B: PREREG.md, core.py, run.py, analyze.py, judge prompts,
-│                                 and panel_judge.py / analyze_panel.py for the cross-family judge panel
+│   ├── core_v1/                  the pre-registered run on 2B + 9B: PREREG.md, core.py, run.py, analyze.py, judge prompts,
+│   │                             and panel_judge.py / analyze_panel.py for the cross-family judge panel
+│   ├── dream_bind/               dreaming exp. 1: where a fact lives; stored K,V slices; hybrid state; collisions (addenda 1–9)
+│   ├── dream_refs/               dreaming exp. 2: model-written references, concept x sign; prefeval/ = the PrefEval addendum
+│   ├── dream_subj/               does a restored slice need the subject's position? (teacher-forced, Qwen2.5)
+│   ├── dream_select/             automatic choice of slice positions on LongMemEval (S-dream, S-loo, ...)
+│   └── dream_compare/            our selectors and memory format vs published ones: Stage 0 infra, A selectors, B paradigms
 ├── slurm/                        DelftBlue job scripts
 │   ├── setup_delftblue.sh        one-off env build + model download (login node)
 │   ├── v0.slurm                  the job that ran v0 (kept as the record)
 │   ├── run.slurm                 generic job on a 10GB A100 slice: EXP=<experiment> sbatch slurm/run.slurm
 │   ├── run_v100.slurm            generic job on a V100 (fp32), used by the Qwen3.5 experiments
 │   ├── core_v1.slurm             core_v1 chains on a full A100 (9B, judge)
-│   └── panel.slurm               the judge-panel re-labelling job
+│   ├── panel.slurm               the judge-panel re-labelling job
+│   ├── dream_{bind,select,compare}{,_cpu,_panel}.slurm   GPU, CPU-analysis and Ollama-panel jobs for the dream_* runs
+│   └── ollama_local.sh           node-local Ollama with CUDA 12, sourced by the panel jobs
 ├── tools/
 │   ├── audit/                    judge-audit tools for the planned human audit (label.html, compare.py); not used, the panel replaced it
-│   └── manuscript/               build.py + page.html: the public manuscript page
-├── writeup/                      the paper (main.tex, refs.bib, figures/, arxiv/ source bundle) and its build files
+│   └── manuscript/               build.py + page.html: the public manuscript page; explainers/ = its companion pages
+├── writeup/                      paper 1/ and paper 2/: main.tex, refs.bib, figures/, arxiv/ source bundle, build files
 ├── results/                      (untracked) outputs pulled back from the cluster, one folder per run
 │                                 (e.g. core_v1_20261007_1820/ with per-model folders, analysis/ and panel/)
 └── docs/                         this documentation
@@ -51,7 +60,10 @@ Seahorse/
     ├── where-it-fails.md         every failure, its cause and possible fixes
     ├── reference/                core-idea.md, original-method.md (v0/v0.1), code-map.md (this file), metrics.md, literature.md
     ├── history/                  experiment-log.md, open-notes.md, next-moves-v0.1.md
-    └── dreaming/                 the next phase: README.md plus 01-binding.md, 02-scaffold.md, 03-consolidation.md (specified, not built)
+    ├── dreaming/                 README.md, 01-binding.md (exp. 1, done), 02-scaffold.md (exp. 2, done), 03-consolidation.md
+    │                             (design), 04-combining-channels.md, literature-exp1/-select/-sleep.md
+    ├── catchup/                  2026-11-10/ (catch-up page source, catchup.md, extract.py) and digests-2026-11-10/
+    └── trained/                  the trained-parts branch (2026-11-07): README.md and lit-A to lit-D
 ```
 
 > The tree lists directories and the main files only. Experiment folders other than the original v0/v0.1 are
@@ -185,6 +197,17 @@ Both diagnostics have a `--tiny` smoke-test mode: a tiny random Qwen2 with the r
 | `ref_v1/{run.py, shifts.py, config.yaml}` | Which reference should a preference shift subtract: opposite, without, hum, disclosure (K=24 other experiences) or centroid (8 same-category alternatives)? 11 items tagged two-ended / one-of-many / negated, 2 doses, logit lens of every stored shift. | Qwen3.5-2B | The opposite keeps direction; the centroid keeps the concept and floods; hum ≈ the key |
 | `xlayer_v1/{run.py, xl.py, config.yaml}` | Cross-layer injection for facts: read the shift and key at layer R, inject at W. Stage A is an analytic grid; Stage B generates text with "use" prompts. Gating comes from a no-memory pass; the shift is rescaled by the norm ratio between layers. | Qwen3.5-2B | Negative: a fact shift is a late-layer word; earlier injection fades or garbles ([experiment-log §4.6.3](../history/experiment-log.md#463-xlayer_v1-read-the-fact-late-inject-it-earlier-jobs-921693921695)) |
 | `core_v1/` (`run.py`, `core.py`, `analyze.py`, `items.yaml`, `judge_prompts.yaml`, `PREREG.md`, `README.md`, `submit.sh`) | **The consolidated, pre-registered run behind the write-up.** Stages smoke → prep → gen → score (judge + coherence) → analyze; batched two-pass generation with fixed random streams; controls; bootstrap CIs; every table rebuilt from saved files. `slurm/core_v1.slurm` runs it. | Qwen3.5-2B + 9B | C1, C3, C5, C6 hold on both; C2 fails on both; C4 fails on 2B ([§4.6.4](../history/experiment-log.md#464-core_v1-the-pre-registered-run-on-qwen35-2b-and-9b-jobs-922999923009)) |
+
+### The slice-channel experiments (2026-10 / 11)
+*One line each; every folder has a `PREREG.md` committed before its jobs, and each `run.py` starts with a docstring. Results and verdicts: [HANDOVER.md](../../HANDOVER.md) §1 and §5.*
+
+| Experiment | Question | Model(s) | Key files |
+|---|---|---|---|
+| `dream_bind/` | Dreaming exp. 1: where does an in-context fact live, and can a stored slice of the model's own K,V carry it into a new session? Stage 0, the subject write, R-full / R-min / R-orphan, the hybrid's state, text controls, collisions; addenda 1–9 (ID repair, G-key retrieval, lures, told/comply, storage order) | Qwen2.5-1.5B, Qwen3.5-2B, Llama-3.2-3B, Qwen3.5-9B (TF) | `run.py` (all stages and gen sets), `bind.py` (pure helpers: `splice_keep`, `place`, `group_plans`, ...), `multi.py` (job driver), `panel.py` (Ollama judges), `config.yaml`, `add8_data.py` / `add9_data.py`, `submit_*.sh`; tests in `tests/test_dream_bind.py` |
+| `dream_refs/` | Dreaming exp. 2: can a 9B dreamer write the references (opposite, alternatives) for the 2B's preference memories? Concept × sign | Qwen3.5-9B dreams, Qwen3.5-2B memory | `dream.py` (dreaming pass), `refs.py` (parsers, validators), `validate.py`, `run.py`, `analyze.py`, `dream_prompts.yaml`; `prefeval/` (the PrefEval addendum, same layout); `README.md` |
+| `dream_subj/` | Does a restored slice need the subject's own position to answer a direct question? | Qwen2.5-1.5B (local, TF) | `run.py`, `subj.py` (pure helpers), `analyze.py`, `test_dream_subj.py` |
+| `dream_select/` | Can the slice's positions be chosen automatically, without the question, on natural text (LongMemEval)? S-dream, S-attn, S-recon, S-loo vs random / gold | Qwen2.5-1.5B (local); 1.5B, Qwen2.5-7B, Llama-3.2-3B (cluster, addendum 1) | `prep_data.py` (LongMemEval single-session-user items), `selectors_ds.py` (pure helpers), `run.py`, `analyze.py`, `analyze_gen.py`, `panel.py`, `jobs.py`, `submit.sh`, `submit_judges.sh`, `test_dream_select.py` |
+| `dream_compare/` | Our selectors and memory format against published ones. Stage 0: model adapters (incl. MoE), per-head masks, benchmark adapters, judges, BM25. Stage A: 18 selections incl. real KVzip, SnapKV, H2O, VATP, Expected Attention, StreamingLLM. Stage B: no memory / full context / text RAG / KV RAG / sparse slices / MemArt-style blocks | Qwen2.5-1.5B, Qwen2.5-7B, Llama-3.2-3B, Granite-4.2-30B (Gemma-4-26B-A4B planned, never ran) | `models.py` (adapters), `headmask.py`, `baselines.py` (published scorers), `stage_a.py`, `analyze_a.py`, `paradigms.py`, `memart.py`, `retrieval.py`, `stage_b.py`, `analyze_b.py`, `judges.py`, `benchmarks/` (LongMemEval, LoCoMo, PersonaMem, BEAM), `configs/`, `run.py`, `jobs.py`, `submit_*.sh`, `test_*.py` |
 
 **Library additions.** `src/seahorse/bench/`:
 - `data.py` loads `data/bench_v1/*.yaml` (compact authoring format) into v0.1-style scenario dicts.

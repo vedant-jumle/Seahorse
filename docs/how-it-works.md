@@ -1,5 +1,7 @@
 # Seahorse: how it works, end to end
 
+> **Out of date (note added 2026-11-11).** This describes the steer channel as designed on Qwen2.5-1.5B (layer 26, α = 2). Since then: the port to Qwen3.5 uses layers {20, 21, 23} on the 2B and {27, 28, 31} on the 9B, with α ≈ 1 per layer (core_v1 showed α = 2 on three layers overdoses); and the project's content channel is now the **stored slice** (the model's own K,V for a few positions of the experience turn, put back in the user turn of a later session, gated by a subject match), which this doc does not describe. The whitened-gist key, threshold and gate below are still the gating machinery the slice channel builds on. For the slice design see [dreaming/01-binding.md](dreaming/01-binding.md) and the builder cheat-sheet at the end of [catchup/digests-2026-11-10/digest_prereg_lit.md](catchup/digests-2026-11-10/digest_prereg_lit.md); for the current state, [HANDOVER.md](../HANDOVER.md) and [catchup/2026-11-10/catchup.md](catchup/2026-11-10/catchup.md).
+
 *A plain walk-through of the current design: every piece, where each number comes from, and what happens when. It's written in the same spirit as [where-we-are.md](where-we-are.md). The maths is kept light, and every formula is said in words too. Written 2026-09-30.*
 
 ---
