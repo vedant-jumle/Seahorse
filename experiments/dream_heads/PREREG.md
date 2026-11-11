@@ -55,7 +55,7 @@ a few heads write. Per-head selection keeps the entries those heads read; shared
    layers l <= L*. (Toy-tested: the heads' attributions sum to the attention output's projection.)
    - **Readout layer L\*:** the layer where the d_comply projection best separates R-full from nomem, i.e. the largest
      paired standardised difference mean(p_Rfull − p_nomem) / sd(p_Rfull − p_nomem), over the items of the other fold.
-     *Candidates (a detail the design left open, fixed now): layers ⌊0.2 n⌋ <= l < ⌊0.8 n⌋ (6–21 of 28), following
+     *Candidates (a detail the design left open, fixed now): layers ⌊0.2 n⌋ <= l < ⌊0.8 n⌋ (5–21 of 28; the first commit said 6–21, an arithmetic slip corrected before any job), following
      Arditi's exclusion of the last 20% of layers; the full per-layer curve is reported.* Each fold is evaluated at the
      L* chosen on the other fold.
 4. **Attention from the last prompt token**, per (layer, query head): the mass on the stored turn's slots (0 for nomem),
