@@ -1,6 +1,6 @@
 # Seahorse: where it fails, and why
 
-*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01. Updated 2026-10-07 with the Qwen3.5 results (think_v1, ref_v1): failures 13–16, plus updates to 1, 2, 4 and 7. Updated 2026-10-08 with cross-layer injection (xlayer_v1) and the pre-registered run on Qwen3.5-2B and 9B (core_v1): updates to 1, 2, 4, 10, 11, 12 and 13. Updated 2026-10-11: failure 11's judge check was done by a cross-family panel instead of by hand (note at the end of failure 11). Updated 2026-10-13 with dreaming experiment 1 (dream_bind): failures 1, 2 and 15 have a working route through a stored attention slice, and there is a new failure 17 (separately stored facts collide). Updated 2026-10-19 with addendum 6 of experiment 1 and the finished experiment 2: updates to 7, 8, 9, 13 and 17, and a new failure 18 (retrieval errors become confident wrong facts). Updated 2026-10-23 and 2026-10-29 with addenda 7 and 8: failure 17 (it replicates on Llama; the cause is storage order, the binding sits at the subject). Related papers: [literature.md](reference/literature.md).*
+*A companion to [where-we-are.md](where-we-are.md) and [how-it-works.md](how-it-works.md). It collects every way the memory has failed so far, with a real example of each, the best explanation we have, how we know, and what might fix it. Same plain style. Written 2026-10-01. Updated 2026-10-07 with the Qwen3.5 results (think_v1, ref_v1): failures 13–16, plus updates to 1, 2, 4 and 7. Updated 2026-10-08 with cross-layer injection (xlayer_v1) and the pre-registered run on Qwen3.5-2B and 9B (core_v1): updates to 1, 2, 4, 10, 11, 12 and 13. Updated 2026-10-11: failure 11's judge check was done by a cross-family panel instead of by hand (note at the end of failure 11). Updated 2026-10-13 with dreaming experiment 1 (dream_bind): failures 1, 2 and 15 have a working route through a stored attention slice, and there is a new failure 17 (separately stored facts collide). Updated 2026-10-19 with addendum 6 of experiment 1 and the finished experiment 2: updates to 7, 8, 9, 13 and 17, and a new failure 18 (retrieval errors become confident wrong facts). Updated 2026-10-23 and 2026-10-29 with addenda 7 and 8: failure 17 (it replicates on Llama; the cause is storage order, the binding sits at the subject). Updated 2026-10-30 with addendum 9 (failure 17, three and five facts). Updated 2026-11-11 with dream_subj, dream_select and dream_compare: a new failure 19 (a sparse slice holds the fact but the model refuses: the licence gap), a Stage B note on 17, and a new priority list. Related papers: [literature.md](reference/literature.md).*
 
 ---
 
@@ -25,9 +25,10 @@
 | 15 | The model claims the memory as its own | **Open for the steer channel; fixed by the user-turn slice** | Injected states read as the model's own thoughts; nothing stores *whose* a memory is |
 | 16 | Turning memory up during thinking floods the thinking | **Open** | A constant push on every thinking word is an overdose, not a thought |
 | 17 | Separately stored facts collide when used together | **Open (joint re-encoding fixes it; the cheap tag repair fails; storing the new memory second mostly fixes it, 2026-10-29)** | Slices stored in separate sessions are all "the first pair" (storage order); the binding is written at the subject's positions only by joint encoding |
-| 18 | Retrieval errors become confident wrong facts | **Open (new)** | A wrong slice is used as if it were the right one: it pushes the right answer down and the model states the wrong value |
+| 18 | Retrieval errors become confident wrong facts | **Open** | A wrong slice is used as if it were the right one: it pushes the right answer down and the model states the wrong value |
+| 19 | A sparse slice holds the fact but the model refuses (the licence gap) | **Open (new, 2026-11-11; the current focus)** | The value is there, but the model's "answer from this" signal is not. Mostly a generic comply gate, opened by the subject's position and, it seems, by which entries are kept |
 
-The failures cluster into five root causes (E, binding, was added with dreaming experiment 1; 18 joins E and C), discussed at the end:
+The failures cluster into five root causes (E, binding, was added with dreaming experiment 1; 18 joins E and C; 19 joins E and D), discussed at the end:
 - the limits of **adding a vector**
 - **what gets written**
 - **where it gets filed**
@@ -449,6 +450,8 @@ The margin moves the right way for the right sign (the reversed sign hurts, a ra
 
 **Update (2026-10-29, addendum 8): the cause is storage order, and the binding sits at the subject.** Every separately stored slice was encoded as the first fact of its session, so two of them carry the same "first pair" tag. Storing the new memory *after a dummy fact* (the dummy's tokens dropped, the kept tokens otherwise identical) cuts partner confusion from 0.37 / 0.33 / 0.41 to 0.09 / 0.15 / 0.09 (Qwen2.5 / 2B / Llama; 34 pool pairs: about 0.2 to 0.01). Two things don't fit a pure tag story: storing *both* memories second brings the swaps back only on Qwen2.5 (0.20 vs 0.22 on the pool pairs; 0.03 on Llama), and an unrelated sentence before the new memory also helps somewhat. So storage order is most of it, with a generic part. Joint encoding writes the binding at the **subject's** positions: two positions plus the subject span from a joint encoding match full joint encoding (confusion 0.01 to 0.03 vs 0.17 to 0.20 for two positions), which is why two positions alone stayed confused. A storage-time fix with no re-encoding (store the k-th memory as the k-th fact) follows. **Addendum 9 (2026-10-30)** tested it with 3 and 5 facts: for different subjects it reaches joint encoding at both sizes; for same-kind facts it removes most swaps at 3 (0.38–0.47 → 0.04–0.09) and about half at 5 (→ 0.22–0.30, joint 0.00–0.03), where neighbouring order tags blur. Details: [01-binding.md](dreaming/01-binding.md), addenda 8 and 9.
 
+**Note (2026-11-11, dream_compare Stage B, partial): the same family at benchmark scale, probably.** When the turns a retriever finds are put back as their stored session caches (each encoded in its own session), answers are a little worse than with the same turns as text, which the model reads together in one pass: pooled −0.025 / −0.040 / −0.012 at 3 turns (Qwen2.5-1.5B / 7B / Llama-3.2-3B) and −0.04 to −0.05 at 10. Separately encoded turns miss each other's cross-attention, as separately stored facts do. That this is the storage-order effect is a reading, not a test: Stage B did not try ordered storage or joint re-encoding of the retrieved turns. Reports: `results/dream_compare_b_20261105_1915/<model>/report_b.md`.
+
 ## 18. Retrieval errors become confident wrong facts
 
 **What you see.** With 59 facts stored as slices, a question about someone's name is answered from the slice picked by the key. When the pick is right the answer is as good as having the sentence in the prompt. When it is wrong, the model states the wrong fact and does not hedge.
@@ -473,11 +476,53 @@ The margin moves the right way for the right sign (the reversed sign hurts, a ra
 
 Folder: `results/dream_bind_add6_20261014_1608/qwen25_15b_gkey/`. Details: [01-binding.md](dreaming/01-binding.md), addendum 6 B.
 
+## 19. A sparse slice holds the fact but the model refuses (the licence gap)
+
+**What you see.** Qwen2.5-1.5B, the experience "My sister's name is Petra." stored as a slice and put back in a new session, then "Do you remember my sister's name?" (greedy answers from dream_subj, read but not judged):
+
+| What is stored | Teacher-forced gain on "Petra" | P(first word "I"), i.e. starting a refusal | What the model says |
+|---|---|---|---|
+| nothing | 0 | 0.90 | "I'm sorry, but I don't have any information about your sister…" |
+| the name and the full stop (R-min) | +10.88 nats | 0.89 | "I'm sorry, but I don't have any information about your sister's name…" |
+| the same + "is" (R+fill) | +10.87 nats | 0.90 | "I'm sorry, but I don't have any information about your sister's name…" |
+| the same + the subject's last token, "sister" (R+subj) | +10.88 nats | 0.26 | "Yes, I remember. Your sister's name is Petra." |
+| the whole turn (R-full) | +10.88 nats | 0.34 | "Yes, I remember your sister's name is Petra." |
+
+The name is equally there in every slice; only the one with the subject's position gets used. The same gap shows up everywhere we have looked since:
+
+| Where | Teacher-forced | Judged generation | Notes |
+|---|---|---|---|
+| dream_subj (Qwen2.5-1.5B, 45 facts) | R-min's value probability = R-full's | refusal-start mass 0.15 (R-min) vs 0.02 (R+subj) | adding "is" or "name" instead of the subject does nothing |
+| dream_select, gold (the answer's own tokens + 1), LongMemEval, 64 items | gap closed 0.99 / 0.88 / 0.67 | correct 0.17 / 0.49 / 0.24 | 1.5B / 7B / Llama; refusal 0.70 (1.5B), 0.79 (Llama); the 7B mostly asks for "more specific information" |
+| dream_compare Stage A, per-head published selectors (KVzip-ph, SnapKV-dream-ph, H2O-ph, VATP-ph), k8 | | | **H3 holds on 4 of 4 models**: TF gap closed minus judged gap closed is 0.34–0.51 on the 7B, positive for every method |
+| Stage A, KVzip-g (one global budget over layers × KV heads) | 0.63 / 0.73 / 0.59 | 0.62 / 0.69 / 0.21 | 7B / Llama / 1.5B: almost no gap on two models, a large one on the 1.5B |
+| Stage B, 8 positions per turn (P4dream) vs the full cache of the same turns (P3) | | correct −0.10 to −0.29 | refusal +0.05 to +0.26 on every non-PersonaMem cell (7B LongMemEval +0.13 [0.09, 0.16]) |
+| dream_bind, hybrid Qwen3.5-2B, attention entries only (R-min-kv6) | +10.0 nats (ctx +10.65) | direct question 0.20–0.23 | "I don't know your best friend's name! Could you tell me…" |
+
+**Why (as far as we know).**
+- **It is not missing content.** In every row the value's probability is there (teacher-forced), and in dream_subj it is the same for every slice. What changes is whether the model starts to answer.
+- **The "answer from this" signal is mostly a generic comply gate** (dream_bind addenda 7 and 8). A direction built from the difference between in-context and no-memory runs ("told") lifts the 2B's direct question from 0.12 to 0.76 on held-out facts; a direction that separates personal questions ("What's my blood type?") from general ones ("What's the most common blood type?"), built with no memory at all, gets 0.67. The known-entity direction (Ferrando et al.) does not explain it. On the hybrid, the recurrent state supplies this signal (told projection 5.47 with the state vs 5.21 in context vs 0.96 for attention entries only).
+- **The subject's position helps open it** (dream_subj): with the subject's stored position, refusal falls from 0.15 to 0.02. Whether that is a binding lookup or just "this subject was mentioned" is not separated.
+- **Which entries are kept seems to matter more than how many** (Stage A, inferred). All selectors keep the same number of K,V entries. KVzip-g spreads them unevenly over layers and heads; the others keep the same k in every head or the same positions everywhere. Two papers rank non-uniform head budgets as the most important part of KV compression (Attention Matching's ablation; the Gating Mechanism paper, arXiv 2611.07605). That attention mass on the right entries is what licenses the answer is the working hypothesis, not a result. Why KVzip-g fails on the 1.5B is open.
+- **Our measurement hid it.** Teacher forcing scores the answer as if the model had already decided to give it, so a refusal never shows (a failure 11-type trap).
+
+**Working hypothesis.** The model *earns* the licence by attending to the right entries. A told/comply push *forges* it: with no memory, the push makes the model confabulate a name ("Alex"), and it makes yes/no say "yes" to everything (addendum 7).
+
+**What might fix it.**
+- **Keep the entries that carry the licence:** the subject's position (dream_subj), or a global budget across heads as KVzip-g does. First find out what KVzip-g keeps (layers, heads, tokens). Not yet run.
+- **Restore the attention mass** the full turn would have drawn: Attention Matching's per-entry bias β is an untrained test. Not yet run.
+- **Push the comply direction:** it works, but it forges the licence (confabulation, yes to everything), so only with a verification step (failure 18).
+- **On hybrids, keep the recurrent state:** it carries the signal, at ~19 MB per memory on the 2B.
+- **Train a small licence gate** on the frozen model (Compression-Aware Abstention does this for evicted caches; the trained-side branch, `docs/trained/`).
+- **Always judge generations and report refusal**, never teacher-forced scores alone.
+
+Folders: `results/dream_subj_20261022_1755/`, `results/dream_select_cluster_20261104_0129/`, `results/dream_compare_a_20261105_1822/`, `results/dream_compare_b_20261105_1915/`, `results/dream_bind_add7_20261022_1526/`, `results/dream_bind_add8_20261025_1812/`. Overview: [catch-up](catchup/2026-11-10/catchup.md).
+
 ---
 
 ## The patterns underneath
 
-The eighteen failures come from five root causes (E was added with dreaming experiment 1).
+The nineteen failures come from five root causes (E was added with dreaming experiment 1).
 
 **A. Adding a vector is a nudge, not a statement** (failures 1, 2, 4, 10, 14, 16). The memory acts by adding to the model's state at every word. That's enough to change what comes to mind and which way a broad preference leans. It isn't enough to:
 - supply a premise
@@ -496,15 +541,19 @@ Producing the right parts still needs counterfactuals we write by hand. Getting 
 
 **C. Where it gets filed** (failures 5, 6, 7, 8, 18). Keys decide when a memory fires and how much memories interfere. Most of our progress came from fixing keys (5, 6). Most of what remains (7, 8) is still about keys: memories filed under the wrong situations, or crowding each other.
 
-**D. How we measured** (failure 11, and the uncertainty in 12). Twice we nearly drew the wrong conclusion from a flawed measurement. Balanced, sampled, controlled tests are now non-negotiable.
+**D. How we measured** (failure 11, the uncertainty in 12, and part of 19). Twice we nearly drew the wrong conclusion from a flawed measurement. Balanced, sampled, controlled tests are now non-negotiable. A third time (19): teacher-forced scores hid refusals, so a slice that holds the fact looked like a slice the model uses. Judge generations.
 
-**E. Binding** (failures 1, 2, 15, 17, 18). The model ties an attribute to its owner through positions and order tags. A push has no position, so it can't bind (1, 2, 15); a stored slice has one, so it can, but slices stored apart share the same tag and collide (17), and a slice put under the wrong question is read as its answer (18). Experiment 1 showed both halves; addendum 6 found the tag direction but could not repair the collision with it.
+**E. Binding** (failures 1, 2, 15, 17, 18, 19). The model ties an attribute to its owner through positions and order tags. A push has no position, so it can't bind (1, 2, 15); a stored slice has one, so it can, but slices stored apart share the same tag and collide (17), and a slice put under the wrong question is read as its answer (18). Experiment 1 showed both halves; addendum 6 found the tag direction but could not repair the collision with it. A slice that holds the value can still lack the licence to be used (19); the subject's position, part of the binding, is one of the things that grants it.
 
 ## Which failures matter most for the project
 
-1. **Failure 9 (the hand-made comparison).** Now mostly closed for effects (a model writes the references, experiment 2). What is left is the sign (13) and the choice of what to store.
-2. **Failures 13 and 15 (direction and ownership).** A memory that turns dislikes into likes, or that the model takes as its own, is worse than none. Ownership is fixed for facts by the user-turn slice. Concept × sign fixes direction with the true sign; reading the sign relative to the stored concept is the next design step.
-3. **Failures 2 and 14 (exact content).** Broad leanings now work well; single words don't. Either a different way of applying the memory (thermostat, middle layers) fixes this, or it's the episodic channel's job.
-4. **Failure 7 (filing) and 18 (wrong picks).** A memory that only comes back in near-copies of its original situations won't feel like memory, and a memory that comes back under the wrong question is worse than none.
+*Updated 2026-11-11. The current work is on failure 19; the earlier list follows, renumbered.*
+
+1. **Failure 19 (the licence gap).** The slice channel's main open problem: a memory that holds the answer but isn't used is no memory. It is general (all per-head selectors, four models) but not inevitable (KVzip-g nearly closes it on two models). Next: what KVzip-g keeps, and the told/comply projection, attention mass and refusal mass per selector.
+2. **Failures 17 and 18 (collisions and wrong picks).** Storage order fixes collisions up to three facts; at benchmark scale, separately encoded turns lose to text. A wrong pick gives a confident wrong fact, so a verification step is owed, and any push that forges the licence makes this worse.
+3. **Failure 9 (the hand-made comparison).** Now mostly closed for effects (a model writes the references, experiment 2). What is left is the sign (13) and the choice of what to store.
+4. **Failures 13 and 15 (direction and ownership).** A memory that turns dislikes into likes, or that the model takes as its own, is worse than none. Ownership is fixed for facts by the user-turn slice. Concept × sign fixes direction with the true sign; reading the sign relative to the stored concept is the next design step.
+5. **Failures 2 and 14 (exact content).** Broad leanings now work well; single words don't. Either a different way of applying the memory (thermostat, middle layers) fixes this, or it's the episodic channel's job.
+6. **Failure 7 (filing).** A memory that only comes back in near-copies of its original situations won't feel like memory (wrong picks, 18, moved up to item 2).
 
 Failure 1 (premises) is real, but it's the *other* channel's job. It defines this channel's scope rather than counting against it.
