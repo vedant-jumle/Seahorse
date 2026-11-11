@@ -136,3 +136,21 @@ anchors for every item -> fold / L* / licence heads / d_told -> all conditions +
 Qwen2.5-1.5B on gpu-v100 (the laptop GPU is not available to this session). Run root
 `/scratch/vvjumle/seahorse_runs/dream_heads_<date>`; Stage A's labels and selections are read from
 `/scratch/vvjumle/seahorse_runs/dream_compare_a_20261105_1822/<model>`.
+
+## Run record (no rule changed)
+
+- Code: c860a14 (+ be177ae: the CPU jobs' memory request only). Local checks (transformers 4.46, no GPU in this session):
+  11 dream_heads tests and Stage A's tests pass; a `--tiny` smoke on the real Qwen2.5-1.5B (CPU, Stage A's records)
+  passes every check: R-full == T-full 4e-5, keep-all == R-full 0, KVzip-sh mask == splice 4e-5, every reused
+  condition's answer score == Stage A's within 1.6e-4 nats (selections reused, not recomputed); d_comply 4 of 4 smoke
+  pairs behave; the analysis renders. No full run was made locally (all three models run on DelftBlue).
+- Run root `/scratch/vvjumle/seahorse_runs/dream_heads_20261111` (`jobs.txt`), submitted 2026-11-11 18:12:
+
+  | model | smoke | run | analyze |
+  |---|---|---|---|
+  | qwen25_15b (V100) | 1294029 | 1294030 | 1294031 |
+  | llama32_3b (V100) | 1294032 | 1294033 | 1294034 |
+  | qwen25_7b (A100) | 1294035 | 1294036 | 1294037 |
+
+  Summary 1294038 (afterany over the analyses). A first submission's two jobs (1294025/6) were cancelled after the
+  CPU-partition memory request was rejected.
