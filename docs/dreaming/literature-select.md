@@ -6,6 +6,15 @@ Terms follow [literature-exp1.md](literature-exp1.md). "Slice" = cached keys and
 
 Our numbers below come from `results/dream_select_20261104_0032/report.md` (the local 1.5B run) and `results/dream_select_cluster_20261104_0129/` (`summary.md`, `<model>/report_gen.md`, `<model>/tf/report.md`). All are at k = 4 unless stated.
 
+> **Update 2026-11-10 (dream_compare Stage A).** Most of §5's reviewer baselines were run head to head (`experiments/dream_compare/`, `results/dream_compare_a_20261105_1822/summary_a.md`; 133 LongMemEval items, budgets matched in K,V entries, judged by three models; Qwen2.5-1.5B, Qwen2.5-7B, Llama-3.2-3B, Granite-4.2-30B; Gemma-4 never ran). What changed in this doc:
+> - **The real KVzip was run, and it wins.** KVzip-g (its official global top-k over all layers and KV heads, no question) is the best selector on 3 of 4 models: judged k8 0.42 / 0.41 / 0.63 on the 7B / Llama / Granite (the whole turn 0.67 / 0.59 / 0.67). On Granite its mean is above even SnapKV given the real question (0.63 vs 0.58, unpaired). Real KVzip beats our S-recon on 3 of 4 (H1), so the "S-recon is a strawman of KVzip" warning in §3 was right.
+> - **S-loo is no longer the best automatic selector.** It is level with the best baseline on the Qwens and worse on Llama (−0.17) and Granite (−0.24). The "claims we can keep" line in §5 ("S-loo … is the best automatic selector we tested") and the matching sentence in §6 are withdrawn.
+> - **"S-loo beats gold@k" holds on the 7B only**, at k8, now with a paired test: +0.15 [0.03, 0.27]. On the 1.5B (−0.06), Llama (−0.01) and Granite (+0.03) the paired difference is not significant. The §3 table, §4 item 3 and §6 should be read with that restriction.
+> - **Content vs licence (§4 item 1) generalises:** the teacher-forced score overstates judged generation for every per-head baseline on all 4 models (H3). But it is not inevitable: KVzip-g's gap is small on the 7B (TF 0.63 vs judged 0.62) and Llama (0.73 vs 0.69), large on the 1.5B (0.59 vs 0.21).
+> - **Per-head vs shared positions (§5) was tested:** per-head beats shared on 2 of 4 models (7B, Granite; H2).
+> - **Baselines run:** the real KVzip (g / per-head / shared), SnapKV with dreamed questions and with the real question (the ceiling), H2O, VATP, S-dream × value norm (exploratory), Expected Attention, StreamingLLM; MemArt-style blocks in Stage B (P5). **Not run:** LORE-KV, ContextCite's surrogate, EpiCache's patched prompt, KeyDiff, Attention Matching's β (and the key-norm trivial baseline).
+> - Unchanged: the claims-check verdicts, the punctuation reading, storage-order collisions as still new, and the positioning on 2–8 shared positions. Current state: [HANDOVER.md](../../HANDOVER.md) §1; catch-up: [docs/catchup/2026-11-10/catchup.md](../catchup/2026-11-10/catchup.md).
+
 ---
 
 ## The short version

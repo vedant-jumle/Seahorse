@@ -370,6 +370,8 @@ Read in full: Afendulev et al. Read as abstract plus targeted searches of the te
 - **Memory Inception (Liu et al., arXiv 2605.06225, May 2026):** training-free text-derived KV banks inserted at selected layers; beats activation steering (CAA) and is competitive with prompting for persona and reasoning heuristics, with 6–118× less KV. The steering-side version of our "slice beats push" contrast; facts are mentioned but not evaluated. Must cite and position against.
 - **KV-State Grafting (Schelpe, arXiv 2607.14431, July 2026):** byte-exact own-position restore of full KV blocks of verified solutions into a frozen Gemma-4 (proprietary engine). Another instance of "full slice = prompt caching across sessions". No sparse slices, binding or recognition.
 
+*(Superseded 2026-11-05: "the eviction methods choose positions for a query in the same session" is out of date. Query-agnostic selection for later reuse is prior work (KVzip, Expected Attention, EpiCache), and so is training-free cross-session KV memory (MemArt). See [literature-select.md](literature-select.md) §5 and its 2026-11-10 update.)*
+
 **Positioning line for paper 2:** the trained methods compress by optimisation; the eviction methods choose positions for a query in the same session; Memory Inception and grafting reuse KV without training but for steering or whole blocks. Ours keeps 2 of the model's own positions, chosen without a query, across sessions, and explains which positions carry the value and why separately stored slices collide.
 
 # Not read, partly read, or off-topic
