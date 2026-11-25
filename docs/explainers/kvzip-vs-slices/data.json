@@ -1,0 +1,2207 @@
+{
+ "dream_select": {
+  "qwen25_15b": {
+   "name": "Qwen2.5-1.5B",
+   "gold_tf_gap": [
+    0.99,
+    0.89,
+    1.12
+   ],
+   "gold_judged": [
+    0.17,
+    0.1,
+    0.25
+   ],
+   "gold_judged_gap": [
+    0.28,
+    0.17,
+    0.42
+   ],
+   "gold_refusal": [
+    0.7,
+    0.61,
+    0.78
+   ],
+   "whole_judged": [
+    0.62,
+    0.53,
+    0.7
+   ],
+   "whole_refusal": [
+    0.24,
+    0.17,
+    0.33
+   ],
+   "nomem_judged": [
+    0.01,
+    0.0,
+    0.02
+   ],
+   "nomem_refusal": [
+    0.87,
+    0.81,
+    0.92
+   ]
+  },
+  "qwen25_7b": {
+   "name": "Qwen2.5-7B",
+   "gold_tf_gap": [
+    0.88,
+    0.74,
+    1.01
+   ],
+   "gold_judged": [
+    0.49,
+    0.38,
+    0.61
+   ],
+   "gold_judged_gap": [
+    0.55,
+    0.42,
+    0.69
+   ],
+   "gold_refusal": [
+    0.12,
+    0.06,
+    0.2
+   ],
+   "whole_judged": [
+    0.87,
+    0.79,
+    0.94
+   ],
+   "whole_refusal": [
+    0.04,
+    0.01,
+    0.07
+   ],
+   "nomem_judged": [
+    0.01,
+    0.0,
+    0.03
+   ],
+   "nomem_refusal": [
+    0.31,
+    0.22,
+    0.4
+   ]
+  },
+  "llama32_3b": {
+   "name": "Llama-3.2-3B",
+   "gold_tf_gap": [
+    0.67,
+    0.52,
+    0.84
+   ],
+   "gold_judged": [
+    0.24,
+    0.15,
+    0.33
+   ],
+   "gold_judged_gap": [
+    0.28,
+    0.18,
+    0.4
+   ],
+   "gold_refusal": [
+    0.79,
+    0.69,
+    0.88
+   ],
+   "whole_judged": [
+    0.77,
+    0.68,
+    0.85
+   ],
+   "whole_refusal": [
+    0.27,
+    0.18,
+    0.36
+   ],
+   "nomem_judged": [
+    0.02,
+    0.0,
+    0.05
+   ],
+   "nomem_refusal": [
+    0.79,
+    0.71,
+    0.86
+   ]
+  }
+ },
+ "stage_a": {
+  "qwen25_15b": {
+   "name": "Qwen2.5-1.5B",
+   "judged": {
+    "nomem": [
+     0.0,
+     0.0,
+     0.01
+    ],
+    "R-full": [
+     0.46,
+     0.38,
+     0.53
+    ],
+    "KVzip-g@k8": [
+     0.1,
+     0.05,
+     0.15
+    ],
+    "KVzip-ph@k8": [
+     0.14,
+     0.1,
+     0.19
+    ],
+    "KVzip-sh@k8": [
+     0.11,
+     0.06,
+     0.16
+    ],
+    "SnapKV-oracle-ph@k8": [
+     0.12,
+     0.08,
+     0.17
+    ],
+    "EA-ph@k8": [
+     0.16,
+     0.11,
+     0.22
+    ],
+    "SnapKV-dream-ph@k8": [
+     0.07,
+     0.03,
+     0.11
+    ],
+    "S-loo@k8": [
+     0.16,
+     0.1,
+     0.22
+    ],
+    "S-dream@k8": [
+     0.1,
+     0.05,
+     0.15
+    ],
+    "S-recon@k8": [
+     0.11,
+     0.06,
+     0.16
+    ],
+    "S-attn@k8": [
+     0.08,
+     0.04,
+     0.13
+    ],
+    "H2O-ph@k8": [
+     0.07,
+     0.03,
+     0.11
+    ],
+    "random@k8": [
+     0.03,
+     0.01,
+     0.05
+    ]
+   },
+   "refusal": {
+    "nomem": [
+     0.85,
+     0.8,
+     0.89
+    ],
+    "R-full": [
+     0.34,
+     0.27,
+     0.42
+    ],
+    "KVzip-g@k8": [
+     0.73,
+     0.66,
+     0.78
+    ],
+    "KVzip-ph@k8": [
+     0.58,
+     0.52,
+     0.65
+    ],
+    "KVzip-sh@k8": [
+     0.6,
+     0.54,
+     0.67
+    ],
+    "SnapKV-oracle-ph@k8": [
+     0.48,
+     0.41,
+     0.54
+    ],
+    "EA-ph@k8": [
+     0.6,
+     0.53,
+     0.67
+    ],
+    "SnapKV-dream-ph@k8": [
+     0.68,
+     0.62,
+     0.74
+    ],
+    "S-loo@k8": [
+     0.64,
+     0.57,
+     0.71
+    ],
+    "S-dream@k8": [
+     0.51,
+     0.44,
+     0.59
+    ],
+    "S-recon@k8": [
+     0.53,
+     0.46,
+     0.61
+    ],
+    "S-attn@k8": [
+     0.64,
+     0.57,
+     0.72
+    ],
+    "H2O-ph@k8": [
+     0.66,
+     0.59,
+     0.72
+    ],
+    "random@k8": [
+     0.74,
+     0.68,
+     0.8
+    ]
+   },
+   "H1": {
+    "holds": false,
+    "best_form": "KVzip-ph"
+   },
+   "H2": {
+    "holds": false,
+    "n": 0,
+    "pairs": {
+     "KVzip-ph - KVzip-sh": [
+      0.034,
+      -0.006,
+      0.074
+     ],
+     "SnapKV-dream-ph - SnapKV-dream-sh": [
+      0.028,
+      -0.006,
+      0.066
+     ],
+     "H2O-ph - H2O-sh": [
+      0.006,
+      -0.021,
+      0.03
+     ]
+    }
+   },
+   "best_baseline": "EA-ph",
+   "seconds": {
+    "EA": 0.43,
+    "H2O": 0.0,
+    "KVzip": 0.06,
+    "S-attn": 0.0,
+    "S-dream": 0.11,
+    "S-dream-VATP": 0.0,
+    "S-loo": 3.73,
+    "S-recon": 0.05,
+    "SnapKV-dream": 0.0,
+    "SnapKV-oracle": 0.04,
+    "VATP": 0.0,
+    "dreamer": 0.9,
+    "harvest": 0.06
+   },
+   "E": 56
+  },
+  "qwen25_7b": {
+   "name": "Qwen2.5-7B",
+   "judged": {
+    "nomem": [
+     0.01,
+     0.0,
+     0.02
+    ],
+    "R-full": [
+     0.67,
+     0.58,
+     0.75
+    ],
+    "KVzip-g@k8": [
+     0.42,
+     0.34,
+     0.5
+    ],
+    "KVzip-ph@k8": [
+     0.34,
+     0.26,
+     0.42
+    ],
+    "KVzip-sh@k8": [
+     0.25,
+     0.18,
+     0.33
+    ],
+    "SnapKV-oracle-ph@k8": [
+     0.34,
+     0.26,
+     0.42
+    ],
+    "EA-ph@k8": [
+     0.25,
+     0.18,
+     0.33
+    ],
+    "SnapKV-dream-ph@k8": [
+     0.17,
+     0.11,
+     0.24
+    ],
+    "S-loo@k8": [
+     0.39,
+     0.31,
+     0.48
+    ],
+    "S-dream@k8": [
+     0.23,
+     0.15,
+     0.3
+    ],
+    "S-recon@k8": [
+     0.16,
+     0.11,
+     0.23
+    ],
+    "S-attn@k8": [
+     0.14,
+     0.08,
+     0.2
+    ],
+    "H2O-ph@k8": [
+     0.1,
+     0.05,
+     0.16
+    ],
+    "random@k8": [
+     0.08,
+     0.04,
+     0.13
+    ]
+   },
+   "refusal": {
+    "nomem": [
+     0.38,
+     0.31,
+     0.46
+    ],
+    "R-full": [
+     0.12,
+     0.08,
+     0.18
+    ],
+    "KVzip-g@k8": [
+     0.25,
+     0.19,
+     0.32
+    ],
+    "KVzip-ph@k8": [
+     0.2,
+     0.14,
+     0.27
+    ],
+    "KVzip-sh@k8": [
+     0.23,
+     0.17,
+     0.3
+    ],
+    "SnapKV-oracle-ph@k8": [
+     0.18,
+     0.13,
+     0.24
+    ],
+    "EA-ph@k8": [
+     0.22,
+     0.16,
+     0.28
+    ],
+    "SnapKV-dream-ph@k8": [
+     0.24,
+     0.18,
+     0.3
+    ],
+    "S-loo@k8": [
+     0.19,
+     0.13,
+     0.25
+    ],
+    "S-dream@k8": [
+     0.2,
+     0.14,
+     0.26
+    ],
+    "S-recon@k8": [
+     0.21,
+     0.15,
+     0.27
+    ],
+    "S-attn@k8": [
+     0.25,
+     0.19,
+     0.32
+    ],
+    "H2O-ph@k8": [
+     0.28,
+     0.22,
+     0.35
+    ],
+    "random@k8": [
+     0.21,
+     0.16,
+     0.28
+    ]
+   },
+   "H1": {
+    "holds": true,
+    "best_form": "KVzip-g"
+   },
+   "H2": {
+    "holds": true,
+    "n": 3,
+    "pairs": {
+     "KVzip-ph - KVzip-sh": [
+      0.089,
+      0.011,
+      0.158
+     ],
+     "SnapKV-dream-ph - SnapKV-dream-sh": [
+      0.121,
+      0.062,
+      0.183
+     ],
+     "H2O-ph - H2O-sh": [
+      0.053,
+      0.015,
+      0.098
+     ]
+    }
+   },
+   "best_baseline": "KVzip-g",
+   "seconds": {
+    "EA": 1.23,
+    "H2O": 0.0,
+    "KVzip": 0.15,
+    "S-attn": 0.0,
+    "S-dream": 0.17,
+    "S-dream-VATP": 0.0,
+    "S-loo": 8.2,
+    "S-recon": 0.14,
+    "SnapKV-dream": 0.0,
+    "SnapKV-oracle": 0.06,
+    "VATP": 0.0,
+    "dreamer": 1.44,
+    "harvest": 0.2
+   },
+   "E": 112
+  },
+  "llama32_3b": {
+   "name": "Llama-3.2-3B",
+   "judged": {
+    "nomem": [
+     0.01,
+     0.0,
+     0.04
+    ],
+    "R-full": [
+     0.59,
+     0.51,
+     0.67
+    ],
+    "KVzip-g@k8": [
+     0.41,
+     0.33,
+     0.49
+    ],
+    "KVzip-ph@k8": [
+     0.22,
+     0.15,
+     0.28
+    ],
+    "KVzip-sh@k8": [
+     0.16,
+     0.1,
+     0.22
+    ],
+    "SnapKV-oracle-ph@k8": [
+     0.32,
+     0.25,
+     0.4
+    ],
+    "EA-ph@k8": [
+     0.23,
+     0.16,
+     0.29
+    ],
+    "SnapKV-dream-ph@k8": [
+     0.2,
+     0.14,
+     0.27
+    ],
+    "S-loo@k8": [
+     0.25,
+     0.18,
+     0.33
+    ],
+    "S-dream@k8": [
+     0.26,
+     0.18,
+     0.33
+    ],
+    "S-recon@k8": [
+     0.13,
+     0.08,
+     0.19
+    ],
+    "S-attn@k8": [
+     0.11,
+     0.06,
+     0.17
+    ],
+    "H2O-ph@k8": [
+     0.09,
+     0.05,
+     0.14
+    ],
+    "random@k8": [
+     0.07,
+     0.03,
+     0.12
+    ]
+   },
+   "refusal": {
+    "nomem": [
+     0.83,
+     0.77,
+     0.88
+    ],
+    "R-full": [
+     0.42,
+     0.34,
+     0.51
+    ],
+    "KVzip-g@k8": [
+     0.65,
+     0.57,
+     0.73
+    ],
+    "KVzip-ph@k8": [
+     0.74,
+     0.67,
+     0.81
+    ],
+    "KVzip-sh@k8": [
+     0.81,
+     0.74,
+     0.87
+    ],
+    "SnapKV-oracle-ph@k8": [
+     0.63,
+     0.55,
+     0.71
+    ],
+    "EA-ph@k8": [
+     0.75,
+     0.68,
+     0.82
+    ],
+    "SnapKV-dream-ph@k8": [
+     0.74,
+     0.67,
+     0.81
+    ],
+    "S-loo@k8": [
+     0.74,
+     0.66,
+     0.81
+    ],
+    "S-dream@k8": [
+     0.65,
+     0.58,
+     0.73
+    ],
+    "S-recon@k8": [
+     0.79,
+     0.72,
+     0.85
+    ],
+    "S-attn@k8": [
+     0.8,
+     0.74,
+     0.87
+    ],
+    "H2O-ph@k8": [
+     0.85,
+     0.78,
+     0.9
+    ],
+    "random@k8": [
+     0.83,
+     0.77,
+     0.89
+    ]
+   },
+   "H1": {
+    "holds": true,
+    "best_form": "KVzip-g"
+   },
+   "H2": {
+    "holds": false,
+    "n": 1,
+    "pairs": {
+     "KVzip-ph - KVzip-sh": [
+      0.058,
+      0.008,
+      0.108
+     ],
+     "SnapKV-dream-ph - SnapKV-dream-sh": [
+      0.055,
+      -0.004,
+      0.117
+     ],
+     "H2O-ph - H2O-sh": [
+      0.028,
+      0.0,
+      0.062
+     ]
+    }
+   },
+   "best_baseline": "KVzip-g",
+   "seconds": {
+    "EA": 0.98,
+    "H2O": 0.0,
+    "KVzip": 0.11,
+    "S-attn": 0.0,
+    "S-dream": 0.18,
+    "S-dream-VATP": 0.0,
+    "S-loo": 5.58,
+    "S-recon": 0.16,
+    "SnapKV-dream": 0.0,
+    "SnapKV-oracle": 0.04,
+    "VATP": 0.0,
+    "dreamer": 1.08,
+    "harvest": 0.18
+   },
+   "E": 224
+  },
+  "granite42_30b": {
+   "name": "Granite-4.2-30B",
+   "judged": {
+    "nomem": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "R-full": [
+     0.67,
+     0.59,
+     0.75
+    ],
+    "KVzip-g@k8": [
+     0.63,
+     0.54,
+     0.71
+    ],
+    "KVzip-ph@k8": [
+     0.49,
+     0.4,
+     0.58
+    ],
+    "KVzip-sh@k8": [
+     0.27,
+     0.19,
+     0.35
+    ],
+    "SnapKV-oracle-ph@k8": [
+     0.58,
+     0.49,
+     0.66
+    ],
+    "EA-ph@k8": [
+     0.43,
+     0.34,
+     0.52
+    ],
+    "SnapKV-dream-ph@k8": [
+     0.37,
+     0.28,
+     0.45
+    ],
+    "S-loo@k8": [
+     0.4,
+     0.31,
+     0.48
+    ],
+    "S-dream@k8": [
+     0.21,
+     0.14,
+     0.28
+    ],
+    "S-recon@k8": [
+     0.19,
+     0.12,
+     0.26
+    ],
+    "S-attn@k8": [
+     0.16,
+     0.1,
+     0.23
+    ],
+    "H2O-ph@k8": [
+     0.22,
+     0.15,
+     0.3
+    ],
+    "random@k8": [
+     0.11,
+     0.06,
+     0.17
+    ]
+   },
+   "refusal": {
+    "nomem": [
+     0.52,
+     0.46,
+     0.58
+    ],
+    "R-full": [
+     0.04,
+     0.02,
+     0.07
+    ],
+    "KVzip-g@k8": [
+     0.07,
+     0.04,
+     0.11
+    ],
+    "KVzip-ph@k8": [
+     0.1,
+     0.06,
+     0.15
+    ],
+    "KVzip-sh@k8": [
+     0.21,
+     0.16,
+     0.27
+    ],
+    "SnapKV-oracle-ph@k8": [
+     0.08,
+     0.04,
+     0.13
+    ],
+    "EA-ph@k8": [
+     0.15,
+     0.1,
+     0.2
+    ],
+    "SnapKV-dream-ph@k8": [
+     0.12,
+     0.08,
+     0.17
+    ],
+    "S-loo@k8": [
+     0.16,
+     0.11,
+     0.21
+    ],
+    "S-dream@k8": [
+     0.15,
+     0.1,
+     0.2
+    ],
+    "S-recon@k8": [
+     0.22,
+     0.17,
+     0.28
+    ],
+    "S-attn@k8": [
+     0.25,
+     0.19,
+     0.31
+    ],
+    "H2O-ph@k8": [
+     0.25,
+     0.19,
+     0.31
+    ],
+    "random@k8": [
+     0.3,
+     0.23,
+     0.37
+    ]
+   },
+   "H1": {
+    "holds": true,
+    "best_form": "KVzip-g"
+   },
+   "H2": {
+    "holds": true,
+    "n": 3,
+    "pairs": {
+     "KVzip-ph - KVzip-sh": [
+      0.223,
+      0.149,
+      0.298
+     ],
+     "SnapKV-dream-ph - SnapKV-dream-sh": [
+      0.187,
+      0.117,
+      0.26
+     ],
+     "H2O-ph - H2O-sh": [
+      0.149,
+      0.089,
+      0.215
+     ]
+    }
+   },
+   "best_baseline": "KVzip-g",
+   "seconds": {
+    "EA": 2.68,
+    "H2O": 0.0,
+    "KVzip": 0.53,
+    "S-attn": 0.0,
+    "S-dream": 0.58,
+    "S-dream-VATP": 0.0,
+    "S-loo": 34.22,
+    "S-recon": 0.5,
+    "SnapKV-dream": 0.0,
+    "SnapKV-oracle": 0.2,
+    "VATP": 0.0,
+    "dreamer": 4.57,
+    "harvest": 0.51
+   },
+   "E": 512
+  }
+ },
+ "dream_heads": {
+  "qwen25_15b": {
+   "name": "Qwen2.5-1.5B",
+   "HA": {
+    "holds": true,
+    "rho_refusal": [
+     -0.82,
+     -0.86,
+     -0.77
+    ],
+    "rho_judged": [
+     0.58,
+     0.52,
+     0.63
+    ]
+   },
+   "HB": {
+    "holds": false,
+    "share": [
+     0.29,
+     0.27,
+     0.3
+    ],
+    "jaccard": 0.14
+   },
+   "lic_hide_refusal": [
+    0.18,
+    0.12,
+    0.24
+   ],
+   "ctrl_hide_refusal": [
+    0.04,
+    0.02,
+    0.06
+   ],
+   "lic_budget_vs_even": 0.23,
+   "kvzipg_layer_share": [
+    0.34,
+    0.24,
+    0.42
+   ],
+   "cond": {
+    "nomem": {
+     "refusal": 0.86,
+     "judged": 0.0,
+     "lic_cov": 0.0,
+     "all_cov": 0.0
+    },
+    "R-full": {
+     "refusal": 0.22,
+     "judged": 0.63,
+     "lic_cov": 1.0,
+     "all_cov": 1.0
+    },
+    "KVzip-g|k8": {
+     "refusal": 0.66,
+     "judged": 0.15,
+     "lic_cov": 0.04,
+     "all_cov": 0.15
+    },
+    "KVzip-ph|k8": {
+     "refusal": 0.41,
+     "judged": 0.21,
+     "lic_cov": 0.32,
+     "all_cov": 0.24
+    },
+    "KVzip-sh|k8": {
+     "refusal": 0.48,
+     "judged": 0.16,
+     "lic_cov": 0.18,
+     "all_cov": 0.15
+    },
+    "S-loo|k8": {
+     "refusal": 0.5,
+     "judged": 0.23,
+     "lic_cov": 0.23,
+     "all_cov": 0.2
+    },
+    "S-dream|k8": {
+     "refusal": 0.38,
+     "judged": 0.15,
+     "lic_cov": 0.42,
+     "all_cov": 0.35
+    },
+    "random|k8": {
+     "refusal": 0.67,
+     "judged": 0.05,
+     "lic_cov": 0.15,
+     "all_cov": 0.15
+    }
+   },
+   "budget_vs_mass": 0.03,
+   "budget_vs_layer": 0.13,
+   "wcov_kvzipg": 0.15,
+   "wcov_best": 0.33,
+   "wcov_best_name": "S-dream",
+   "wcov_vs_judged": [
+    0.12,
+    -0.0,
+    0.24
+   ],
+   "wcov_vs_refusal": -0.44
+  },
+  "qwen25_7b": {
+   "name": "Qwen2.5-7B",
+   "HA": {
+    "holds": true,
+    "rho_refusal": [
+     -0.59,
+     -0.68,
+     -0.48
+    ],
+    "rho_judged": [
+     0.63,
+     0.57,
+     0.69
+    ]
+   },
+   "HB": {
+    "holds": false,
+    "share": [
+     0.3,
+     0.28,
+     0.32
+    ],
+    "jaccard": 0.33
+   },
+   "lic_hide_refusal": [
+    0.0,
+    0.0,
+    0.01
+   ],
+   "ctrl_hide_refusal": [
+    0.0,
+    -0.0,
+    0.0
+   ],
+   "lic_budget_vs_even": 0.61,
+   "kvzipg_layer_share": [
+    0.29,
+    0.32,
+    0.4
+   ],
+   "cond": {
+    "nomem": {
+     "refusal": 0.23,
+     "judged": 0.01,
+     "lic_cov": 0.0,
+     "all_cov": 0.0
+    },
+    "R-full": {
+     "refusal": 0.01,
+     "judged": 0.87,
+     "lic_cov": 1.0,
+     "all_cov": 1.0
+    },
+    "KVzip-g|k8": {
+     "refusal": 0.07,
+     "judged": 0.59,
+     "lic_cov": 0.17,
+     "all_cov": 0.16
+    },
+    "KVzip-ph|k8": {
+     "refusal": 0.08,
+     "judged": 0.45,
+     "lic_cov": 0.35,
+     "all_cov": 0.24
+    },
+    "KVzip-sh|k8": {
+     "refusal": 0.06,
+     "judged": 0.37,
+     "lic_cov": 0.3,
+     "all_cov": 0.2
+    },
+    "S-loo|k8": {
+     "refusal": 0.05,
+     "judged": 0.55,
+     "lic_cov": 0.24,
+     "all_cov": 0.16
+    },
+    "S-dream|k8": {
+     "refusal": 0.07,
+     "judged": 0.32,
+     "lic_cov": 0.44,
+     "all_cov": 0.32
+    },
+    "random|k8": {
+     "refusal": 0.1,
+     "judged": 0.13,
+     "lic_cov": 0.16,
+     "all_cov": 0.15
+    }
+   },
+   "budget_vs_mass": 0.16,
+   "budget_vs_layer": 0.25,
+   "wcov_kvzipg": 0.17,
+   "wcov_best": 0.32,
+   "wcov_best_name": "S-dream",
+   "wcov_vs_judged": [
+    0.01,
+    -0.09,
+    0.12
+   ],
+   "wcov_vs_refusal": -0.04
+  },
+  "llama32_3b": {
+   "name": "Llama-3.2-3B",
+   "HA": {
+    "holds": true,
+    "rho_refusal": [
+     -0.75,
+     -0.8,
+     -0.69
+    ],
+    "rho_judged": [
+     0.68,
+     0.59,
+     0.75
+    ]
+   },
+   "HB": {
+    "holds": false,
+    "share": [
+     0.26,
+     0.25,
+     0.27
+    ],
+    "jaccard": 1.0
+   },
+   "lic_hide_refusal": [
+    0.03,
+    0.01,
+    0.04
+   ],
+   "ctrl_hide_refusal": [
+    0.01,
+    -0.0,
+    0.03
+   ],
+   "lic_budget_vs_even": 0.92,
+   "kvzipg_layer_share": [
+    0.27,
+    0.42,
+    0.31
+   ],
+   "cond": {
+    "nomem": {
+     "refusal": 0.89,
+     "judged": 0.02,
+     "lic_cov": 0.0,
+     "all_cov": 0.0
+    },
+    "R-full": {
+     "refusal": 0.24,
+     "judged": 0.77,
+     "lic_cov": 1.0,
+     "all_cov": 1.0
+    },
+    "KVzip-g|k8": {
+     "refusal": 0.45,
+     "judged": 0.58,
+     "lic_cov": 0.23,
+     "all_cov": 0.21
+    },
+    "KVzip-ph|k8": {
+     "refusal": 0.65,
+     "judged": 0.32,
+     "lic_cov": 0.35,
+     "all_cov": 0.29
+    },
+    "KVzip-sh|k8": {
+     "refusal": 0.73,
+     "judged": 0.24,
+     "lic_cov": 0.25,
+     "all_cov": 0.21
+    },
+    "S-loo|k8": {
+     "refusal": 0.63,
+     "judged": 0.36,
+     "lic_cov": 0.24,
+     "all_cov": 0.21
+    },
+    "S-dream|k8": {
+     "refusal": 0.5,
+     "judged": 0.36,
+     "lic_cov": 0.34,
+     "all_cov": 0.27
+    },
+    "random|k8": {
+     "refusal": 0.78,
+     "judged": 0.11,
+     "lic_cov": 0.16,
+     "all_cov": 0.15
+    }
+   },
+   "budget_vs_mass": 0.49,
+   "budget_vs_layer": 0.01,
+   "wcov_kvzipg": 0.3,
+   "wcov_best": 0.28,
+   "wcov_best_name": "KVzip-ph",
+   "wcov_vs_judged": [
+    0.44,
+    0.35,
+    0.53
+   ],
+   "wcov_vs_refusal": -0.38
+  }
+ },
+ "stage_b": {
+  "qwen25_15b": {
+   "name": "Qwen2.5-1.5B",
+   "m3": {
+    "diff": -0.025304677969735113,
+    "lo95": -0.04297597374851484,
+    "hi95": -0.0070822549619419875,
+    "lo90": -0.04015677767826815,
+    "hi90": -0.010061583535024093,
+    "cells": 5,
+    "verdict": "different (P2 better)"
+   },
+   "m10": {
+    "diff": -0.04711079247440416,
+    "lo95": -0.0707174730460695,
+    "hi95": -0.02510440944685717,
+    "lo90": -0.06632352158000349,
+    "hi90": -0.028290024104745123,
+    "cells": 4,
+    "verdict": "different (P2 better)"
+   },
+   "lme_oracle_m3": {
+    "P0": {
+     "correct": [
+      0.066,
+      0.046,
+      0.088
+     ],
+     "refusal": 0.73,
+     "storage_mb": 0.0,
+     "prefill": 70,
+     "ttft": 0.039
+    },
+    "P2-3": {
+     "correct": [
+      0.348,
+      0.306,
+      0.388
+     ],
+     "refusal": 0.264,
+     "storage_mb": 0.03,
+     "prefill": 796,
+     "ttft": 0.182
+    },
+    "P3-3": {
+     "correct": [
+      0.318,
+      0.278,
+      0.36
+     ],
+     "refusal": 0.252,
+     "storage_mb": 360.01,
+     "prefill": 49,
+     "ttft": 0.077
+    },
+    "P4dream-3": {
+     "correct": [
+      0.102,
+      0.076,
+      0.13
+     ],
+     "refusal": 0.43,
+     "storage_mb": 11.29,
+     "prefill": 49,
+     "ttft": 0.074
+    }
+   }
+  },
+  "qwen25_7b": {
+   "name": "Qwen2.5-7B",
+   "m3": {
+    "diff": -0.03970271783868965,
+    "lo95": -0.05730467825993017,
+    "hi95": -0.023141629136695985,
+    "lo90": -0.05413955504020758,
+    "hi90": -0.025655728199239513,
+    "cells": 5,
+    "verdict": "different (P2 better)"
+   },
+   "m10": {
+    "diff": -0.04830086666936412,
+    "lo95": -0.07161214957455163,
+    "hi95": -0.024576725068410427,
+    "lo90": -0.06831346270995181,
+    "hi90": -0.028708708129525726,
+    "cells": 4,
+    "verdict": "different (P2 better)"
+   },
+   "lme_oracle_m3": {
+    "P0": {
+     "correct": [
+      0.084,
+      0.062,
+      0.11
+     ],
+     "refusal": 0.32,
+     "storage_mb": 0.0,
+     "prefill": 70,
+     "ttft": 0.103
+    },
+    "P2-3": {
+     "correct": [
+      0.492,
+      0.448,
+      0.536
+     ],
+     "refusal": 0.062,
+     "storage_mb": 0.03,
+     "prefill": 796,
+     "ttft": 0.594
+    },
+    "P3-3": {
+     "correct": [
+      0.434,
+      0.388,
+      0.48
+     ],
+     "refusal": 0.078,
+     "storage_mb": 719.99,
+     "prefill": 49,
+     "ttft": 0.108
+    },
+    "P4dream-3": {
+     "correct": [
+      0.148,
+      0.118,
+      0.18
+     ],
+     "refusal": 0.204,
+     "storage_mb": 22.55,
+     "prefill": 49,
+     "ttft": 0.106
+    }
+   }
+  },
+  "llama32_3b": {
+   "name": "Llama-3.2-3B",
+   "m3": {
+    "diff": -0.011992482079768992,
+    "lo95": -0.029082470059518056,
+    "hi95": 0.005823466680496894,
+    "lo90": -0.02643144847186582,
+    "hi90": 0.0031570348665774604,
+    "cells": 5,
+    "verdict": "equivalent"
+   },
+   "m10": {
+    "diff": -0.038917775245168554,
+    "lo95": -0.05979802700001199,
+    "hi95": -0.017367302619452255,
+    "lo90": -0.05602173899401465,
+    "hi90": -0.021110647945214715,
+    "cells": 4,
+    "verdict": "different (P2 better)"
+   },
+   "lme_oracle_m3": {
+    "P0": {
+     "correct": [
+      0.086,
+      0.062,
+      0.112
+     ],
+     "refusal": 0.556,
+     "storage_mb": 0.0,
+     "prefill": 70,
+     "ttft": 0.076
+    },
+    "P2-3": {
+     "correct": [
+      0.416,
+      0.37,
+      0.46
+     ],
+     "refusal": 0.312,
+     "storage_mb": 0.03,
+     "prefill": 772,
+     "ttft": 0.33
+    },
+    "P3-3": {
+     "correct": [
+      0.374,
+      0.332,
+      0.42
+     ],
+     "refusal": 0.344,
+     "storage_mb": 1399.71,
+     "prefill": 44,
+     "ttft": 0.128
+    },
+    "P4dream-3": {
+     "correct": [
+      0.156,
+      0.126,
+      0.19
+     ],
+     "refusal": 0.476,
+     "storage_mb": 46.21,
+     "prefill": 44,
+     "ttft": 0.125
+    }
+   }
+  },
+  "granite42_30b": {
+   "name": "Granite-4.2-30B",
+   "m3": {
+    "diff": -0.013599160964969274,
+    "lo95": -0.03888336501583167,
+    "hi95": 0.012135660450874303,
+    "lo90": -0.03508231939169119,
+    "hi90": 0.007670058721303082,
+    "cells": 5,
+    "verdict": "inconclusive"
+   },
+   "m10": {
+    "diff": -0.07362167318254968,
+    "lo95": -0.1067421940869455,
+    "hi95": -0.03986903252803141,
+    "lo90": -0.1015142882600406,
+    "hi90": -0.04543664790617129,
+    "cells": 4,
+    "verdict": "different (P2 better)"
+   },
+   "lme_oracle_m3": {
+    "P0": {
+     "correct": [
+      0.078,
+      0.056,
+      0.102
+     ],
+     "refusal": 0.406,
+     "storage_mb": 0.0,
+     "prefill": 50,
+     "ttft": 0.275
+    },
+    "P2-3": {
+     "correct": [
+      0.54,
+      0.498,
+      0.586
+     ],
+     "refusal": 0.108,
+     "storage_mb": 0.03,
+     "prefill": 783,
+     "ttft": 2.328
+    },
+    "P3-3": {
+     "correct": [
+      0.464,
+      0.418,
+      0.508
+     ],
+     "refusal": 0.074,
+     "storage_mb": 3345.32,
+     "prefill": 45,
+     "ttft": 0.388
+    },
+    "P4dream-3": {
+     "correct": [
+      0.166,
+      0.134,
+      0.2
+     ],
+     "refusal": 0.126,
+     "storage_mb": 94.59,
+     "prefill": 45,
+     "ttft": 0.38
+    }
+   }
+  }
+ },
+ "example": {
+  "model": "Llama-3.2-3B",
+  "id": "4fd1909e",
+  "question": "Where did I attend the Imagine Dragons concert?",
+  "answer": "Xfinity Center",
+  "n_layers": 28,
+  "n_kv": 8,
+  "E": 224,
+  "tokens": [
+   "I",
+   "'ve",
+   " got",
+   " tickets",
+   " to",
+   " see",
+   " the",
+   " Jonas",
+   " Brothers",
+   " at",
+   " the",
+   " TD",
+   " Garden",
+   " on",
+   " July",
+   " ",
+   "17",
+   "th",
+   ",",
+   " and",
+   " then",
+   " The",
+   " Lum",
+   "ine",
+   "ers",
+   " at",
+   " the",
+   " House",
+   " of",
+   " Blues",
+   " on",
+   " August",
+   " ",
+   "20",
+   "th",
+   ".",
+   " I",
+   "'m",
+   " also",
+   " thinking",
+   " about",
+   " checking",
+   " out",
+   " that",
+   " music",
+   " festival",
+   " in",
+   " Rhode",
+   " Island",
+   " again",
+   " this",
+   " summer",
+   ",",
+   " but",
+   " I",
+   " haven",
+   "'t",
+   " looked",
+   " into",
+   " tickets",
+   " yet",
+   ".",
+   " Oh",
+   ",",
+   " and",
+   " I",
+   " just",
+   " remembered",
+   " I",
+   " went",
+   " to",
+   " an",
+   " amazing",
+   " Imagine",
+   " Dragons",
+   " concert",
+   " recently",
+   ",",
+   " it",
+   " was",
+   " at",
+   " the",
+   " X",
+   "finity",
+   " Center",
+   " on",
+   " June",
+   " ",
+   "15",
+   "th",
+   " -",
+   " what",
+   " a",
+   " show",
+   "!"
+  ],
+  "content": [
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11,
+   12,
+   13,
+   14,
+   15,
+   16,
+   17,
+   18,
+   19,
+   20,
+   21,
+   22,
+   23,
+   24,
+   25,
+   26,
+   27,
+   28,
+   29,
+   30,
+   31,
+   32,
+   33,
+   34,
+   35,
+   36,
+   37,
+   38,
+   39,
+   40,
+   41,
+   42,
+   43,
+   44,
+   45,
+   46,
+   47,
+   48,
+   49,
+   50,
+   51,
+   52,
+   53,
+   54,
+   55,
+   56,
+   57,
+   58,
+   59,
+   60,
+   61,
+   62,
+   63,
+   64,
+   65,
+   66,
+   67,
+   68,
+   69,
+   70,
+   71,
+   72,
+   73,
+   74,
+   75,
+   76,
+   77,
+   78,
+   79,
+   80,
+   81,
+   82,
+   83,
+   84,
+   85,
+   86,
+   87,
+   88,
+   89,
+   90,
+   91,
+   92,
+   93,
+   94,
+   95,
+   96,
+   97,
+   98
+  ],
+  "classes": [
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "punct",
+   "other",
+   "other",
+   "punct",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "punct",
+   "other",
+   "other",
+   "punct",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "punct",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "punct",
+   "other",
+   "punct",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "other",
+   "qword",
+   "qword",
+   "qword",
+   "other",
+   "punct",
+   "other",
+   "other",
+   "other",
+   "other",
+   "gold",
+   "gold",
+   "gold",
+   "other",
+   "other",
+   "punct",
+   "other",
+   "other",
+   "punct",
+   "other",
+   "other",
+   "other",
+   "punct"
+  ],
+  "gold": [
+   86,
+   87,
+   88
+  ],
+  "kvzipg_budget": [
+   [
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    0,
+    14,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    5,
+    0,
+    87,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    80,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    19,
+    86,
+    0,
+    0,
+    4,
+    0,
+    0
+   ],
+   [
+    11,
+    1,
+    0,
+    0,
+    0,
+    1,
+    2,
+    27
+   ],
+   [
+    4,
+    2,
+    0,
+    0,
+    0,
+    0,
+    8,
+    0
+   ],
+   [
+    56,
+    0,
+    87,
+    0,
+    2,
+    0,
+    4,
+    11
+   ],
+   [
+    6,
+    0,
+    0,
+    7,
+    1,
+    0,
+    5,
+    21
+   ],
+   [
+    0,
+    61,
+    1,
+    16,
+    0,
+    1,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    23,
+    24,
+    14,
+    3,
+    5,
+    5,
+    14,
+    0
+   ],
+   [
+    2,
+    0,
+    0,
+    12,
+    73,
+    25,
+    0,
+    17
+   ],
+   [
+    76,
+    0,
+    1,
+    0,
+    0,
+    8,
+    2,
+    93
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    0,
+    14,
+    27,
+    19
+   ],
+   [
+    0,
+    13,
+    7,
+    0,
+    2,
+    8,
+    0,
+    0
+   ],
+   [
+    45,
+    0,
+    0,
+    50,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    36,
+    0,
+    2,
+    56,
+    0,
+    39,
+    27,
+    2
+   ],
+   [
+    2,
+    0,
+    4,
+    1,
+    0,
+    6,
+    0,
+    15
+   ],
+   [
+    0,
+    7,
+    0,
+    15,
+    0,
+    2,
+    8,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    9,
+    9,
+    67,
+    0
+   ],
+   [
+    0,
+    16,
+    0,
+    12,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    26,
+    0,
+    0,
+    30,
+    0,
+    0,
+    0,
+    1
+   ],
+   [
+    0,
+    71,
+    0,
+    0,
+    1,
+    10,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    9,
+    0,
+    0,
+    6,
+    0,
+    0
+   ],
+   [
+    10,
+    0,
+    8,
+    14,
+    0,
+    7,
+    18,
+    22
+   ],
+   [
+    0,
+    3,
+    0,
+    0,
+    0,
+    5,
+    0,
+    1
+   ]
+  ],
+  "kvzipg_per_token": [
+   5,
+   14,
+   19,
+   22,
+   17,
+   25,
+   9,
+   23,
+   29,
+   19,
+   8,
+   23,
+   28,
+   18,
+   16,
+   8,
+   24,
+   16,
+   4,
+   14,
+   22,
+   16,
+   18,
+   12,
+   30,
+   29,
+   11,
+   18,
+   11,
+   42,
+   19,
+   27,
+   10,
+   25,
+   17,
+   16,
+   10,
+   12,
+   17,
+   26,
+   17,
+   23,
+   20,
+   17,
+   17,
+   22,
+   15,
+   34,
+   27,
+   29,
+   13,
+   40,
+   11,
+   22,
+   3,
+   3,
+   22,
+   18,
+   22,
+   34,
+   34,
+   5,
+   16,
+   8,
+   15,
+   3,
+   17,
+   36,
+   6,
+   27,
+   10,
+   11,
+   29,
+   17,
+   23,
+   28,
+   28,
+   11,
+   11,
+   12,
+   16,
+   5,
+   12,
+   28,
+   39,
+   23,
+   31,
+   7,
+   33,
+   18,
+   11,
+   16,
+   28,
+   24,
+   16
+  ],
+  "shared": {
+   "KVzip-sh": [
+    33,
+    51,
+    55,
+    63,
+    64,
+    71,
+    76,
+    88
+   ],
+   "S-loo": [
+    15,
+    16,
+    49,
+    50,
+    53,
+    57,
+    89,
+    92
+   ],
+   "S-dream": [
+    11,
+    12,
+    39,
+    49,
+    77,
+    78,
+    79,
+    81
+   ]
+  },
+  "judged": {
+   "R-full": 1.0,
+   "KVzip-g@k8": 1.0,
+   "KVzip-sh@k8": 0.0,
+   "S-loo@k8": 0.0,
+   "S-dream@k8": 0.0,
+   "KVzip-ph@k8": 0.6
+  },
+  "greedy": {
+   "nomem": "I don't have any information about you attending an Imagine Dragons concert. I'm a large language model, I don't have personal knowledge about your experiences or activities. Each time you interact with me, it's a new conversation, and I don't retain any information about you or your past interactions.\n\nIf you'd like",
+   "R-full": "You attended the Imagine Dragons concert at the Xfinity Center on June 15th.",
+   "S-loo@k8": "I don't have any information about you attending an Imagine Dragons concert. Can you please provide more context or details about the concert you're thinking of, such as the date or location? I'll do my best to help you figure out where you might have attended the concert.",
+   "KVzip-g@k8": "You attended the Imagine Dragons concert at the Xfinity Center on June 15th.",
+   "KVzip-sh@k8": "I don't have any information about you attending an Imagine Dragons concert. I'm a large language model, I don't have personal knowledge about your experiences or activities. If you'd like to share where you attended the concert, I'd be happy to chat with you about it!"
+  },
+  "refusal": {
+   "nomem": 0.9979371249543539,
+   "R-full": 3.8240442203474826e-05,
+   "KVzip-g|k8": 0.3500432032455563,
+   "KVzip-sh|k8": 0.9997930390595052,
+   "S-loo|k8": 0.9989224539233476
+  }
+ }
+}

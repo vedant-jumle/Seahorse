@@ -1,0 +1,936 @@
+<title>KVzip and Seahorse Slices</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~70ch); figures run to 60rem. Each section = plain paragraphs, a figure, then a collapsible Technical block. Same visual system as the Seahorse explainers "Restoring a Token's Cache" and "Automatic Slice Selection". Colour code: blue (s1) = keeps per (layer, KV head) entries; orange (s2) = one shared set of positions; grey = reference; green (s3) = a second measure. */
+:root {
+  color-scheme: light;
+  --bg: #f4f5f7; --surface: #fcfcfb; --ink: #16191f; --ink-2: #4c525c; --muted: #868b93;
+  --line: #dde0e5; --grid: #e6e7ea; --axis: #c3c6cc; --chip: #eceef2;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --neutral: #a3a8b0; --ref: #4c525c;
+  --band: rgba(42,120,214,0.08); --band2: rgba(235,104,52,0.09); --band3: rgba(27,175,122,0.10); --eqband: rgba(76,82,92,0.08);
+  --on-accent: #ffffff;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1114; --surface: #1a1a19; --ink: #eceef1; --ink-2: #b9bec6; --muted: #8b9098;
+    --line: #2c3036; --grid: #2a2c2f; --axis: #43474d; --chip: #23262b;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --neutral: #6b7078; --ref: #c3c2b7;
+    --band: rgba(57,135,229,0.13); --band2: rgba(217,89,38,0.13); --band3: rgba(25,158,112,0.14); --eqband: rgba(195,194,183,0.10);
+    --on-accent: #ffffff;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1114; --surface: #1a1a19; --ink: #eceef1; --ink-2: #b9bec6; --muted: #8b9098;
+  --line: #2c3036; --grid: #2a2c2f; --axis: #43474d; --chip: #23262b;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --neutral: #6b7078; --ref: #c3c2b7;
+  --band: rgba(57,135,229,0.13); --band2: rgba(217,89,38,0.13); --band3: rgba(25,158,112,0.14); --eqband: rgba(195,194,183,0.10);
+  --on-accent: #ffffff;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 1.0625rem; line-height: 1.6; }
+.wrap { max-width: 60rem; margin: 0 auto; padding-block: 2.5rem 4rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 3.25rem; }
+.prose { max-width: 70ch; display: flex; flex-direction: column; gap: 0.85rem; }
+.prose p, .prose ul, .prose ol { margin: 0; }
+.prose ul, .prose ol { padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 5vw, 2.9rem); font-weight: 700; letter-spacing: -0.015em; }
+h2 { font-size: 1.6rem; font-weight: 700; }
+h3 { font-size: 1.12rem; font-weight: 500; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lead { font-size: 1.2rem; line-height: 1.5; max-width: 66ch; margin: 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; font-variant-ligatures: none; }
+.tok { font-family: var(--font-mono); font-size: 0.86em; background: var(--chip); border-radius: 4px; padding: 0.05em 0.35em; white-space: nowrap; }
+section { display: flex; flex-direction: column; gap: 1.1rem; }
+header.hero { display: flex; flex-direction: column; gap: 1.1rem; }
+.answer { border-left: 3px solid var(--s1); padding: 0.2rem 0 0.2rem 1rem; font-size: 1.1rem; max-width: 68ch; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.75rem; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.tile .label { font-family: var(--font-ui); font-size: 0.8rem; color: var(--ink-2); }
+.tile .value { font-family: var(--font-ui); font-size: 1.6rem; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.tile .note { font-family: var(--font-ui); font-size: 0.78rem; color: var(--muted); }
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1rem 0.9rem; display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; position: relative; }
+figure .ftitle { font-family: var(--font-ui); font-size: 0.95rem; font-weight: 600; color: var(--ink); }
+figure .fsub { font-family: var(--font-ui); font-size: 0.82rem; color: var(--ink-2); margin-top: -0.4rem; }
+figcaption { font-family: var(--font-ui); font-size: 0.82rem; color: var(--ink-2); line-height: 1.5; max-width: 80ch; }
+figcaption strong { color: var(--ink); font-weight: 600; }
+.chart { width: 100%; overflow-x: auto; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart.wide svg { min-width: 38rem; }
+.chart.xwide svg { min-width: 44rem; }
+svg text { font-family: var(--font-ui); fill: var(--ink-2); font-size: 12px; }
+svg .t-muted { fill: var(--muted); font-size: 11px; }
+svg .t-small { fill: var(--muted); font-size: 10px; }
+svg .t-ink { fill: var(--ink); }
+svg .t-strong { fill: var(--ink); font-weight: 600; }
+svg .t-mono { font-family: var(--font-mono); fill: var(--ink); font-size: 11px; }
+svg .t-num { font-variant-numeric: tabular-nums; }
+svg .grid { stroke: var(--grid); stroke-width: 1; }
+svg .axis { stroke: var(--axis); stroke-width: 1; }
+svg .hit { fill: transparent; }
+.legend { display: flex; flex-wrap: wrap; gap: 0.9rem; font-family: var(--font-ui); font-size: 0.8rem; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.sw { width: 0.75rem; height: 0.75rem; border-radius: 3px; display: inline-block; }
+.sw.line { height: 3px; width: 1rem; border-radius: 2px; }
+.sw.ring { background: transparent; border: 2px solid var(--ref); border-radius: 50%; }
+.multiples { display: grid; grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr)); gap: 1rem; }
+.multiples.three { grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+.multiples.two { grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--surface); font-family: var(--font-ui); font-size: 0.78rem; line-height: 1.4; padding: 0.45rem 0.6rem; border-radius: 6px; max-width: 17rem; z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,0.18); }
+.tip b { font-weight: 600; }
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.2rem 1rem; max-width: 72ch; }
+details[open] { padding-bottom: 0.9rem; }
+summary { cursor: pointer; font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-2); padding: 0.6rem 0; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: "+ "; color: var(--s1); }
+details[open] summary::before { content: "− "; }
+summary:focus-visible, a:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; border-radius: 3px; }
+details .body { display: flex; flex-direction: column; gap: 0.7rem; font-size: 0.95rem; min-width: 0; }
+details .body p, details .body ul { margin: 0; }
+details .body ul { padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.formula { font-family: var(--font-mono); font-size: 0.85rem; background: var(--chip); border-radius: 6px; padding: 0.55rem 0.7rem; overflow-x: auto; white-space: nowrap; }
+.scroll { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; font-family: var(--font-ui); font-size: 0.85rem; width: 100%; }
+th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 500; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.hl td { background: var(--band); }
+tr.ours td { background: var(--band2); }
+.cmp td:first-child { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.unit { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 0.04rem 0.42rem; border-radius: 999px; white-space: nowrap; }
+.unit.e { background: var(--band); color: var(--s1); }
+.unit.p { background: var(--band2); color: var(--s2); }
+.selcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.75rem; }
+.sc { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.85rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.sc .nm { font-family: var(--font-display); font-size: 1rem; color: var(--ink); font-weight: 500; }
+.sc p { margin: 0; font-size: 0.93rem; }
+.sc .tag { font-family: var(--font-ui); font-size: 0.72rem; color: var(--muted); }
+.toks { display: flex; flex-wrap: wrap; gap: 3px; font-family: var(--font-mono); font-size: 0.74rem; line-height: 1.2; font-variant-ligatures: none; }
+.toks span { padding: 0.14rem 0.26rem; border-radius: 3px; background: var(--chip); color: var(--ink-2); white-space: pre; position: relative; }
+.toks span.gold { box-shadow: inset 0 -2px 0 var(--ink); color: var(--ink); }
+.toks span.pick { background: var(--s2); color: var(--on-accent); }
+.toks span.heat { color: var(--ink); }
+.pickrow { display: grid; grid-template-columns: 9.5rem 1fr; gap: 0.6rem; align-items: start; }
+.pickrow .k { font-family: var(--font-ui); font-size: 0.78rem; color: var(--ink-2); padding-top: 0.1rem; }
+.pickrow .k b { color: var(--ink); font-weight: 600; display: block; }
+@media (max-width: 34rem) { .pickrow { grid-template-columns: 1fr; gap: 0.25rem; } }
+.heats { display: flex; flex-wrap: wrap; gap: 1.25rem; align-items: flex-start; }
+.heats > div { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.heats .hl { font-family: var(--font-ui); font-size: 0.82rem; color: var(--ink); font-weight: 600; }
+.heats .hs { font-family: var(--font-ui); font-size: 0.76rem; color: var(--muted); max-width: 16rem; }
+.answers { display: grid; grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr)); gap: 0.75rem; }
+.ans { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 0.9rem; display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; font-family: var(--font-ui); font-size: 0.85rem; }
+.ans .k { font-weight: 600; color: var(--ink); }
+.ans .m { font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ans .v.no { color: var(--ink-2); font-style: italic; }
+.pill { display: inline-block; font-family: var(--font-ui); font-size: 0.68rem; font-weight: 600; padding: 0.04rem 0.42rem; border-radius: 999px; margin-right: 0.35rem; vertical-align: 1px; white-space: nowrap; }
+.pill.ok { background: var(--band); color: var(--s1); }
+.pill.no { background: var(--band2); color: var(--s2); }
+.pill.mix { background: var(--chip); color: var(--ink-2); }
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.75rem; }
+.st { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.85rem 1rem; display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.st .verdict { align-self: flex-start; }
+.st .tag { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.st h3 { font-size: 1rem; }
+.st p { margin: 0; font-size: 0.95rem; }
+.verdict { display: inline-block; font-family: var(--font-ui); font-size: 0.72rem; font-weight: 600; padding: 0.05rem 0.5rem; border-radius: 999px; }
+.verdict.yes { background: var(--band3); color: var(--s3); }
+.verdict.no { background: var(--band2); color: var(--s2); }
+.verdict.open { background: var(--chip); color: var(--ink-2); }
+.note-p { font-family: var(--font-ui); font-size: 0.86rem; color: var(--ink-2); margin: 0; max-width: 72ch; line-height: 1.55; }
+.principle { border: 1.5px solid var(--s1); background: var(--band); border-radius: 12px; padding: 1rem 1.1rem; max-width: 72ch; display: flex; flex-direction: column; gap: 0.5rem; }
+.principle p { margin: 0; }
+.principle .tag { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--s1); }
+dl.gloss { display: grid; grid-template-columns: minmax(9rem, 15rem) 1fr; gap: 0.45rem 1rem; margin: 0; }
+dl.gloss dt { font-family: var(--font-ui); font-size: 0.88rem; color: var(--ink); font-weight: 600; }
+dl.gloss dd { margin: 0; font-size: 0.9rem; }
+dl.gloss dd code { color: var(--muted); }
+@media (max-width: 30rem) { dl.gloss { grid-template-columns: 1fr; gap: 0.1rem 0; } dl.gloss dd { margin-bottom: 0.5rem; } }
+.related { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.75rem; }
+.related a { display: flex; flex-direction: column; gap: 0.25rem; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.85rem 1rem; color: var(--ink); text-decoration: none; }
+.related a:hover { border-color: var(--s1); }
+.related .t { font-family: var(--font-display); font-weight: 500; font-size: 1.02rem; }
+.related .d { font-family: var(--font-ui); font-size: 0.82rem; color: var(--ink-2); }
+footer { font-family: var(--font-ui); font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.3rem; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Seahorse · explainer · 25 Nov 2026 · LongMemEval · Qwen2.5-1.5B, Qwen2.5-7B, Llama-3.2-3B, Granite-4.2-30B</div>
+  <h1>Why does KVzip’s sparse cache keep the model answering?</h1>
+  <p class="lead">Seahorse stores a memory as a slice of a frozen model’s own K,V cache and restores it in a later chat. Choosing which few entries to keep is the hard part. KVzip, a published compression method, turned out to choose better than any of our own selectors on three of four models. This page explains how KVzip works, how our slices work, where the two differ, and what our results say about why the difference matters.</p>
+  <div class="answer"><strong>Short answer, so far:</strong> a sparse slice works when it keeps the entries each attention head will actually read, in proportion to how much that head reads from memory. KVzip gets close to this by letting every (layer, KV head) keep its own entries, chosen by how much the model reads them while copying the turn out again. All of our selectors keep one shared set of positions for every layer and head, and so cannot do this. On Llama-3.2-3B the evidence for this reading is direct. On Qwen2.5-1.5B KVzip fails in the way the reading predicts. On Qwen2.5-7B KVzip wins for a reason we have not measured yet.</div>
+  <div class="tiles" id="tiles"></div>
+</header>
+
+<details>
+  <summary>Names used on this page</summary>
+  <div class="body">
+    <p>Plain names are used throughout. The code names in the Seahorse repository are given here once.</p>
+    <dl class="gloss">
+      <dt>Whole turn (cache)</dt><dd>every stored position of the turn restored; the ceiling for a slice. <code>R-full</code></dd>
+      <dt>No memory</dt><dd>nothing restored. <code>nomem</code></dd>
+      <dt>KVzip, global budget</dt><dd>KVzip’s official form. <code>KVzip-g</code></dd>
+      <dt>KVzip, per head</dt><dd>the same score, equal budget per (layer, KV head). <code>KVzip-ph</code></dd>
+      <dt>KVzip, shared positions</dt><dd>the same score averaged, one position set for all heads. <code>KVzip-sh</code></dd>
+      <dt>Repeat-attention, shared</dt><dd>our earlier, weaker KVzip-like selector. <code>S-recon</code></dd>
+      <dt>Most-attended in turn</dt><dd><code>S-attn</code></dd>
+      <dt>Guessed-question attention</dt><dd><code>S-dream</code></dd>
+      <dt>Drop-one test</dt><dd><code>S-loo</code></dd>
+      <dt>Answer tokens / Answer window</dt><dd>the label’s own tokens; with neighbours up to k. <code>gold</code> / <code>gold@k</code></dd>
+      <dt>SnapKV, real question (cheat)</dt><dd>sees the benchmark question; a ceiling. <code>SnapKV-oracle-ph</code></dd>
+      <dt>SnapKV, guessed questions</dt><dd><code>SnapKV-dream</code></dd>
+      <dt>Expected Attention</dt><dd><code>EA-ph</code></dd>
+      <dt>H2O (accumulated attention)</dt><dd><code>H2O</code></dd>
+      <dt>“per head” / “shared positions”</dt><dd>the <code>-ph</code> / <code>-sh</code> suffixes</dd>
+      <dt>Text retrieval / Cache retrieval / Sparse cache</dt><dd>memory systems in the memory-system comparison. <code>P2</code> / <code>P3</code> / <code>P4</code></dd>
+      <dt>Automatic selection, selector comparison, memory-system comparison, head analysis</dt><dd>the experiments, in run order. <code>dream_select</code>, <code>dream_compare</code> Stage A, Stage B, <code>dream_heads</code></dd>
+    </dl>
+  </div>
+</details>
+
+<!-- ============================================================ 1. KVzip -->
+<section aria-labelledby="s1">
+  <div class="eyebrow">Part 1 · prior work</div>
+  <h2 id="s1">How KVzip works</h2>
+  <div class="prose">
+    <p>KVzip (Kim et al., NeurIPS 2025, arXiv 2505.23416) compresses a K,V cache once, before any question exists, so that the compressed cache can serve every later question. Its idea: if the model can still reproduce the context from the cache, the cache still holds what any question will need. So it asks the model to reproduce the context and keeps the cache entries that the reproduction reads.</p>
+    <p>It runs in four steps.</p>
+    <ol>
+      <li><strong>Store the context.</strong> The model reads the text once. Every token leaves a key and a value at every layer and every KV head. For one of our stored turns on Llama-3.2-3B that is 28 layers × 8 KV heads = 224 entries per token.</li>
+      <li><strong>Ask for an exact copy.</strong> After the stored text, a new turn asks <span class="tok">Repeat the previous context exactly.</span> The reply is not generated. It is the stored text itself, fed in as if the model had written it (teacher forcing), so one forward pass covers the whole copy.</li>
+      <li><strong>Score every entry by its peak attention.</strong> While copying, each new token attends back to the stored cache. To write the 40th word of the copy, the model mostly reads the 40th word of the original and its neighbours. An entry’s score is the <em>largest</em> attention it receives anywhere in this pass: the maximum over every row of the copy (and the request) and over every query head that shares its KV head.</li>
+      <li><strong>Keep the best entries.</strong> The top-scored entries stay; the rest are dropped. The unit kept is one (layer, KV head, position) entry, not a whole token.</li>
+    </ol>
+  </div>
+  <figure>
+    <div class="ftitle">KVzip in four steps</div>
+    <div class="fsub">One stored turn; rows of the grids are (layer, KV head) pairs, columns are positions in the turn</div>
+    <div class="chart xwide"><svg viewBox="0 0 880 300" role="img" aria-label="Four panels. 1: the turn is read once into a grid of entries, one per layer, KV head and position. 2: a request to repeat is appended, and the turn's own text is fed as the reply. 3: while copying, each copy token attends mostly to the matching stored position; each entry's score is its highest attention over all copy rows. 4: the highest-scoring entries anywhere in the grid are kept.">
+      <defs><marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+      <g id="kv-steps" style="color: var(--ink-2)"></g>
+    </svg></div>
+    <figcaption><strong>Step 3 is the key.</strong> The copy reads the stored turn almost position by position, so every position gets read by some head at some point. Taking the maximum (not the mean) means an entry counts if any one copy row, in its own head, needed it. Each head therefore ends up with its own scores.</figcaption>
+  </figure>
+  <div class="prose">
+    <p>Step 4 can be done three ways, and the difference between them is the subject of this page. We ran all three.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Three ways to spend the same budget</div>
+    <div class="fsub">Each grid keeps 36 entries: rows = (layer, KV head), columns = positions; filled = kept</div>
+    <div class="chart wide"><svg viewBox="0 0 880 250" role="img" aria-label="Three grids with the same number of kept cells. Global budget: some rows keep many cells and some keep none. Per head: every row keeps three cells, at different columns. Shared positions: every row keeps the same three columns." id="forms-svg"></svg></div>
+    <figcaption><strong>KVzip, global budget</strong> (the official form) ranks all entries of all heads together, so heads end up with very different budgets. <strong>KVzip, per head</strong> gives every (layer, KV head) the same number of entries, chosen by its own scores. <strong>KVzip, shared positions</strong> averages the scores over all heads and keeps whole positions: the same columns in every row. <strong>Every Seahorse selector has the third shape.</strong></figcaption>
+  </figure>
+  <div class="prose">
+    <p><strong>Why copying is a fair stand-in for future questions.</strong> A question about the turn will read some part of it, but we don’t know which part. Copying reads all of it, and the paper shows that entries the copy needs heavily are the ones real questions, summaries and reasoning tasks also read (their Figure 6, on SQuAD with Llama-3.1-8B). Copying is a single question-free pass that covers the reads of many possible questions at once.</p>
+    <p><strong>A side effect the authors report.</strong> In their Table 1, Llama-3.1-8B with the full cache refuses to give a phone number from the context (“I cannot provide personal contact information.”). With a 40% KVzip cache, it answers with the number. Compression changed whether the model was willing to answer, separately from what it knew. Our refusals go the other way (the slice holds the answer, and the model declines), but the lesson is the same, and it is central to Part 4.</p>
+  </div>
+  <details>
+    <summary>Technical: the score, and our reimplementation</summary>
+    <div class="body">
+      <p>For layer l and KV head h with G grouped query heads, input = repeat prompt + context (length n<sub>in</sub>), stored context length n<sub>c</sub>, softmax over the full key set:</p>
+      <div class="formula">S<sub>l,h</sub>[i] = max<sub>g = 1..G</sub> max<sub>t = 1..n_in</sub> softmax(Q<sub>l,h,g</sub> K<sub>l</sub><sup>T</sup>)[t, i],&nbsp;&nbsp; i = 1..n<sub>c</sub></div>
+      <ul>
+        <li><strong>Global budget:</strong> keep the top N = k × E entries over all (l, h, i), E = Σ<sub>l</sub> (KV heads at l) = 56 / 112 / 224 / 512 entries per position on Qwen2.5-1.5B / Qwen2.5-7B / Llama-3.2-3B / Granite-4.2-30B. Some heads keep nothing. <strong>Per head:</strong> top k per (l, h). <strong>Shared:</strong> top k positions of the mean of S over all (l, h).</li>
+        <li>KVzip scores in 2K-token chunks with the prompt “Repeat the previous context exactly.” (later chunks: “Repeat the previous context starting with ⟨last 8 tokens of preceding chunk⟩:”). Cost ≈ 2× the initial prefill (paper, Fig. 8).</li>
+        <li><strong>Our reimplementation</strong> (<code>experiments/dream_compare/baselines.py</code>, <code>stage_a.py::sel_kvzip</code>) follows the official <code>attention/score.py::_get_score</code>, because the official code needs flash-attn (fp16/bf16, Ampere only) and a custom kernel. Disclosed differences: the repeat request is a new user turn (our stored turn is a closed chat turn); fp32 eager attention; no chunking (our longest turn, 1,040 tokens, is below the 2K chunk); our chat-template head acts as the attention sink.</li>
+        <li><strong>How a per-head slice is run:</strong> the whole stored turn stays in the cache and, per (layer, KV head), the slots that head does not keep are masked (expanded to the query heads of its group). Tested: keeping everything equals the full cache; the same picks in every head equal the physical splice. Budgets are matched in stored entries, so every slice holds exactly k × E entries.</li>
+      </ul>
+    </div>
+  </details>
+</section>
+
+<!-- ============================================================ 2. Ours -->
+<section aria-labelledby="s2">
+  <div class="eyebrow">Part 2 · Seahorse</div>
+  <h2 id="s2">How our slices work</h2>
+  <div class="prose">
+    <p>Seahorse keeps a memory as a <strong>slice</strong>: the key and value that a few chosen tokens left at <em>every</em> layer when the model first read the turn. In a later chat, the slice is placed back in the cache at the tokens’ original positions (their stored RoPE positions), after the chat-template head. The new question starts where the stored turn ended, so to the model the gap looks like tokens it can no longer see, not like a shifted sentence. With every position kept, this is exactly the same as having the turn as earlier text (logits agree to within 5×10<sup>−4</sup> on every model we checked).</p>
+  </div>
+  <figure>
+    <div class="ftitle">Store, then restore</div>
+    <div class="fsub">The same Llama example used in Part 3: two kept positions shown</div>
+    <div class="chart wide"><svg viewBox="0 0 880 300" role="img" aria-label="Session 1: the turn is read, giving a stack of K,V at every layer for every position. Two positions are kept: their K,V at all layers. Session 2: the chat head, then empty slots where the rest of the turn was, the two kept columns at their original positions, and the new question after the turn's end." id="slice-svg"></svg></div>
+    <figcaption>A slice of k positions keeps whole columns: all layers and all KV heads of those positions. Its cost is k × E entries, the same budget KVzip spends as single entries.</figcaption>
+  </figure>
+  <div class="prose">
+    <p>Which positions to keep is the selection problem. We built four selectors. None sees the later question.</p>
+  </div>
+  <div class="selcards">
+    <div class="sc"><span class="nm">Most-attended in turn</span><span class="tag">no extra pass</span><p>Keep the positions that the turn’s own later tokens attend to most, averaged over heads and layers. The H2O family.</p></div>
+    <div class="sc"><span class="nm">Repeat-attention, shared</span><span class="tag">our weaker KVzip-like proxy</span><p>Ask the model to repeat the turn (teacher-forced, as KVzip). Keep the positions with the highest <em>mean</em> attention from the copy, averaged over all heads and layers.</p></div>
+    <div class="sc"><span class="nm">Guessed-question attention</span><span class="tag">main bet of automatic selection</span><p>The model writes 3 questions it expects about the turn. Keep the positions those questions attend to most, averaged over heads and layers.</p></div>
+    <div class="sc"><span class="nm">Drop-one test</span><span class="tag">expensive; behaviour, not attention</span><p>The model answers its own guessed questions. Remove each position in turn; keep the ones whose removal hurts those answers most.</p></div>
+  </div>
+  <p class="note-p"><strong>Common to all four:</strong> each produces one score per position, and keeps the same k positions in every layer and every KV head. That is the “shared positions” shape of Part 1. Even our repeat-based selector differs from KVzip twice: it averages where KVzip takes a maximum, and it shares positions where KVzip keeps entries.</p>
+  <details>
+    <summary>Technical: the selectors exactly</summary>
+    <div class="body">
+      <ul>
+        <li><strong>Most-attended in turn:</strong> mean attention a content position receives from later content tokens of the same reading pass (mean, not sum, against early-token bias), averaged over heads and layers.</li>
+        <li><strong>Repeat-attention, shared:</strong> after the stored turn, “Please repeat exactly what I just told you.” + assistant header + the turn’s text, teacher-forced; mean attention from the copy rows only (not the request) to each content position, averaged over every head and layer.</li>
+        <li><strong>Guessed-question attention:</strong> the same model, greedy, with a fixed prompt (instruction + two invented examples) writes 3 questions; attention from each question’s tokens and its last prompt token to each content position, averaged over heads and layers, summed over the questions.</li>
+        <li><strong>Drop-one test:</strong> drop in log P(the model’s own greedy answer to each guessed question) when one content position is removed, summed over questions; only on turns of ≤ 200 content tokens.</li>
+        <li>Selectable positions are the turn’s content tokens only (not the role header or end token). The chat-template head is always kept and not counted.</li>
+      </ul>
+    </div>
+  </details>
+</section>
+
+<!-- ============================================================ 3. Side by side -->
+<section aria-labelledby="s3">
+  <div class="eyebrow">Part 3 · side by side</div>
+  <h2 id="s3">Where KVzip and our selectors differ</h2>
+  <div class="prose">
+    <p>Both families are question-free and run once per stored turn. They differ in what the extra pass asks the model to do, how attention is pooled into a score, and what unit the budget buys.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Two pipelines</div>
+    <div class="fsub">Same stored turn, same budget in entries; the two steps that differ are highlighted</div>
+    <div class="chart xwide"><svg viewBox="0 0 880 230" role="img" aria-label="Top lane, KVzip: stored turn, then a teacher-forced copy, then per entry the maximum attention over copy rows and its group's query heads, then the top entries anywhere, uneven across heads. Bottom lane, Seahorse: stored turn, then guessed questions or the turn itself or a copy, then one score per position averaged over layers and heads or a drop-one effect, then the top k positions, the same in every layer and head." id="lanes-svg"></svg></div>
+  </figure>
+  <div class="scroll"><table class="cmp" id="t-cmp"></table></div>
+  <p class="note-p">Seconds per item: Llama-3.2-3B, selector comparison, “fresh computations only”. The reading pass that every method needs (harvest) is not included.</p>
+
+  <h3>A real example</h3>
+  <div class="prose">
+    <p id="ex-intro"></p>
+  </div>
+  <figure>
+    <div class="ftitle">Where the budget goes: 1,792 entries, two ways</div>
+    <div class="fsub" id="ex-sub"></div>
+    <div class="heats" id="ex-heats"></div>
+    <div class="legend" id="ex-legend"></div>
+    <figcaption id="ex-cap"></figcaption>
+  </figure>
+  <figure>
+    <div class="ftitle">Which tokens are kept</div>
+    <div class="fsub">Top row: shading = how many of the 224 (layer, KV head) pairs keep that token under KVzip’s global budget (hover for the count). Other rows: the 8 positions a shared selector keeps in all 224. The answer is underlined.</div>
+    <div id="ex-toks" style="display:flex;flex-direction:column;gap:0.9rem"></div>
+  </figure>
+  <div class="answers" id="ex-ans"></div>
+  <p class="note-p" id="ex-note"></p>
+</section>
+
+<!-- ============================================================ 4. Results -->
+<section aria-labelledby="s4">
+  <div class="eyebrow">Part 4 · what our runs show, in order</div>
+  <h2 id="s4">The results, in context</h2>
+  <div class="prose">
+    <p>Four experiments, run in this order between 4 and 12 November 2026. All use LongMemEval: one user turn that holds a fact is stored; later the benchmark question is asked with only the slice in the cache. Answers are generated (1 greedy + 4 samples) and judged by LongMemEval’s own prompt with three judge models (majority label). The budget is “8 positions’ worth” (k = 8 × E entries) unless stated.</p>
+  </div>
+
+  <h3>4a · Automatic selection: works a little, and exposes the licence problem</h3>
+  <div class="prose">
+    <p>Our selectors beat random but recovered only a small part of what the whole turn gives. The more important finding came from the label-cheating slice that keeps the <strong>answer tokens</strong> themselves. Scored teacher-forced (the model is made to say the answer, and we read its probability), that slice recovers most of the whole turn: 0.99 of the gap on Qwen2.5-1.5B, 0.88 on Qwen2.5-7B, 0.67 on Llama-3.2-3B. In free generation the same slice is judged correct only 0.17 / 0.49 / 0.24 of the time, mostly because the model declines (“I don’t have information about…”). The memory holds the content; the model does not take it as licence to answer.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Answer-token slice: teacher-forced vs generated</div>
+    <div class="fsub">Gap closed: 0 = no memory, 1 = whole turn. Same items, same slice.</div>
+    <div class="legend"><span><i class="sw" style="background:var(--neutral)"></i>teacher-forced (log P of the answer)</span><span><i class="sw" style="background:var(--s1)"></i>generated, judged correct</span></div>
+    <div class="chart" id="c-licence"></div>
+    <figcaption>Teacher forcing skips the decision to answer, so it hid the problem. Refusal in generation with the answer-token slice: <span id="licence-ref"></span>.</figcaption>
+  </figure>
+
+  <h3>4b · Selector comparison: KVzip with a global budget wins on three of four models</h3>
+  <div class="prose">
+    <p>We then ran the published selectors against ours at matched budgets (106 items, four models). KVzip with its global budget was the best question-free selector on Qwen2.5-7B, Llama-3.2-3B and Granite-4.2-30B, judged correct 0.42 / 0.41 / 0.63 where the whole turn gets 0.67 / 0.59 / 0.67. On Granite it is above even SnapKV given the real benchmark question (0.63 vs 0.58). On Qwen2.5-1.5B it does not win: 0.10, against 0.16 for the drop-one test and for Expected Attention.</p>
+    <p>Across methods, <strong>per head beat shared positions</strong> on Qwen2.5-7B and Granite (for all three methods tested both ways), not on Llama or the 1.5B. The real KVzip also beat our repeat-attention proxy on three of four models, so the proxy was a weak version of the idea.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Judged correct at 8 positions’ worth</div>
+    <div class="fsub">106 items per model; 95% item-bootstrap CI. Dashed line = whole turn.</div>
+    <div class="legend"><span><i class="sw" style="background:var(--s1)"></i>keeps per-head entries</span><span><i class="sw" style="background:var(--s2)"></i>keeps one shared set of positions</span><span><i class="sw ring"></i>sees the real question (cheat)</span><span><i class="sw line" style="background:var(--ref)"></i>whole turn</span></div>
+    <div class="multiples two" id="c-stagea"></div>
+    <figcaption>Hover a dot for its value and CI. Blue rows can give heads different entries; orange rows cannot. On three models the best question-free row is blue.</figcaption>
+  </figure>
+  <details>
+    <summary>Technical: rules and per-head vs shared differences</summary>
+    <div class="body"><div class="scroll"><table id="t-h2"></table></div>
+      <p>Pre-registered at k = 8, generation, three-judge majority, 106 primary items (not abstention, not preference); paired item bootstrap, 2000 replicates. “Per head beats shared” holds on a model if ≥ 2 of 3 methods have a CI above 0. The best KVzip form on the 1.5B was per head (0.14), still not above repeat-attention, shared.</p>
+    </div>
+  </details>
+
+  <h3>4c · Head analysis: why does the global budget work?</h3>
+  <div class="prose">
+    <p>The obvious explanation was a gate: a few attention heads decide “answer or refuse”, and KVzip’s uneven budget happens to feed them while shared positions starve them. We pre-registered three tests of this on Qwen2.5-1.5B, Qwen2.5-7B and Llama-3.2-3B (66 items, teacher-forced, judged labels reused from the selector comparison). All measurements are at the last prompt token, where the first answer token is decided.</p>
+  </div>
+  <div class="status" id="ha-cards"></div>
+  <div class="multiples three">
+    <figure>
+      <div class="ftitle">The decision is one graded direction</div>
+      <div class="fsub">Within-item Spearman: position on the answer direction vs refusal</div>
+      <div class="chart" id="c-ha"></div>
+    </figure>
+    <figure>
+      <div class="ftitle">No few-head gate</div>
+      <div class="fsub">Share of the push carried by the top 8 heads</div>
+      <div class="chart" id="c-hb"></div>
+    </figure>
+    <figure>
+      <div class="ftitle">KVzip does not feed those heads</div>
+      <div class="fsub">KVzip global budget in their KV groups, vs an even spread</div>
+      <div class="chart" id="c-hc"></div>
+    </figure>
+  </div>
+  <div class="prose">
+    <p>So the gate story is closed. The decision to answer is real and graded, and it rises with how much of the whole turn’s effect gets through, spread over many heads. That pointed to a simpler question, asked as an exploratory follow-up (chosen after seeing the above, not pre-registered): <strong>does KVzip’s uneven budget follow where the model actually reads memory?</strong> For each item we compared KVzip’s budget per (layer, KV group) with how much attention the last prompt token pays to the stored turn in that group when the whole turn is present. And we scored every slice by <strong>mass-weighted coverage</strong>: the share of that memory attention the slice preserves, with heads weighted by how much they read memory.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Does KVzip’s budget follow the model’s memory reads?</div>
+    <div class="fsub">Exploratory. Within-item Spearman correlations, mean over 66 items.</div>
+    <div class="legend"><span><i class="sw" style="background:var(--s1)"></i>KVzip budget vs memory attention per (layer, KV group)</span><span><i class="sw" style="background:var(--s3)"></i>mass-weighted coverage vs judged correct, across selectors (95% CI)</span></div>
+    <div class="chart wide" id="c-explore"></div>
+    <figcaption>On Llama both are clearly positive: the budget goes where the model reads, and slices that preserve more of that reading get judged correct more often. On the 1.5B the budget ignores where the model reads. On the 7B neither measure explains anything.</figcaption>
+  </figure>
+  <div class="status" id="explore-cards"></div>
+  <details>
+    <summary>Technical: the three tests, definitions and the causal check</summary>
+    <div class="body">
+      <ul>
+        <li><strong>The answer direction</strong> (code <code>d_comply</code>): at each layer, the mean block output at the last prompt token for general questions the model answers minus personal questions it refuses (66 pairs, no memory). A slice’s position on it = the projection at a readout layer chosen on the other half of the items. Nothing is added to the model; the direction is only read.</li>
+        <li><strong>Test 1, “the decision is a graded direction”</strong> (code H-A): per item, Spearman between that projection and first-token refusal mass over no memory, whole turn and the 7 selections at k8. Holds if the mean ≤ −0.4 and the CI is below 0. Result: <span id="ha-nums"></span>.</li>
+        <li><strong>Test 2, “a few heads carry it”</strong> (H-B): direct attribution of each query head onto the direction; the 8 heads with the largest whole-turn-minus-no-memory push, chosen on one half, must carry ≥ half of the positive push on the other half. Result: <span id="hb-nums"></span>. The two halves chose overlapping head sets on Llama (Jaccard 1.00) but different ones on the Qwens (0.14, 0.33).</li>
+        <li><strong>Test 3, “KVzip wins by feeding those heads”</strong> (H-C): (i) KVzip global’s coverage of those heads must exceed each shared selector’s; (ii) coverage of those heads must track refusal and correctness better than coverage of all heads. Both fail on all three models.</li>
+        <li><strong>Causal check</strong> (exploratory): hiding the whole turn from those heads’ KV groups raises first-token refusal on the 1.5B by <span id="lic-15"></span> (layer-matched control heads <span id="ctrl-15"></span>); on the 7B and Llama it does nothing (<span id="lic-other"></span>).</li>
+        <li><strong>Mass-weighted coverage:</strong> per (layer, query head), the share of its whole-turn attention to the turn’s content that falls on entries the slice keeps for its KV group, averaged with weights = that head’s whole-turn attention mass on memory. Cross-model verdict for the pre-registered part: “in between” (Test 1 holds on 3 of 3; Tests 2 and 3 fail on 3 of 3).</li>
+      </ul>
+    </div>
+  </details>
+
+  <h3>4d · Memory-system comparison: cache is never better than text</h3>
+  <div class="prose">
+    <p>Separately, we compared whole memory systems on five benchmarks with retrieval held fixed (BM25, the same 3 or 10 turns). <strong>Cache retrieval</strong> restores the retrieved turns’ full cache; <strong>text retrieval</strong> puts the same turns in as text. Same tokens, same positions; only the encoding context differs. Pooled over benchmarks, cache retrieval is worse than text in 6 of the 8 model × depth cells, equivalent in 1 and inconclusive in 1. It is never better.</p>
+    <p>That leaves one reason to store cache at all: it skips the question-time prefill of the retrieved turns. On Qwen2.5-7B and LongMemEval with 3 turns, time to first token falls from 0.59 s to 0.11 s. But the full cache costs about 720 MB per conversation against 0.03 MB of text. A cache memory only makes sense if it can be <em>compressed</em> far below the whole turn while still answering, which is exactly the selection problem above. The sparse cache we ran there (8 guessed-question positions per turn) is 32× smaller than full cache and answers far worse (0.15 vs 0.43). KVzip’s global budget was not part of that run.</p>
+  </div>
+  <figure>
+    <div class="ftitle">Cache retrieval minus text retrieval</div>
+    <div class="fsub">Judged correctness, pooled over benchmarks; 95% CI. Shaded band = ±0.03, the pre-registered equivalence margin.</div>
+    <div class="chart wide" id="c-stageb"></div>
+  </figure>
+  <div class="scroll"><table id="t-stageb"></table></div>
+  <p class="note-p">LongMemEval oracle (500 items), 3 retrieved turns. Text = text retrieval; cache = cache retrieval (whole turns); sparse = sparse cache (8 per turn, guessed-question picks). Storage = mean at-rest bytes per conversation. Granite’s BEAM split is partial (64 of 320 items); Gemma-4 never ran.</p>
+
+  <h3>4e · The open point</h3>
+  <div class="prose">
+    <p><strong>Qwen2.5-7B is not explained.</strong> On the 66 head-analysis items, KVzip with a global budget is the best slice there (judged 0.59; drop-one test 0.55; KVzip shared 0.37). Yet first-token refusal is the same for every selector (0.05–0.08), its position on the answer direction is worse than the drop-one test’s, and nothing measured at the last prompt token predicts which slices get judged correct. Its budget leans to late layers (early / mid / late 0.29 / 0.32 / 0.40). Every measurement in the head analysis was taken at the last prompt token. If the 7B’s gain comes from what the model reads <em>while writing the answer</em> (fetching the value, not deciding to answer), those measurements cannot see it.</p>
+  </div>
+</section>
+
+<!-- ============================================================ 5. Takeaways -->
+<section aria-labelledby="s5">
+  <div class="eyebrow">Part 5 · takeaways</div>
+  <h2 id="s5">What we know, what is ours, what is open</h2>
+  <div class="principle">
+    <span class="tag">The principle so far</span>
+    <p>A sparse slice works when it keeps the entries each head will actually read, weighted by how much that head reads from memory. KVzip’s global budget approximates this through the copy task’s peak attention. The approximation is good on Llama-3.2-3B, poor on Qwen2.5-1.5B, and on Qwen2.5-7B it seems to matter during the answer rather than before it. Shared positions cannot follow this at all, because they force every head to read the same tokens.</p>
+  </div>
+  <div class="status">
+    <div class="st"><span class="tag">Prior work</span><h3>Known before us</h3><p>Copy-based, question-free scoring with a global head budget (KVzip). Non-uniform head budgets as the biggest single factor in compaction (Attention Matching’s ablation; also KVzip and the KV-eviction gating paper). Self-generated questions adding little over a repeat prompt (Attention Matching). Compression flipping a refusal (KVzip Table 1). Compressed caches failing to use evidence that survived (Compression-Aware Abstention).</p></div>
+    <div class="st"><span class="tag">Ours</span><h3>From our own runs</h3><p>Restoring 2–8 positions of a turn across sessions at their stored positions. The same-item split between teacher-forced and judged scores, with refusal as the failure. The answer decision read as one graded direction that slices move along, not a few-head gate. KVzip’s budget tracking memory reads on Llama (exploratory). Cache never beating text at fixed retrieval.</p></div>
+    <div class="st"><span class="tag">Open</span><h3>Next questions</h3><p><strong>Probe the 7B at the answer tokens</strong>: does KVzip’s late-layer budget serve the value fetch? <strong>Select for what heads will read</strong>: score entries by the attention mass the model pays them while answering a guessed question, per head, and test it on the 1.5B where KVzip fails. A mass-preserving correction (Attention Matching’s per-entry bias) is the cheapest related test.</p></div>
+  </div>
+  <div class="related">
+    <a href="https://claude.ai/artifact/2jo2RmDyPchgsLLqEveSLk"><span class="t">Restoring a Token’s Cache</span><span class="d">What a slice is, entry by entry, and how it is put back</span></a>
+    <a href="https://claude.ai/artifact/Ebuv2T4kPtVDAeaZfpvNKP"><span class="t">Automatic Slice Selection</span><span class="d">Our selectors on LongMemEval, with examples</span></a>
+  </div>
+</section>
+
+<footer>
+  <span>Sources (Seahorse repo): <code>results/dream_select_cluster_20261104_0129/</code>; <code>results/dream_compare_a_20261105_1822/</code> (<code>summary_a.md</code>, <code>&lt;model&gt;/report_a.md</code>); <code>results/dream_heads_20261111/</code> and <code>experiments/dream_heads/RESULTS.md</code>; <code>results/dream_compare_b_20261105_1915/&lt;model&gt;/report_b.md</code>. Pre-registrations: <code>experiments/dream_compare/PREREG.md</code>, <code>experiments/dream_heads/PREREG.md</code>.</span>
+  <span>Every plotted number is pulled from those files by <code>docs/explainers/kvzip-vs-slices/extract.py</code>. Literature notes: <code>docs/dreaming/literature-select.md</code>, <code>docs/catchup/digests-2026-11-10/digest_trained_lit.md</code> §1a. KVzip: Kim, Kim, Kwon, Lee, Yun, Song, arXiv 2505.23416 (NeurIPS 2025).</span>
+</footer>
+</div>
+
+<!-- DATA-BEGIN -->
+<script id="data" type="application/json">{"dream_select":{"qwen25_15b":{"name":"Qwen2.5-1.5B","gold_tf_gap":[0.99,0.89,1.12],"gold_judged":[0.17,0.1,0.25],"gold_judged_gap":[0.28,0.17,0.42],"gold_refusal":[0.7,0.61,0.78],"whole_judged":[0.62,0.53,0.7],"whole_refusal":[0.24,0.17,0.33],"nomem_judged":[0.01,0.0,0.02],"nomem_refusal":[0.87,0.81,0.92]},"qwen25_7b":{"name":"Qwen2.5-7B","gold_tf_gap":[0.88,0.74,1.01],"gold_judged":[0.49,0.38,0.61],"gold_judged_gap":[0.55,0.42,0.69],"gold_refusal":[0.12,0.06,0.2],"whole_judged":[0.87,0.79,0.94],"whole_refusal":[0.04,0.01,0.07],"nomem_judged":[0.01,0.0,0.03],"nomem_refusal":[0.31,0.22,0.4]},"llama32_3b":{"name":"Llama-3.2-3B","gold_tf_gap":[0.67,0.52,0.84],"gold_judged":[0.24,0.15,0.33],"gold_judged_gap":[0.28,0.18,0.4],"gold_refusal":[0.79,0.69,0.88],"whole_judged":[0.77,0.68,0.85],"whole_refusal":[0.27,0.18,0.36],"nomem_judged":[0.02,0.0,0.05],"nomem_refusal":[0.79,0.71,0.86]}},"stage_a":{"qwen25_15b":{"name":"Qwen2.5-1.5B","judged":{"nomem":[0.0,0.0,0.01],"R-full":[0.46,0.38,0.53],"KVzip-g@k8":[0.1,0.05,0.15],"KVzip-ph@k8":[0.14,0.1,0.19],"KVzip-sh@k8":[0.11,0.06,0.16],"SnapKV-oracle-ph@k8":[0.12,0.08,0.17],"EA-ph@k8":[0.16,0.11,0.22],"SnapKV-dream-ph@k8":[0.07,0.03,0.11],"S-loo@k8":[0.16,0.1,0.22],"S-dream@k8":[0.1,0.05,0.15],"S-recon@k8":[0.11,0.06,0.16],"S-attn@k8":[0.08,0.04,0.13],"H2O-ph@k8":[0.07,0.03,0.11],"random@k8":[0.03,0.01,0.05]},"refusal":{"nomem":[0.85,0.8,0.89],"R-full":[0.34,0.27,0.42],"KVzip-g@k8":[0.73,0.66,0.78],"KVzip-ph@k8":[0.58,0.52,0.65],"KVzip-sh@k8":[0.6,0.54,0.67],"SnapKV-oracle-ph@k8":[0.48,0.41,0.54],"EA-ph@k8":[0.6,0.53,0.67],"SnapKV-dream-ph@k8":[0.68,0.62,0.74],"S-loo@k8":[0.64,0.57,0.71],"S-dream@k8":[0.51,0.44,0.59],"S-recon@k8":[0.53,0.46,0.61],"S-attn@k8":[0.64,0.57,0.72],"H2O-ph@k8":[0.66,0.59,0.72],"random@k8":[0.74,0.68,0.8]},"H1":{"holds":false,"best_form":"KVzip-ph"},"H2":{"holds":false,"n":0,"pairs":{"KVzip-ph - KVzip-sh":[0.034,-0.006,0.074],"SnapKV-dream-ph - SnapKV-dream-sh":[0.028,-0.006,0.066],"H2O-ph - H2O-sh":[0.006,-0.021,0.03]}},"best_baseline":"EA-ph","seconds":{"EA":0.43,"H2O":0.0,"KVzip":0.06,"S-attn":0.0,"S-dream":0.11,"S-dream-VATP":0.0,"S-loo":3.73,"S-recon":0.05,"SnapKV-dream":0.0,"SnapKV-oracle":0.04,"VATP":0.0,"dreamer":0.9,"harvest":0.06},"E":56},"qwen25_7b":{"name":"Qwen2.5-7B","judged":{"nomem":[0.01,0.0,0.02],"R-full":[0.67,0.58,0.75],"KVzip-g@k8":[0.42,0.34,0.5],"KVzip-ph@k8":[0.34,0.26,0.42],"KVzip-sh@k8":[0.25,0.18,0.33],"SnapKV-oracle-ph@k8":[0.34,0.26,0.42],"EA-ph@k8":[0.25,0.18,0.33],"SnapKV-dream-ph@k8":[0.17,0.11,0.24],"S-loo@k8":[0.39,0.31,0.48],"S-dream@k8":[0.23,0.15,0.3],"S-recon@k8":[0.16,0.11,0.23],"S-attn@k8":[0.14,0.08,0.2],"H2O-ph@k8":[0.1,0.05,0.16],"random@k8":[0.08,0.04,0.13]},"refusal":{"nomem":[0.38,0.31,0.46],"R-full":[0.12,0.08,0.18],"KVzip-g@k8":[0.25,0.19,0.32],"KVzip-ph@k8":[0.2,0.14,0.27],"KVzip-sh@k8":[0.23,0.17,0.3],"SnapKV-oracle-ph@k8":[0.18,0.13,0.24],"EA-ph@k8":[0.22,0.16,0.28],"SnapKV-dream-ph@k8":[0.24,0.18,0.3],"S-loo@k8":[0.19,0.13,0.25],"S-dream@k8":[0.2,0.14,0.26],"S-recon@k8":[0.21,0.15,0.27],"S-attn@k8":[0.25,0.19,0.32],"H2O-ph@k8":[0.28,0.22,0.35],"random@k8":[0.21,0.16,0.28]},"H1":{"holds":true,"best_form":"KVzip-g"},"H2":{"holds":true,"n":3,"pairs":{"KVzip-ph - KVzip-sh":[0.089,0.011,0.158],"SnapKV-dream-ph - SnapKV-dream-sh":[0.121,0.062,0.183],"H2O-ph - H2O-sh":[0.053,0.015,0.098]}},"best_baseline":"KVzip-g","seconds":{"EA":1.23,"H2O":0.0,"KVzip":0.15,"S-attn":0.0,"S-dream":0.17,"S-dream-VATP":0.0,"S-loo":8.2,"S-recon":0.14,"SnapKV-dream":0.0,"SnapKV-oracle":0.06,"VATP":0.0,"dreamer":1.44,"harvest":0.2},"E":112},"llama32_3b":{"name":"Llama-3.2-3B","judged":{"nomem":[0.01,0.0,0.04],"R-full":[0.59,0.51,0.67],"KVzip-g@k8":[0.41,0.33,0.49],"KVzip-ph@k8":[0.22,0.15,0.28],"KVzip-sh@k8":[0.16,0.1,0.22],"SnapKV-oracle-ph@k8":[0.32,0.25,0.4],"EA-ph@k8":[0.23,0.16,0.29],"SnapKV-dream-ph@k8":[0.2,0.14,0.27],"S-loo@k8":[0.25,0.18,0.33],"S-dream@k8":[0.26,0.18,0.33],"S-recon@k8":[0.13,0.08,0.19],"S-attn@k8":[0.11,0.06,0.17],"H2O-ph@k8":[0.09,0.05,0.14],"random@k8":[0.07,0.03,0.12]},"refusal":{"nomem":[0.83,0.77,0.88],"R-full":[0.42,0.34,0.51],"KVzip-g@k8":[0.65,0.57,0.73],"KVzip-ph@k8":[0.74,0.67,0.81],"KVzip-sh@k8":[0.81,0.74,0.87],"SnapKV-oracle-ph@k8":[0.63,0.55,0.71],"EA-ph@k8":[0.75,0.68,0.82],"SnapKV-dream-ph@k8":[0.74,0.67,0.81],"S-loo@k8":[0.74,0.66,0.81],"S-dream@k8":[0.65,0.58,0.73],"S-recon@k8":[0.79,0.72,0.85],"S-attn@k8":[0.8,0.74,0.87],"H2O-ph@k8":[0.85,0.78,0.9],"random@k8":[0.83,0.77,0.89]},"H1":{"holds":true,"best_form":"KVzip-g"},"H2":{"holds":false,"n":1,"pairs":{"KVzip-ph - KVzip-sh":[0.058,0.008,0.108],"SnapKV-dream-ph - SnapKV-dream-sh":[0.055,-0.004,0.117],"H2O-ph - H2O-sh":[0.028,0.0,0.062]}},"best_baseline":"KVzip-g","seconds":{"EA":0.98,"H2O":0.0,"KVzip":0.11,"S-attn":0.0,"S-dream":0.18,"S-dream-VATP":0.0,"S-loo":5.58,"S-recon":0.16,"SnapKV-dream":0.0,"SnapKV-oracle":0.04,"VATP":0.0,"dreamer":1.08,"harvest":0.18},"E":224},"granite42_30b":{"name":"Granite-4.2-30B","judged":{"nomem":[0.0,0.0,0.0],"R-full":[0.67,0.59,0.75],"KVzip-g@k8":[0.63,0.54,0.71],"KVzip-ph@k8":[0.49,0.4,0.58],"KVzip-sh@k8":[0.27,0.19,0.35],"SnapKV-oracle-ph@k8":[0.58,0.49,0.66],"EA-ph@k8":[0.43,0.34,0.52],"SnapKV-dream-ph@k8":[0.37,0.28,0.45],"S-loo@k8":[0.4,0.31,0.48],"S-dream@k8":[0.21,0.14,0.28],"S-recon@k8":[0.19,0.12,0.26],"S-attn@k8":[0.16,0.1,0.23],"H2O-ph@k8":[0.22,0.15,0.3],"random@k8":[0.11,0.06,0.17]},"refusal":{"nomem":[0.52,0.46,0.58],"R-full":[0.04,0.02,0.07],"KVzip-g@k8":[0.07,0.04,0.11],"KVzip-ph@k8":[0.1,0.06,0.15],"KVzip-sh@k8":[0.21,0.16,0.27],"SnapKV-oracle-ph@k8":[0.08,0.04,0.13],"EA-ph@k8":[0.15,0.1,0.2],"SnapKV-dream-ph@k8":[0.12,0.08,0.17],"S-loo@k8":[0.16,0.11,0.21],"S-dream@k8":[0.15,0.1,0.2],"S-recon@k8":[0.22,0.17,0.28],"S-attn@k8":[0.25,0.19,0.31],"H2O-ph@k8":[0.25,0.19,0.31],"random@k8":[0.3,0.23,0.37]},"H1":{"holds":true,"best_form":"KVzip-g"},"H2":{"holds":true,"n":3,"pairs":{"KVzip-ph - KVzip-sh":[0.223,0.149,0.298],"SnapKV-dream-ph - SnapKV-dream-sh":[0.187,0.117,0.26],"H2O-ph - H2O-sh":[0.149,0.089,0.215]}},"best_baseline":"KVzip-g","seconds":{"EA":2.68,"H2O":0.0,"KVzip":0.53,"S-attn":0.0,"S-dream":0.58,"S-dream-VATP":0.0,"S-loo":34.22,"S-recon":0.5,"SnapKV-dream":0.0,"SnapKV-oracle":0.2,"VATP":0.0,"dreamer":4.57,"harvest":0.51},"E":512}},"dream_heads":{"qwen25_15b":{"name":"Qwen2.5-1.5B","HA":{"holds":true,"rho_refusal":[-0.82,-0.86,-0.77],"rho_judged":[0.58,0.52,0.63]},"HB":{"holds":false,"share":[0.29,0.27,0.3],"jaccard":0.14},"lic_hide_refusal":[0.18,0.12,0.24],"ctrl_hide_refusal":[0.04,0.02,0.06],"lic_budget_vs_even":0.23,"kvzipg_layer_share":[0.34,0.24,0.42],"cond":{"nomem":{"refusal":0.86,"judged":0.0,"lic_cov":0.0,"all_cov":0.0},"R-full":{"refusal":0.22,"judged":0.63,"lic_cov":1.0,"all_cov":1.0},"KVzip-g|k8":{"refusal":0.66,"judged":0.15,"lic_cov":0.04,"all_cov":0.15},"KVzip-ph|k8":{"refusal":0.41,"judged":0.21,"lic_cov":0.32,"all_cov":0.24},"KVzip-sh|k8":{"refusal":0.48,"judged":0.16,"lic_cov":0.18,"all_cov":0.15},"S-loo|k8":{"refusal":0.5,"judged":0.23,"lic_cov":0.23,"all_cov":0.2},"S-dream|k8":{"refusal":0.38,"judged":0.15,"lic_cov":0.42,"all_cov":0.35},"random|k8":{"refusal":0.67,"judged":0.05,"lic_cov":0.15,"all_cov":0.15}},"budget_vs_mass":0.03,"budget_vs_layer":0.13,"wcov_kvzipg":0.15,"wcov_best":0.33,"wcov_best_name":"S-dream","wcov_vs_judged":[0.12,-0.0,0.24],"wcov_vs_refusal":-0.44},"qwen25_7b":{"name":"Qwen2.5-7B","HA":{"holds":true,"rho_refusal":[-0.59,-0.68,-0.48],"rho_judged":[0.63,0.57,0.69]},"HB":{"holds":false,"share":[0.3,0.28,0.32],"jaccard":0.33},"lic_hide_refusal":[0.0,0.0,0.01],"ctrl_hide_refusal":[0.0,-0.0,0.0],"lic_budget_vs_even":0.61,"kvzipg_layer_share":[0.29,0.32,0.4],"cond":{"nomem":{"refusal":0.23,"judged":0.01,"lic_cov":0.0,"all_cov":0.0},"R-full":{"refusal":0.01,"judged":0.87,"lic_cov":1.0,"all_cov":1.0},"KVzip-g|k8":{"refusal":0.07,"judged":0.59,"lic_cov":0.17,"all_cov":0.16},"KVzip-ph|k8":{"refusal":0.08,"judged":0.45,"lic_cov":0.35,"all_cov":0.24},"KVzip-sh|k8":{"refusal":0.06,"judged":0.37,"lic_cov":0.3,"all_cov":0.2},"S-loo|k8":{"refusal":0.05,"judged":0.55,"lic_cov":0.24,"all_cov":0.16},"S-dream|k8":{"refusal":0.07,"judged":0.32,"lic_cov":0.44,"all_cov":0.32},"random|k8":{"refusal":0.1,"judged":0.13,"lic_cov":0.16,"all_cov":0.15}},"budget_vs_mass":0.16,"budget_vs_layer":0.25,"wcov_kvzipg":0.17,"wcov_best":0.32,"wcov_best_name":"S-dream","wcov_vs_judged":[0.01,-0.09,0.12],"wcov_vs_refusal":-0.04},"llama32_3b":{"name":"Llama-3.2-3B","HA":{"holds":true,"rho_refusal":[-0.75,-0.8,-0.69],"rho_judged":[0.68,0.59,0.75]},"HB":{"holds":false,"share":[0.26,0.25,0.27],"jaccard":1.0},"lic_hide_refusal":[0.03,0.01,0.04],"ctrl_hide_refusal":[0.01,-0.0,0.03],"lic_budget_vs_even":0.92,"kvzipg_layer_share":[0.27,0.42,0.31],"cond":{"nomem":{"refusal":0.89,"judged":0.02,"lic_cov":0.0,"all_cov":0.0},"R-full":{"refusal":0.24,"judged":0.77,"lic_cov":1.0,"all_cov":1.0},"KVzip-g|k8":{"refusal":0.45,"judged":0.58,"lic_cov":0.23,"all_cov":0.21},"KVzip-ph|k8":{"refusal":0.65,"judged":0.32,"lic_cov":0.35,"all_cov":0.29},"KVzip-sh|k8":{"refusal":0.73,"judged":0.24,"lic_cov":0.25,"all_cov":0.21},"S-loo|k8":{"refusal":0.63,"judged":0.36,"lic_cov":0.24,"all_cov":0.21},"S-dream|k8":{"refusal":0.5,"judged":0.36,"lic_cov":0.34,"all_cov":0.27},"random|k8":{"refusal":0.78,"judged":0.11,"lic_cov":0.16,"all_cov":0.15}},"budget_vs_mass":0.49,"budget_vs_layer":0.01,"wcov_kvzipg":0.3,"wcov_best":0.28,"wcov_best_name":"KVzip-ph","wcov_vs_judged":[0.44,0.35,0.53],"wcov_vs_refusal":-0.38}},"stage_b":{"qwen25_15b":{"name":"Qwen2.5-1.5B","m3":{"diff":-0.025304677969735113,"lo95":-0.04297597374851484,"hi95":-0.0070822549619419875,"lo90":-0.04015677767826815,"hi90":-0.010061583535024093,"cells":5,"verdict":"different (P2 better)"},"m10":{"diff":-0.04711079247440416,"lo95":-0.0707174730460695,"hi95":-0.02510440944685717,"lo90":-0.06632352158000349,"hi90":-0.028290024104745123,"cells":4,"verdict":"different (P2 better)"},"lme_oracle_m3":{"P0":{"correct":[0.066,0.046,0.088],"refusal":0.73,"storage_mb":0.0,"prefill":70,"ttft":0.039},"P2-3":{"correct":[0.348,0.306,0.388],"refusal":0.264,"storage_mb":0.03,"prefill":796,"ttft":0.182},"P3-3":{"correct":[0.318,0.278,0.36],"refusal":0.252,"storage_mb":360.01,"prefill":49,"ttft":0.077},"P4dream-3":{"correct":[0.102,0.076,0.13],"refusal":0.43,"storage_mb":11.29,"prefill":49,"ttft":0.074}}},"qwen25_7b":{"name":"Qwen2.5-7B","m3":{"diff":-0.03970271783868965,"lo95":-0.05730467825993017,"hi95":-0.023141629136695985,"lo90":-0.05413955504020758,"hi90":-0.025655728199239513,"cells":5,"verdict":"different (P2 better)"},"m10":{"diff":-0.04830086666936412,"lo95":-0.07161214957455163,"hi95":-0.024576725068410427,"lo90":-0.06831346270995181,"hi90":-0.028708708129525726,"cells":4,"verdict":"different (P2 better)"},"lme_oracle_m3":{"P0":{"correct":[0.084,0.062,0.11],"refusal":0.32,"storage_mb":0.0,"prefill":70,"ttft":0.103},"P2-3":{"correct":[0.492,0.448,0.536],"refusal":0.062,"storage_mb":0.03,"prefill":796,"ttft":0.594},"P3-3":{"correct":[0.434,0.388,0.48],"refusal":0.078,"storage_mb":719.99,"prefill":49,"ttft":0.108},"P4dream-3":{"correct":[0.148,0.118,0.18],"refusal":0.204,"storage_mb":22.55,"prefill":49,"ttft":0.106}}},"llama32_3b":{"name":"Llama-3.2-3B","m3":{"diff":-0.011992482079768992,"lo95":-0.029082470059518056,"hi95":0.005823466680496894,"lo90":-0.02643144847186582,"hi90":0.0031570348665774604,"cells":5,"verdict":"equivalent"},"m10":{"diff":-0.038917775245168554,"lo95":-0.05979802700001199,"hi95":-0.017367302619452255,"lo90":-0.05602173899401465,"hi90":-0.021110647945214715,"cells":4,"verdict":"different (P2 better)"},"lme_oracle_m3":{"P0":{"correct":[0.086,0.062,0.112],"refusal":0.556,"storage_mb":0.0,"prefill":70,"ttft":0.076},"P2-3":{"correct":[0.416,0.37,0.46],"refusal":0.312,"storage_mb":0.03,"prefill":772,"ttft":0.33},"P3-3":{"correct":[0.374,0.332,0.42],"refusal":0.344,"storage_mb":1399.71,"prefill":44,"ttft":0.128},"P4dream-3":{"correct":[0.156,0.126,0.19],"refusal":0.476,"storage_mb":46.21,"prefill":44,"ttft":0.125}}},"granite42_30b":{"name":"Granite-4.2-30B","m3":{"diff":-0.013599160964969274,"lo95":-0.03888336501583167,"hi95":0.012135660450874303,"lo90":-0.03508231939169119,"hi90":0.007670058721303082,"cells":5,"verdict":"inconclusive"},"m10":{"diff":-0.07362167318254968,"lo95":-0.1067421940869455,"hi95":-0.03986903252803141,"lo90":-0.1015142882600406,"hi90":-0.04543664790617129,"cells":4,"verdict":"different (P2 better)"},"lme_oracle_m3":{"P0":{"correct":[0.078,0.056,0.102],"refusal":0.406,"storage_mb":0.0,"prefill":50,"ttft":0.275},"P2-3":{"correct":[0.54,0.498,0.586],"refusal":0.108,"storage_mb":0.03,"prefill":783,"ttft":2.328},"P3-3":{"correct":[0.464,0.418,0.508],"refusal":0.074,"storage_mb":3345.32,"prefill":45,"ttft":0.388},"P4dream-3":{"correct":[0.166,0.134,0.2],"refusal":0.126,"storage_mb":94.59,"prefill":45,"ttft":0.38}}}},"example":{"model":"Llama-3.2-3B","id":"4fd1909e","question":"Where did I attend the Imagine Dragons concert?","answer":"Xfinity Center","n_layers":28,"n_kv":8,"E":224,"tokens":["I","'ve"," got"," tickets"," to"," see"," the"," Jonas"," Brothers"," at"," the"," TD"," Garden"," on"," July"," ","17","th",","," and"," then"," The"," Lum","ine","ers"," at"," the"," House"," of"," Blues"," on"," August"," ","20","th","."," I","'m"," also"," thinking"," about"," checking"," out"," that"," music"," festival"," in"," Rhode"," Island"," again"," this"," summer",","," but"," I"," haven","'t"," looked"," into"," tickets"," yet","."," Oh",","," and"," I"," just"," remembered"," I"," went"," to"," an"," amazing"," Imagine"," Dragons"," concert"," recently",","," it"," was"," at"," the"," X","finity"," Center"," on"," June"," ","15","th"," -"," what"," a"," show","!"],"content":[4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98],"classes":["other","other","other","other","other","other","other","other","other","other","other","other","other","other","other","punct","other","other","punct","other","other","other","other","other","other","other","other","other","other","other","other","other","punct","other","other","punct","other","other","other","other","other","other","other","other","other","other","other","other","other","other","other","other","punct","other","other","other","other","other","other","other","other","punct","other","punct","other","other","other","other","other","other","other","other","other","qword","qword","qword","other","punct","other","other","other","other","gold","gold","gold","other","other","punct","other","other","punct","other","other","other","punct"],"gold":[86,87,88],"kvzipg_budget":[[0,0,1,0,0,0,0,1],[0,0,0,0,0,14,0,0],[0,0,0,5,0,87,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,80,0,0,0],[0,19,86,0,0,4,0,0],[11,1,0,0,0,1,2,27],[4,2,0,0,0,0,8,0],[56,0,87,0,2,0,4,11],[6,0,0,7,1,0,5,21],[0,61,1,16,0,1,0,0],[0,0,0,0,0,0,0,0],[23,24,14,3,5,5,14,0],[2,0,0,12,73,25,0,17],[76,0,1,0,0,8,2,93],[0,0,0,0,0,14,27,19],[0,13,7,0,2,8,0,0],[45,0,0,50,0,0,0,0],[36,0,2,56,0,39,27,2],[2,0,4,1,0,6,0,15],[0,7,0,15,0,2,8,0],[0,0,0,0,9,9,67,0],[0,16,0,12,0,0,0,0],[26,0,0,30,0,0,0,1],[0,71,0,0,1,10,0,0],[0,0,9,0,0,6,0,0],[10,0,8,14,0,7,18,22],[0,3,0,0,0,5,0,1]],"kvzipg_per_token":[5,14,19,22,17,25,9,23,29,19,8,23,28,18,16,8,24,16,4,14,22,16,18,12,30,29,11,18,11,42,19,27,10,25,17,16,10,12,17,26,17,23,20,17,17,22,15,34,27,29,13,40,11,22,3,3,22,18,22,34,34,5,16,8,15,3,17,36,6,27,10,11,29,17,23,28,28,11,11,12,16,5,12,28,39,23,31,7,33,18,11,16,28,24,16],"shared":{"KVzip-sh":[33,51,55,63,64,71,76,88],"S-loo":[15,16,49,50,53,57,89,92],"S-dream":[11,12,39,49,77,78,79,81]},"judged":{"R-full":1.0,"KVzip-g@k8":1.0,"KVzip-sh@k8":0.0,"S-loo@k8":0.0,"S-dream@k8":0.0,"KVzip-ph@k8":0.6},"greedy":{"nomem":"I don't have any information about you attending an Imagine Dragons concert. I'm a large language model, I don't have personal knowledge about your experiences or activities. Each time you interact with me, it's a new conversation, and I don't retain any information about you or your past interactions.\n\nIf you'd like","R-full":"You attended the Imagine Dragons concert at the Xfinity Center on June 15th.","S-loo@k8":"I don't have any information about you attending an Imagine Dragons concert. Can you please provide more context or details about the concert you're thinking of, such as the date or location? I'll do my best to help you figure out where you might have attended the concert.","KVzip-g@k8":"You attended the Imagine Dragons concert at the Xfinity Center on June 15th.","KVzip-sh@k8":"I don't have any information about you attending an Imagine Dragons concert. I'm a large language model, I don't have personal knowledge about your experiences or activities. If you'd like to share where you attended the concert, I'd be happy to chat with you about it!"},"refusal":{"nomem":0.9979371249543539,"R-full":3.8240442203474826e-05,"KVzip-g|k8":0.3500432032455563,"KVzip-sh|k8":0.9997930390595052,"S-loo|k8":0.9989224539233476}}}</script>
+<!-- DATA-END -->
+<script>
+(function () {
+const D = JSON.parse(document.getElementById("data").textContent);
+const NS = "http://www.w3.org/2000/svg";
+const MODELS = ["qwen25_15b", "qwen25_7b", "llama32_3b", "granite42_30b"];
+const NM = {
+  "nomem": "No memory", "R-full": "Whole turn (cache)",
+  "KVzip-g": "KVzip, global budget", "KVzip-ph": "KVzip, per head", "KVzip-sh": "KVzip, shared positions",
+  "SnapKV-oracle-ph": "SnapKV, real question (cheat)", "EA-ph": "Expected Attention", "SnapKV-dream-ph": "SnapKV, guessed questions",
+  "S-loo": "Drop-one test", "S-dream": "Guessed-question attention", "S-recon": "Repeat-attention, shared",
+  "S-attn": "Most-attended in turn", "H2O-ph": "H2O (accumulated attention)", "random": "Random",
+  "gold": "Answer tokens", "gold@k": "Answer window"
+};
+const base = c => c.replace(/[@|]k\d+$/, "");
+const nm = c => NM[base(c)] || c;
+const f2 = v => (v == null || isNaN(v)) ? "–" : v.toFixed(2);
+const sg = v => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2);
+
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function svgRoot(host, w, h, label) {
+  const s = el("svg", { viewBox: `0 0 ${w} ${h}`, role: "img", "aria-label": label });
+  s.style.maxWidth = Math.round(w * 1.2) + "px";
+  host.appendChild(s);
+  return s;
+}
+// tooltip on the nearest figure
+function tipFor(node) {
+  const fig = node.closest("figure") || node.closest(".wrap");
+  let t = fig.querySelector(":scope > .tip");
+  if (!t) { t = document.createElement("div"); t.className = "tip"; t.hidden = true; fig.appendChild(t); }
+  return t;
+}
+function hover(target, html, focusable) {
+  const show = ev => {
+    const t = tipFor(target), fig = t.parentElement, r = fig.getBoundingClientRect();
+    t.innerHTML = html; t.hidden = false;
+    const x = (ev.clientX || r.left + 20) - r.left + 12, y = (ev.clientY || r.top + 20) - r.top + 12;
+    t.style.left = Math.min(x, r.width - t.offsetWidth - 8) + "px"; t.style.top = y + "px";
+  };
+  const hide = () => { tipFor(target).hidden = true; };
+  target.addEventListener("mousemove", show); target.addEventListener("mouseleave", hide);
+  target.addEventListener("focus", show); target.addEventListener("blur", hide);
+  if (focusable) target.setAttribute("tabindex", "0");
+}
+
+/* ---------------------------------------------------------------- tiles */
+(function tiles() {
+  const A = D.stage_a, H = D.dream_heads;
+  const t = [
+    ["KVzip, global budget, Llama-3.2-3B", f2(A.llama32_3b.judged["KVzip-g@k8"][0]), `judged correct at 8 positions’ worth; whole turn ${f2(A.llama32_3b.judged["R-full"][0])}`],
+    ["Best shared-position selector, same model", f2(Math.max(...["S-loo@k8","S-dream@k8","KVzip-sh@k8","S-recon@k8"].map(c => A.llama32_3b.judged[c][0]))), "drop-one test, guessed questions, KVzip shared, repeat-attention"],
+    ["Budget follows memory reads (Llama)", sg(H.llama32_3b.budget_vs_mass), `Spearman; ${sg(H.qwen25_15b.budget_vs_mass)} on Qwen2.5-1.5B, where KVzip fails`],
+  ];
+  const host = document.getElementById("tiles");
+  for (const [l, v, n] of t) host.insertAdjacentHTML("beforeend", `<div class="tile"><span class="label">${l}</span><span class="value">${v}</span><span class="note">${n}</span></div>`);
+})();
+
+/* ---------------------------------------------------------------- fig: KVzip steps */
+(function kvSteps() {
+  const g = document.getElementById("kv-steps");
+  const PW = 200, GAP = 26, X0 = 10, TOP = 30;
+  const titles = ["1 · Store the turn", "2 · Ask for a copy", "3 · Score: peak attention", "4 · Keep the best entries"];
+  const subs = [["K,V for every layer,", "KV head and position"], ["the copy is the turn itself,", "teacher-forced"], ["max over copy rows and", "the group’s query heads"], ["top N anywhere, here", "uneven across rows"]];
+  for (let p = 0; p < 4; p++) {
+    const x = X0 + p * (PW + GAP);
+    el("text", { x: x, y: 18, class: "t-strong" }, g, titles[p]);
+    el("text", { x: x, y: 262, class: "t-muted" }, g, subs[p][0]);
+    el("text", { x: x, y: 277, class: "t-muted" }, g, subs[p][1]);
+    if (p < 3) el("line", { x1: x + PW + 3, y1: 140, x2: x + PW + GAP - 4, y2: 140, stroke: "currentColor", "stroke-width": 1.5, "marker-end": "url(#ar1)" }, g);
+  }
+  const C = 10, R = 9, cw = 17, ch = 17;
+  // panel 1: cache grid
+  let x = X0 + 15, y = TOP + 40;
+  el("text", { x: x, y: y - 10, class: "t-small" }, g, "positions →");
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++)
+    el("rect", { x: x + c * cw, y: y + r * ch, width: cw - 3, height: ch - 3, rx: 2, fill: "var(--ink-2)", "fill-opacity": 0.18 }, g);
+  el("text", { x: x - 6, y: y + 4.5 * ch, class: "t-small", transform: `rotate(-90 ${x - 6} ${y + 4.5 * ch})`, "text-anchor": "middle" }, g, "layer × KV head");
+  // panel 2: sequence strip
+  x = X0 + (PW + GAP) + 4; y = TOP + 50;
+  const segs = [["stored turn", 62, "var(--ink-2)", 0.18], ["“Repeat the previous", 66, "var(--s3)", 0.25], ["copy of the turn", 62, "var(--s1)", 0.3]];
+  let sx = x;
+  for (const [lab, w, col, op] of segs) {
+    el("rect", { x: sx, y: y, width: w - 3, height: 40, rx: 5, fill: col, "fill-opacity": op }, g);
+    sx += w;
+  }
+  el("text", { x: x + 29, y: y + 24, class: "t-small", "text-anchor": "middle" }, g, "(cache)");
+  el("text", { x: x + 62 + 31, y: y + 17, class: "t-small", "text-anchor": "middle" }, g, "Repeat the");
+  el("text", { x: x + 62 + 31, y: y + 30, class: "t-small", "text-anchor": "middle" }, g, "context…”");
+  el("text", { x: x + 128 + 30, y: y + 24, class: "t-small", "text-anchor": "middle" }, g, "I’ve got…");
+  el("text", { x: x, y: y - 10, class: "t-small" }, g, "one forward pass:");
+  ["The copy is fed in as if the", "model had written it, so every", "copy row reads the stored", "cache once, in every head."].forEach((t, i) =>
+    el("text", { x: x, y: y + 66 + i * 15, class: "t-small" }, g, t));
+  // panel 3: attention matrix with near-diagonal pattern, max row
+  x = X0 + 2 * (PW + GAP) + 15; y = TOP + 40;
+  el("text", { x: x, y: y - 10, class: "t-small" }, g, "stored positions →");
+  const RR = 7;
+  const score = new Array(C).fill(0);
+  for (let r = 0; r < RR; r++) for (let c = 0; c < C; c++) {
+    const d = Math.abs(c - (r + 1));
+    let a = d === 0 ? 0.85 : d === 1 ? 0.28 : 0.04;
+    if (c === 0) a = Math.max(a, 0.35);           // sink-like first column
+    if (c === 8 && r === 3) a = 0.6;              // a long-range read
+    score[c] = Math.max(score[c], a);
+    el("rect", { x: x + c * cw, y: y + r * ch, width: cw - 3, height: ch - 3, rx: 2, fill: "var(--s1)", "fill-opacity": a.toFixed(2) }, g);
+  }
+  el("text", { x: x - 6, y: y + 3.5 * ch, class: "t-small", transform: `rotate(-90 ${x - 6} ${y + 3.5 * ch})`, "text-anchor": "middle" }, g, "copy rows");
+  const my = y + RR * ch + 12;
+  el("text", { x: x + C * cw + 4, y: my - 2, class: "t-small" }, g, "max ↓");
+  for (let c = 0; c < C; c++) el("rect", { x: x + c * cw, y: my + 4, width: cw - 3, height: ch - 3, rx: 2, fill: "var(--s1)", "fill-opacity": score[c].toFixed(2), stroke: "var(--s1)", "stroke-width": 0.8 }, g);
+  el("text", { x: x, y: my + 33, class: "t-small" }, g, "score row for this (layer, KV head)");
+  // panel 4: score grid, top entries kept (uneven)
+  x = X0 + 3 * (PW + GAP) + 15; y = TOP + 40;
+  el("text", { x: x, y: y - 10, class: "t-small" }, g, "positions →");
+  const keepRows = { 0: [], 1: [3, 4, 5, 6, 7, 8, 9], 2: [0], 3: [], 4: [2, 5], 5: [1, 2, 3, 4, 5, 6, 7, 8], 6: [], 7: [6], 8: [4, 9] };
+  for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
+    const k = keepRows[r].includes(c);
+    el("rect", { x: x + c * cw, y: y + r * ch, width: cw - 3, height: ch - 3, rx: 2, fill: k ? "var(--s1)" : "var(--ink-2)", "fill-opacity": k ? 0.9 : 0.1 }, g);
+  }
+  el("text", { x: x + C * cw + 6, y: y + 1 * ch + 11, class: "t-small" }, g, "7");
+  el("text", { x: x + C * cw + 6, y: y + 5 * ch + 11, class: "t-small" }, g, "8");
+  el("text", { x: x + C * cw + 6, y: y + 0 * ch + 11, class: "t-small" }, g, "0");
+})();
+
+/* ---------------------------------------------------------------- fig: three forms */
+(function forms() {
+  const s = document.getElementById("forms-svg");
+  const R = 12, C = 16, cw = 14, ch = 13, W = 280;
+  const g = [
+    { t: "KVzip, global budget", sub: "uneven: 0 to 9 per row", rows: [[], [2,3,4,5,6,7,8,9,10], [5,6], [], [1,2,3,4,5,6,7,8,9], [], [12, 13], [6,7], [], [3,4,5,6,7,8,9,10,11], [], [13,14,15]], col: "var(--s1)" },
+    { t: "KVzip, per head", sub: "3 per row, own positions", rows: [[1,5,9], [3,4,12], [0,7,8], [2,9,14], [5,6,10], [1,11,15], [4,8,13], [0,3,6], [7,9,12], [2,10,11], [5,13,14], [3,8,15]], col: "var(--s1)" },
+    { t: "Shared positions", sub: "the same 3 columns in every row", rows: Array.from({ length: R }, () => [4, 9, 13]), col: "var(--s2)" },
+  ];
+  g.forEach((p, i) => {
+    const x0 = 14 + i * (W + 16), y0 = 40;
+    el("text", { x: x0, y: 16, class: "t-strong" }, s, p.t);
+    el("text", { x: x0, y: 31, class: "t-muted" }, s, p.sub);
+    for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
+      const k = p.rows[r].includes(c);
+      el("rect", { x: x0 + c * cw, y: y0 + r * ch, width: cw - 3, height: ch - 3, rx: 2, fill: k ? p.col : "var(--ink-2)", "fill-opacity": k ? 0.9 : 0.1 }, s);
+    }
+    el("text", { x: x0, y: y0 + R * ch + 16, class: "t-small" }, s, i === 2 ? "← all Seahorse selectors" : "36 entries kept");
+    if (i === 2) el("text", { x: x0 + 150, y: y0 + R * ch + 16, class: "t-small" }, s, "36 entries kept");
+  });
+})();
+
+/* ---------------------------------------------------------------- fig: slice store/restore */
+(function slice() {
+  const s = document.getElementById("slice-svg");
+  el("defs", {}, s).innerHTML = '<marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>';
+  const g = el("g", { style: "color: var(--ink-2)" }, s);
+  const toks = ["…", "the", "X", "finity", "Center", "on", "June", "15", "th", "…"];
+  const keep = [3, 4];
+  const x0 = 120, cw = 48, y0 = 30, L = 6, lh = 12;
+  el("text", { x: 10, y: y0 + 12, class: "t-strong" }, g, "Session 1");
+  el("text", { x: 10, y: y0 + 30, class: "t-muted" }, g, "read the turn");
+  toks.forEach((t, i) => {
+    el("text", { x: x0 + i * cw + cw / 2 - 2, y: y0 + 8, class: "t-mono", "text-anchor": "middle" }, g, t);
+    for (let l = 0; l < L; l++) {
+      const k = keep.includes(i);
+      el("rect", { x: x0 + i * cw, y: y0 + 18 + l * lh, width: cw - 6, height: lh - 3, rx: 2, fill: k ? "var(--s2)" : "var(--ink-2)", "fill-opacity": k ? 0.85 : 0.15 }, g);
+    }
+  });
+  el("text", { x: x0 - 8, y: y0 + 18 + 3 * lh, class: "t-small", "text-anchor": "end" }, g, "every layer");
+  el("text", { x: x0 - 8, y: y0 + 18 + 4 * lh, class: "t-small", "text-anchor": "end" }, g, "(all KV heads)");
+  el("text", { x: x0 + 3 * cw, y: y0 + 18 + L * lh + 14, class: "t-small" }, g, "kept: whole columns");
+  el("path", { d: `M${x0 + 4 * cw - 3},${y0 + 18 + L * lh + 20} V${y0 + 140}`, stroke: "currentColor", "stroke-width": 1.5, fill: "none", "marker-end": "url(#ar2)" }, g);
+  el("text", { x: x0 + 4 * cw + 6, y: y0 + 130, class: "t-small" }, g, "stored on disk; restored days later");
+  const y1 = y0 + 152;
+  el("text", { x: 10, y: y1 + 12, class: "t-strong" }, g, "Session 2");
+  el("text", { x: 10, y: y1 + 30, class: "t-muted" }, g, "new chat");
+  // head block
+  el("rect", { x: x0 - 2, y: y1 + 18, width: 30, height: L * lh - 3, rx: 3, fill: "var(--ink-2)", "fill-opacity": 0.3 }, g);
+  el("text", { x: x0 + 13, y: y1 + 18 + L * lh + 13, class: "t-small", "text-anchor": "middle" }, g, "head");
+  toks.forEach((t, i) => {
+    if (i === 0) return;
+    const k = keep.includes(i);
+    for (let l = 0; l < L; l++) {
+      if (k) el("rect", { x: x0 + i * cw, y: y1 + 18 + l * lh, width: cw - 6, height: lh - 3, rx: 2, fill: "var(--s2)", "fill-opacity": 0.85 }, g);
+      else el("rect", { x: x0 + i * cw + 0.5, y: y1 + 18 + l * lh + 0.5, width: cw - 7, height: lh - 4, rx: 2, fill: "none", stroke: "var(--axis)", "stroke-width": 0.8, "stroke-dasharray": "2 2" }, g);
+    }
+  });
+  el("text", { x: x0 + 3.5 * cw, y: y1 + 18 + L * lh + 13, class: "t-small", "text-anchor": "middle" }, g, "same positions as stored");
+  const qx = x0 + 10 * cw + 4;
+  el("rect", { x: qx, y: y1 + 18, width: 150, height: L * lh - 3, rx: 4, fill: "var(--band)", stroke: "var(--s1)" }, g);
+  el("text", { x: qx + 75, y: y1 + 18 + 26, class: "t-ink", "text-anchor": "middle" }, g, "“Where did I attend");
+  el("text", { x: qx + 75, y: y1 + 18 + 42, class: "t-ink", "text-anchor": "middle" }, g, "the concert?”");
+  el("text", { x: qx + 75, y: y1 + 18 + L * lh + 13, class: "t-small", "text-anchor": "middle" }, g, "starts where the turn ended");
+  el("text", { x: x0 + 7 * cw, y: y1 + 18 + L * lh + 13, class: "t-small", "text-anchor": "middle" }, g, "dashed = not stored");
+})();
+
+/* ---------------------------------------------------------------- fig: two lanes */
+(function lanes() {
+  const s = document.getElementById("lanes-svg");
+  el("defs", {}, s).innerHTML = '<marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>';
+  const g = el("g", { style: "color: var(--ink-2)" }, s);
+  const xs = [110, 250, 450, 670], ws = [120, 180, 200, 200];
+  const lanes = [
+    { y: 26, name: "KVzip", col: "var(--s1)", band: "var(--band)", boxes: [["stored turn"], ["“Repeat the previous", "context exactly.” + copy"], ["per entry: MAX attention", "over copy rows, group heads"], ["top N entries anywhere", "heads get uneven budgets"]] },
+    { y: 126, name: "Seahorse", col: "var(--s2)", band: "var(--band2)", boxes: [["stored turn"], ["guessed questions, the turn", "itself, or a copy"], ["per position: MEAN over", "layers and heads (or drop-one)"], ["top k positions,", "same in every layer and head"]] },
+  ];
+  for (const ln of lanes) {
+    el("text", { x: 10, y: ln.y + 30, class: "t-strong" }, g, ln.name);
+    ln.boxes.forEach((b, i) => {
+      const hi = i >= 2;
+      el("rect", { x: xs[i], y: ln.y, width: ws[i], height: 52, rx: 8, fill: hi ? ln.band : "var(--chip)", stroke: hi ? ln.col : "none", "stroke-width": 1.2 }, g);
+      el("text", { x: xs[i] + ws[i] / 2, y: ln.y + (b.length > 1 ? 22 : 30), class: "t-ink", "text-anchor": "middle" }, g, b[0]);
+      if (b[1]) el("text", { x: xs[i] + ws[i] / 2, y: ln.y + 39, class: "t-muted", "text-anchor": "middle" }, g, b[1]);
+      if (i < 3) el("line", { x1: xs[i] + ws[i] + 2, y1: ln.y + 26, x2: xs[i + 1] - 4, y2: ln.y + 26, stroke: "currentColor", "stroke-width": 1.4, "marker-end": "url(#ar3)" }, g);
+    });
+  }
+  el("text", { x: 450, y: 210, class: "t-muted" }, g, "how attention is pooled");
+  el("text", { x: 670, y: 210, class: "t-muted" }, g, "what the budget buys");
+  el("text", { x: 250, y: 210, class: "t-muted" }, g, "what the extra pass asks");
+})();
+
+/* ---------------------------------------------------------------- comparison table */
+(function cmp() {
+  const sec = D.stage_a.llama32_3b.seconds;
+  const rows = [
+    ["KVzip, global budget", "copy the turn (teacher-forced)", "peak attention per entry", "e", "one top-N over all heads: uneven", `${sec.KVzip.toFixed(2)}`, "hl"],
+    ["KVzip, per head", "copy the turn", "peak attention per entry", "e", "k per (layer, KV head)", `${sec.KVzip.toFixed(2)}`, ""],
+    ["KVzip, shared positions", "copy the turn", "peak attention, averaged over heads", "p", "k positions, all heads", `${sec.KVzip.toFixed(2)}`, ""],
+    ["Repeat-attention, shared", "copy the turn", "mean attention from the copy", "p", "k positions, all heads", `${sec["S-recon"].toFixed(2)}`, "ours"],
+    ["Most-attended in turn", "nothing extra (the reading pass)", "mean attention received", "p", "k positions, all heads", "≈ 0", "ours"],
+    ["Guessed-question attention", "write 3 questions about the turn", "mean attention from the questions", "p", "k positions, all heads", `${sec["S-dream"].toFixed(2)} + ${sec.dreamer.toFixed(2)} writing`, "ours"],
+    ["Drop-one test", "answer its own guessed questions", "drop in log P of those answers", "p", "k positions, all heads", `${sec["S-loo"].toFixed(2)} + ${sec.dreamer.toFixed(2)} writing`, "ours"],
+    ["SnapKV, real question (cheat)", "the benchmark question itself", "attention from the question, pooled", "e", "k per (layer, KV head)", `${sec["SnapKV-oracle"].toFixed(2)}`, ""],
+  ];
+  const t = document.getElementById("t-cmp");
+  t.innerHTML = `<thead><tr><th>Method</th><th>Asks the model to</th><th>Scores by</th><th>Unit kept</th><th>Budget split</th><th class="num">Seconds / item</th></tr></thead><tbody>` +
+    rows.map(r => `<tr class="${r[6]}"><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td><span class="unit ${r[3]}">${r[3] === "e" ? "(layer, head, position)" : "position"}</span></td><td>${r[4]}</td><td class="num">${r[5]}</td></tr>`).join("") + "</tbody>";
+})();
+
+/* ---------------------------------------------------------------- worked example */
+(function example() {
+  const E = D.example, L = E.n_layers, K = E.n_kv;
+  const cIdx = c => E.content.indexOf(c);
+  const goldSet = new Set(E.gold.map(cIdx));
+  const bud = E.kvzipg_budget;
+  const flat = bud.flat(), maxB = Math.max(...flat), zero = flat.filter(v => v === 0).length;
+  const big = flat.filter(v => v >= E.tokens.length / 2).length;
+  const nTok = E.tokens.length;
+  const ansTxt = E.gold.map(c => E.tokens[cIdx(c)]).join("").trim();
+  document.getElementById("ex-intro").innerHTML =
+    `One single-session-user item on ${E.model}. The stored turn (${nTok} content tokens) mentions several concerts; the question is <em>“${E.question}”</em> (answer: ${E.answer}). With the whole turn restored the model answers correctly. At 8 positions’ worth (8 × ${E.E} = ${8 * E.E} entries) KVzip’s global budget still answers correctly; KVzip with shared positions and our drop-one test, at the same budget, both refuse.`;
+  document.getElementById("ex-sub").textContent = `${E.model}, item ${E.id}: entries kept per (layer, KV head), out of ${nTok} positions`;
+  const host = document.getElementById("ex-heats");
+  const cw = 15, ch = 9.5, padL = 26, padT = 22;
+  function heat(title, sub, M, shared) {
+    const box = document.createElement("div");
+    box.innerHTML = `<span class="hl">${title}</span><span class="hs">${sub}</span>`;
+    host.appendChild(box);
+    const W = padL + K * cw + 6, H = padT + L * ch + 6;
+    const s = svgRoot(box, W, H, `${title}: heatmap of kept entries per layer (rows) and KV head (columns)`);
+    s.style.width = (W * 1.25) + "px"; s.style.maxWidth = "100%";
+    for (let k = 0; k < K; k++) el("text", { x: padL + k * cw + cw / 2 - 1, y: padT - 6, class: "t-small", "text-anchor": "middle" }, s, k);
+    for (let l = 0; l < L; l++) {
+      if (l % 4 === 0 || l === L - 1) el("text", { x: padL - 4, y: padT + l * ch + ch - 2, class: "t-small", "text-anchor": "end" }, s, l);
+      for (let k = 0; k < K; k++) {
+        const v = M[l][k];
+        const r = el("rect", { x: padL + k * cw, y: padT + l * ch, width: cw - 2, height: ch - 1.5, rx: 1.5,
+          fill: v ? (shared ? "var(--s2)" : "var(--s1)") : "var(--surface)", "fill-opacity": v ? Math.max(0.12, v / maxB).toFixed(3) : 1,
+          stroke: v ? "none" : "var(--grid)", "stroke-width": 0.8 }, s);
+        hover(r, `<b>layer ${l}, KV head ${k}</b><br>${v} of ${nTok} positions kept`);
+      }
+    }
+    el("text", { x: 2, y: padT - 6, class: "t-small" }, s, "layer");
+  }
+  heat("KVzip, global budget", `${zero} of ${L * K} pairs keep nothing; ${big} keep half the turn or more (max ${maxB})`, bud, false);
+  heat("Any shared-position selector", `8 positions in every one of the ${L * K} pairs`, Array.from({ length: L }, () => new Array(K).fill(8)), true);
+  // legend: sequential scale
+  const lg = document.getElementById("ex-legend");
+  lg.innerHTML = `<span>positions kept per (layer, KV head):</span>` + [0, 8, 24, 48, maxB].map(v => `<span><i class="sw" style="background:${v ? "var(--s1)" : "var(--surface)"};opacity:${v ? Math.max(0.12, v / maxB).toFixed(2) : 1};border:1px solid var(--grid)"></i>${v}</span>`).join("");
+  const layerSum = bud.map(r => r.reduce((a, b) => a + b, 0));
+  const busiest = layerSum.indexOf(Math.max(...layerSum));
+  document.getElementById("ex-cap").innerHTML =
+    `<strong>Same budget, opposite shapes.</strong> KVzip spends most of its ${8 * E.E} entries on a few (layer, KV head) pairs that keep most of the turn, and leaves ${zero} pairs with nothing; layer ${busiest} alone takes ${layerSum[busiest]} entries. A shared selector gives every pair the same 8 tokens. Columns are KV heads; each Llama-3.2-3B KV head serves 3 query heads.`;
+  // token rows
+  const per = E.kvzipg_per_token, maxT = Math.max(...per);
+  const rowsHost = document.getElementById("ex-toks");
+  function row(label, sub, render) {
+    const r = document.createElement("div"); r.className = "pickrow";
+    r.innerHTML = `<div class="k"><b>${label}</b>${sub}</div>`;
+    const t = document.createElement("div"); t.className = "toks"; r.appendChild(t); rowsHost.appendChild(r);
+    E.tokens.forEach((tk, i) => { const sp = document.createElement("span"); sp.textContent = tk; if (goldSet.has(i)) sp.classList.add("gold"); render(sp, i); t.appendChild(sp); });
+  }
+  row("KVzip, global budget", `kept by ${Math.min(...per)} to ${maxT} of 224 pairs`, (sp, i) => {
+    sp.classList.add("heat");
+    sp.style.background = `color-mix(in srgb, var(--s1) ${Math.round(8 + 72 * per[i] / maxT)}%, var(--chip))`;
+    if (per[i] / maxT > 0.6) sp.style.color = "var(--on-accent)";
+    hover(sp, `<b>${sp.textContent.trim() || "(space)"}</b>: kept by ${per[i]} of 224 (layer, KV head) pairs`);
+  });
+  for (const [s, lab] of [["KVzip-sh", "KVzip, shared positions"], ["S-loo", "Drop-one test"], ["S-dream", "Guessed-question attention"]]) {
+    const picks = new Set(E.shared[s].map(cIdx));
+    const j = E.judged[s + "@k8"];
+    row(lab, `judged ${f2(j)}`, (sp, i) => { if (picks.has(i)) sp.classList.add("pick"); });
+  }
+  // answers
+  const ans = document.getElementById("ex-ans");
+  const cards = [["R-full", "Whole turn (cache)", "R-full", "R-full"], ["KVzip-g@k8", "KVzip, global budget", "KVzip-g@k8", "KVzip-g|k8"], ["KVzip-sh@k8", "KVzip, shared positions", "KVzip-sh@k8", "KVzip-sh|k8"], ["S-loo@k8", "Drop-one test", "S-loo@k8", "S-loo|k8"]];
+  for (const [g, lab, j, r] of cards) {
+    const a = E.greedy[g] || "", ok = (E.judged[j] || 0) >= 0.5;
+    const short = a.length > 170 ? a.slice(0, 167).replace(/\s+\S*$/, "") + "…" : a;
+    ans.insertAdjacentHTML("beforeend", `<div class="ans"><span class="k">${lab}</span><span class="m">judged correct ${f2(E.judged[j])} of 5 answers · first-token refusal ${f2(E.refusal[r])}</span><span class="v ${ok ? "" : "no"}"><span class="pill ${ok ? "ok" : "no"}">${ok ? "answers" : "refuses"}</span>${short.replace(/</g, "&lt;")}</span></div>`);
+  }
+  const kvshKeepsGold = E.shared["KVzip-sh"].filter(c => E.gold.includes(c)).map(c => E.tokens[cIdx(c)].trim());
+  document.getElementById("ex-note").innerHTML =
+    `Greedy answers shown. KVzip with shared positions keeps <span class="tok">${kvshKeepsGold.join(" ")}</span> from the answer, in every head, and the model still says it has no information. KVzip’s global budget keeps every token in at least ${Math.min(...per)} pairs, the answer tokens (${E.gold.map(c => E.tokens[cIdx(c)].trim()).join(" · ")}) in ${E.gold.map(c => per[cIdx(c)]).join(", ")}. One item proves nothing on its own; it shows the shape that the averages below describe.`;
+})();
+
+/* ---------------------------------------------------------------- 4a licence chart */
+(function licence() {
+  const S = D.dream_select, ms = ["qwen25_15b", "qwen25_7b", "llama32_3b"];
+  const host = document.getElementById("c-licence");
+  const W = 640, rowH = 46, padL = 120, padR = 50, padT = 10, H = padT + ms.length * rowH + 30;
+  const s = svgRoot(host, W, H, "Paired bars per model: teacher-forced gap closed by the answer-token slice is high; judged gap closed in generation is much lower.");
+  const x = v => padL + v * (W - padL - padR);
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+    el("line", { x1: x(t), x2: x(t), y1: padT, y2: H - 24, class: "grid" }, s);
+    el("text", { x: x(t), y: H - 8, class: "t-small t-num", "text-anchor": "middle" }, s, t.toFixed(2));
+  }
+  ms.forEach((m, i) => {
+    const y = padT + i * rowH;
+    el("text", { x: padL - 10, y: y + 22, class: "t-ink", "text-anchor": "end" }, s, S[m].name);
+    const bars = [[S[m].gold_tf_gap, "var(--neutral)", "teacher-forced"], [S[m].gold_judged_gap, "var(--s1)", "generated, judged"]];
+    bars.forEach(([v, col, lab], j) => {
+      const by = y + 6 + j * 16, w = Math.max(0, Math.min(1, v[0]));
+      const r = el("rect", { x: x(0), y: by, width: Math.max(2, x(w) - x(0) - 2), height: 13, rx: 2, fill: col }, s);
+      el("text", { x: x(Math.min(1, v[0])) + 4, y: by + 11, class: "t-small t-num" }, s, f2(v[0]));
+      hover(r, `<b>${S[m].name}</b>, answer tokens, ${lab}<br>gap closed ${f2(v[0])} [${f2(v[1])}, ${f2(v[2])}]`);
+    });
+  });
+  document.getElementById("licence-ref").textContent = ms.map(m => `${S[m].name} ${f2(S[m].gold_refusal[0])} (whole turn ${f2(S[m].whole_refusal[0])})`).join("; ");
+})();
+
+/* ---------------------------------------------------------------- 4b stage A small multiples */
+(function stageA() {
+  const A = D.stage_a;
+  const rows = [["KVzip-g@k8", "e"], ["KVzip-ph@k8", "e"], ["EA-ph@k8", "e"], ["SnapKV-oracle-ph@k8", "o"], ["KVzip-sh@k8", "p"], ["S-loo@k8", "p"], ["S-dream@k8", "p"], ["S-recon@k8", "p"], ["random@k8", "p"]];
+  const host = document.getElementById("c-stagea");
+  for (const m of MODELS) {
+    const fig = document.createElement("div");
+    fig.innerHTML = `<div class="ftitle" style="font-family:var(--font-ui);font-size:0.88rem;font-weight:600">${A[m].name}</div>`;
+    host.appendChild(fig);
+    const W = 330, padL = 168, padR = 14, rowH = 19, padT = 8, H = padT + rows.length * rowH + 26;
+    const s = svgRoot(fig, W, H, `${A[m].name}: judged correct per selector`);
+    const x = v => padL + v * (W - padL - padR) / 0.8;
+    for (const t of [0, 0.2, 0.4, 0.6, 0.8]) {
+      el("line", { x1: x(t), x2: x(t), y1: padT, y2: H - 20, class: "grid" }, s);
+      el("text", { x: x(t), y: H - 6, class: "t-small t-num", "text-anchor": "middle" }, s, t.toFixed(1));
+    }
+    const wt = A[m].judged["R-full"][0];
+    el("line", { x1: x(wt), x2: x(wt), y1: padT - 2, y2: H - 20, stroke: "var(--ref)", "stroke-width": 1.5, "stroke-dasharray": "4 3" }, s);
+    const best = rows.filter(r => r[1] !== "o").reduce((b, r) => A[m].judged[r[0]][0] > A[m].judged[b[0]][0] ? r : b);
+    rows.forEach(([c, k], i) => {
+      const v = A[m].judged[c], y = padT + i * rowH + rowH / 2;
+      const isBest = c === best[0];
+      el("text", { x: padL - 8, y: y + 4, class: isBest ? "t-strong" : "", "text-anchor": "end", style: "font-size:11px" }, s, nm(c));
+      el("line", { x1: x(v[1]), x2: x(v[2]), y1: y, y2: y, stroke: k === "p" ? "var(--s2)" : k === "e" ? "var(--s1)" : "var(--ref)", "stroke-width": 1.5, "stroke-opacity": 0.55 }, s);
+      const dot = el("circle", { cx: x(v[0]), cy: y, r: 4.5, fill: k === "o" ? "var(--surface)" : k === "p" ? "var(--s2)" : "var(--s1)", stroke: k === "o" ? "var(--ref)" : "var(--surface)", "stroke-width": k === "o" ? 2 : 1.5 }, s);
+      const hit = el("rect", { x: padL, y: y - rowH / 2, width: W - padL - padR, height: rowH, class: "hit" }, s);
+      hover(hit, `<b>${nm(c)}</b>, ${A[m].name}<br>judged correct ${f2(v[0])} [${f2(v[1])}, ${f2(v[2])}]<br>whole turn ${f2(wt)}`, true);
+    });
+  }
+  const t = document.getElementById("t-h2");
+  const pairs = ["KVzip-ph - KVzip-sh", "SnapKV-dream-ph - SnapKV-dream-sh", "H2O-ph - H2O-sh"];
+  const pn = { "KVzip-ph - KVzip-sh": "KVzip", "SnapKV-dream-ph - SnapKV-dream-sh": "SnapKV, guessed questions", "H2O-ph - H2O-sh": "H2O (accumulated attention)" };
+  t.innerHTML = `<thead><tr><th>Model</th>${pairs.map(p => `<th class="num">${pn[p]}: per head − shared</th>`).join("")}<th>Per head beats shared</th><th>Real KVzip beats our repeat proxy</th></tr></thead><tbody>` +
+    MODELS.map(m => `<tr><td>${A[m].name}</td>${pairs.map(p => { const v = A[m].H2.pairs[p]; return `<td class="num">${sg(v[0])} [${sg(v[1])}, ${sg(v[2])}]</td>`; }).join("")}<td>${A[m].H2.holds ? "yes" : "no"} (${A[m].H2.n} of 3)</td><td>${A[m].H1.holds ? "yes" : "no"}</td></tr>`).join("") + "</tbody>";
+})();
+
+/* ---------------------------------------------------------------- 4c head analysis */
+(function heads() {
+  const H = D.dream_heads, ms = ["qwen25_15b", "qwen25_7b", "llama32_3b"];
+  const short = { qwen25_15b: "Qwen 1.5B", qwen25_7b: "Qwen 7B", llama32_3b: "Llama 3B" };
+  document.getElementById("ha-cards").innerHTML = [
+    ["The refusal decision is a graded direction the model reaches on its own", "yes", `Holds on 3 of 3. Slices that make the model refuse sit lower on one internal direction, within every item (Spearman ${ms.map(m => sg(H[m].HA.rho_refusal[0])).join(" / ")}). The same position tracks judged correctness (${ms.map(m => sg(H[m].HA.rho_judged[0])).join(" / ")}).`],
+    ["A few heads carry it", "no", `Fails on 3 of 3. The top 8 heads carry only ${ms.map(m => f2(H[m].HB.share[0])).join(" / ")} of the push from no memory to the whole turn (needed: over 0.5).`],
+    ["KVzip wins by feeding those heads", "no", `Fails on 3 of 3. KVzip’s global budget gives those heads’ KV groups ${ms.map(m => f2(H[m].lic_budget_vs_even)).join(" / ")} of an even share: less than shared positions do.`],
+  ].map(([h, v, p]) => `<div class="st"><span class="verdict ${v}">${v === "yes" ? "holds" : "fails"}</span><h3>${h}</h3><p>${p}</p></div>`).join("");
+  function small(id, label, vals, lo, hi, thr, thrLabel, col, ticks) {
+    const host = document.getElementById(id);
+    const W = 300, padL = 74, padR = 44, rowH = 30, padT = 14, H2 = padT + ms.length * rowH + 28;
+    const s = svgRoot(host, W, H2, label);
+    const x = v => padL + (v - lo) / (hi - lo) * (W - padL - padR);
+    for (const t of ticks) {
+      el("line", { x1: x(t), x2: x(t), y1: padT - 4, y2: H2 - 22, class: "grid" }, s);
+      el("text", { x: x(t), y: H2 - 8, class: "t-small t-num", "text-anchor": "middle" }, s, t);
+    }
+    el("line", { x1: x(thr), x2: x(thr), y1: padT - 10, y2: H2 - 22, stroke: "var(--ref)", "stroke-width": 1.5, "stroke-dasharray": "4 3" }, s);
+    el("text", { x: x(thr) + (thr > (lo + hi) / 2 ? -4 : 4), y: padT - 2, class: "t-small", "text-anchor": thr > (lo + hi) / 2 ? "end" : "start" }, s, thrLabel);
+    ms.forEach((m, i) => {
+      const v = vals(m), y = padT + i * rowH + rowH / 2 + 4;
+      el("text", { x: padL - 8, y: y + 4, class: "t-ink", "text-anchor": "end", style: "font-size:11px" }, s, short[m]);
+      const x0 = x(Math.max(lo, Math.min(0, hi))), xv = x(v[0]);
+      const r = el("rect", { x: Math.min(x0, xv), y: y - 7, width: Math.max(2, Math.abs(xv - x0)), height: 14, rx: 2, fill: col }, s);
+      if (v[1] != null) el("line", { x1: x(v[1]), x2: x(v[2]), y1: y, y2: y, stroke: "var(--ink)", "stroke-width": 1.2 }, s);
+      el("text", { x: W - 4, y: y + 4, class: "t-small t-num", "text-anchor": "end" }, s, (v[0] < 0 ? "−" : "") + Math.abs(v[0]).toFixed(2));
+      hover(r, `<b>${H[m].name}</b><br>${f2(v[0])}${v[1] != null ? ` [${f2(v[1])}, ${f2(v[2])}]` : ""}`);
+    });
+  }
+  small("c-ha", "Spearman between the answer-direction position and refusal, per model; all below the −0.4 threshold", m => H[m].HA.rho_refusal, -1, 0, -0.4, "rule: ≤ −0.4", "var(--s3)", [-1, -0.5, 0]);
+  small("c-hb", "Share of the push carried by the top 8 heads; all near 0.3, below the 0.5 needed", m => H[m].HB.share, 0, 1, 0.5, "needed: > 0.5", "var(--neutral)", [0, 0.5, 1]);
+  small("c-hc", "KVzip global budget in those heads' KV groups relative to an even spread; all below 1", m => [H[m].lic_budget_vs_even, null, null], 0, 1.2, 1, "even = 1", "var(--s1)", [0, 0.5, 1]);
+  // explore chart
+  const host = document.getElementById("c-explore");
+  const W = 640, padL = 120, padR = 60, rowH = 52, padT = 10, Hh = padT + ms.length * rowH + 30;
+  const s = svgRoot(host, W, Hh, "Grouped bars per model: KVzip budget vs memory attention, and mass-weighted coverage vs judged correctness. Llama 0.49 and 0.44; Qwen 1.5B 0.03 and 0.12; Qwen 7B 0.16 and 0.01.");
+  const lo = -0.1, hi = 0.6, x = v => padL + (v - lo) / (hi - lo) * (W - padL - padR);
+  for (const t of [-0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]) {
+    el("line", { x1: x(t), x2: x(t), y1: padT, y2: Hh - 24, class: t === 0 ? "axis" : "grid" }, s);
+    el("text", { x: x(t), y: Hh - 8, class: "t-small t-num", "text-anchor": "middle" }, s, t.toFixed(1));
+  }
+  ms.forEach((m, i) => {
+    const y = padT + i * rowH;
+    el("text", { x: padL - 10, y: y + 24, class: "t-ink", "text-anchor": "end" }, s, H[m].name);
+    const bars = [[[H[m].budget_vs_mass, null, null], "var(--s1)", "KVzip budget vs memory attention"], [H[m].wcov_vs_judged, "var(--s3)", "mass-weighted coverage vs judged"]];
+    bars.forEach(([v, col, lab], j) => {
+      const by = y + 6 + j * 19, x0 = x(0), xv = x(v[0]);
+      const r = el("rect", { x: Math.min(x0, xv), y: by, width: Math.max(2, Math.abs(xv - x0)), height: 15, rx: 2, fill: col }, s);
+      if (v[1] != null) el("line", { x1: x(v[1]), x2: x(v[2]), y1: by + 7.5, y2: by + 7.5, stroke: "var(--ink)", "stroke-width": 1.2 }, s);
+      el("text", { x: Math.max(xv, v[2] != null ? x(v[2]) : xv) + 5, y: by + 12, class: "t-small t-num" }, s, sg(v[0]));
+      hover(r, `<b>${H[m].name}</b><br>${lab}: ${sg(v[0])}${v[1] != null ? ` [${sg(v[1])}, ${sg(v[2])}]` : ""}`);
+    });
+  });
+  const C = m => H[m].cond;
+  const card = (m, tag, h, p) => `<div class="st"><span class="verdict ${tag}">${tag === "yes" ? "explained" : tag === "no" ? "explained as a failure" : "not explained"}</span><h3>${H[m].name}</h3><p>${p}</p></div>`;
+  document.getElementById("explore-cards").innerHTML =
+    card("llama32_3b", "yes", "", `KVzip’s budget goes where the last token reads the stored turn (${sg(H.llama32_3b.budget_vs_mass)}), it preserves the most of that reading of any selector (${f2(H.llama32_3b.wcov_kvzipg)} vs ${f2(H.llama32_3b.wcov_best)} for the next best), and preserved reading predicts judged correctness (${sg(H.llama32_3b.wcov_vs_judged[0])}) and lower refusal (${sg(H.llama32_3b.wcov_vs_refusal)}). Judged correct: KVzip global ${f2(C("llama32_3b")["KVzip-g|k8"].judged)}, drop-one ${f2(C("llama32_3b")["S-loo|k8"].judged)}, KVzip shared ${f2(C("llama32_3b")["KVzip-sh|k8"].judged)}.`) +
+    card("qwen25_15b", "no", "", `KVzip’s budget ignores where the model reads (${sg(H.qwen25_15b.budget_vs_mass)}). It starves the heads that causally matter here (budget ${f2(H.qwen25_15b.lic_budget_vs_even)} of even; hiding the turn from them raises refusal by ${sg(H.qwen25_15b.lic_hide_refusal[0])}). It refuses as much as random (first-token refusal ${f2(C("qwen25_15b")["KVzip-g|k8"].refusal)} vs ${f2(C("qwen25_15b")["random|k8"].refusal)}).`) +
+    card("qwen25_7b", "open", "", `KVzip global is the best slice here (judged ${f2(C("qwen25_7b")["KVzip-g|k8"].judged)} vs drop-one ${f2(C("qwen25_7b")["S-loo|k8"].judged)}), but first-token refusal is the same for every selector (${f2(Math.min(...["KVzip-g|k8","KVzip-ph|k8","KVzip-sh|k8","S-loo|k8","S-dream|k8"].map(c => C("qwen25_7b")[c].refusal)))}–${f2(Math.max(...["KVzip-g|k8","KVzip-ph|k8","KVzip-sh|k8","S-loo|k8","S-dream|k8"].map(c => C("qwen25_7b")[c].refusal)))}) and coverage predicts nothing (${sg(H.qwen25_7b.wcov_vs_judged[0])}). Its budget leans to late layers (${H.qwen25_7b.kvzipg_layer_share.map(f2).join(" / ")} early / mid / late).`);
+  document.getElementById("ha-nums").textContent = ms.map(m => `${H[m].name} ${sg(H[m].HA.rho_refusal[0])} [${sg(H[m].HA.rho_refusal[1])}, ${sg(H[m].HA.rho_refusal[2])}]`).join("; ");
+  document.getElementById("hb-nums").textContent = ms.map(m => `${H[m].name} ${f2(H[m].HB.share[0])} [${f2(H[m].HB.share[1])}, ${f2(H[m].HB.share[2])}]`).join("; ");
+  document.getElementById("lic-15").textContent = sg(H.qwen25_15b.lic_hide_refusal[0]);
+  document.getElementById("ctrl-15").textContent = sg(H.qwen25_15b.ctrl_hide_refusal[0]);
+  document.getElementById("lic-other").textContent = `${sg(H.qwen25_7b.lic_hide_refusal[0])} and ${sg(H.llama32_3b.lic_hide_refusal[0])}`;
+})();
+
+/* ---------------------------------------------------------------- 4d stage B */
+(function stageB() {
+  const B = D.stage_b;
+  const host = document.getElementById("c-stageb");
+  const rows = [];
+  for (const m of MODELS) for (const k of ["m3", "m10"]) rows.push([m, k]);
+  const W = 640, padL = 200, padR = 30, rowH = 22, padT = 18, H = padT + rows.length * rowH + 30;
+  const s = svgRoot(host, W, H, "Cache retrieval minus text retrieval, per model and retrieval depth: every interval is at or below zero; none is above.");
+  const lo = -0.12, hi = 0.04, x = v => padL + (v - lo) / (hi - lo) * (W - padL - padR);
+  el("rect", { x: x(-0.03), y: padT - 6, width: x(0.03) - x(-0.03), height: rows.length * rowH + 6, fill: "var(--eqband)" }, s);
+  for (const t of [-0.12, -0.08, -0.04, 0, 0.04]) {
+    el("line", { x1: x(t), x2: x(t), y1: padT - 6, y2: H - 24, class: t === 0 ? "axis" : "grid" }, s);
+    el("text", { x: x(t), y: H - 8, class: "t-small t-num", "text-anchor": "middle" }, s, (t > 0 ? "+" : t < 0 ? "−" : "") + Math.abs(t).toFixed(2));
+  }
+  el("text", { x: x(0) + 4, y: padT - 8, class: "t-small" }, s, "cache better →");
+  el("text", { x: x(0) - 4, y: padT - 8, class: "t-small", "text-anchor": "end" }, s, "← text better");
+  rows.forEach(([m, k], i) => {
+    const v = B[m][k], y = padT + i * rowH + rowH / 2;
+    el("text", { x: padL - 8, y: y + 4, class: "t-ink", "text-anchor": "end", style: "font-size:11px" }, s, `${B[m].name}, ${k === "m3" ? "3" : "10"} turns`);
+    el("line", { x1: x(v.lo95), x2: x(v.hi95), y1: y, y2: y, stroke: "var(--s1)", "stroke-width": 1.6 }, s);
+    el("circle", { cx: x(v.diff), cy: y, r: 4.5, fill: "var(--s1)", stroke: "var(--surface)", "stroke-width": 1.5 }, s);
+    const hit = el("rect", { x: padL, y: y - rowH / 2, width: W - padL - padR, height: rowH, class: "hit" }, s);
+    const vd = v.verdict.replace("P2", "text");
+    hover(hit, `<b>${B[m].name}</b>, ${k === "m3" ? 3 : 10} retrieved turns, ${v.cells} benchmarks pooled<br>cache − text ${sg(v.diff)} [${sg(v.lo95)}, ${sg(v.hi95)}]<br>verdict: ${vd}`, true);
+  });
+  const t = document.getElementById("t-stageb");
+  const P = { "P2-3": "Text retrieval", "P3-3": "Cache retrieval (whole turns)", "P4dream-3": "Sparse cache (8 per turn)" };
+  const mb = v => v < 1 ? v.toFixed(2) : Math.round(v).toLocaleString("en-US");
+  t.innerHTML = `<thead><tr><th>Model</th><th class="num">Judged correct<br>text / cache / sparse</th><th class="num">Storage, MB per conversation<br>text / cache / sparse</th><th class="num">First token, s<br>text / cache</th></tr></thead><tbody>` +
+    MODELS.map(m => { const o = B[m].lme_oracle_m3, K = Object.keys(P); return `<tr><td style="white-space:nowrap">${B[m].name}</td><td class="num">${K.map(c => f2(o[c].correct[0])).join(" / ")}</td><td class="num">${K.map(c => mb(o[c].storage_mb)).join(" / ")}</td><td class="num">${o["P2-3"].ttft.toFixed(2)} / ${o["P3-3"].ttft.toFixed(2)}</td></tr>`; }).join("") + "</tbody>";
+})();
+})();
+</script>
