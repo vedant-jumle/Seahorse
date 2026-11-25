@@ -333,6 +333,9 @@ smokes (1214590, 1214592, 1214593); every judge job waits for the Stage 0 judge 
 - Qwen2.5-1.5B runs on gpu-v100 (gpu-a100-small caps jobs at 4 h).
 - Run root `/scratch/vvjumle/seahorse_runs/dream_compare_a_20261105_1822` (`jobs.txt` lists the 42 jobs), submitted
   2026-11-05 at ec9cec4.
+- **Decision 2026-11-25 (user): Gemma-4-26B-A4B is dropped from dream_compare.** Its Stage 0 smoke failed the identity
+  tolerance (MoE routing), so Stage A and Stage B never ran on it. As pre-registered for a failed smoke, it is
+  reported as missing; the cross-model counts are over the 4 models with results.
 
 ## Stage B: paradigms
 
@@ -551,3 +554,13 @@ oracle and s120 as two jobs. Stage B uses 48 queue slots (9 per model, 10 for th
   existed), and afterany continuation jobs for every Granite split (LongMemEval oracle, PersonaMem and BEAM need
   2-3 more 22.5 h jobs at the measured 342 s per oracle item and 1.8 h per PersonaMem context); the Granite judge
   1217775 waits for all of them.
+- **Decisions 2026-11-25 (user; no rule changed).**
+  - **Gemma-4-26B-A4B is dropped** (Stage 0 smoke tolerance failure; Stage A and B never ran). Reported as missing.
+    Its Stage B jobs had no input; their void outputs were deleted on 2026-11-07 (`jobs.txt`).
+  - **Granite-4.2-30B BEAM is dropped** after 4 out-of-memory failures (1217774, then 1250456-58 with smaller budgets).
+    Its BEAM numbers are partial, 64 of 320 items (4 of 20 contexts), and are reported as such; its other splits are
+    complete.
+- **Cross-model summary rerun (2026-11-25).** Summary 1217779 timed out at its 1 h limit (pytest + imports took 13 min;
+  `analyze_b.summary` re-reads each model's judge votes once per benchmark), so `summary_b.md` was never written.
+  Resubmitted unchanged as 1467584 (same `b-summary` step, after pytest; 6 h, 4 CPUs x 3 GB) over the 4 models with
+  verdicts: qwen25_15b, qwen25_7b, llama32_3b, granite42_30b.
